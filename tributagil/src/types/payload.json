@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "usuario_id": "uuid-do-usuario",
+    "timestamp": "2026-08-26T14:30:00.000Z",
+    "total_arquivos": 5,
+    "origem": "tributagil_web"
+  },
+  "documentos": [
+    {
+      "id": "principal-169...",
+      "nome": "CDA_001234.pdf",
+      "extensao": ".pdf",
+      "tipo_mime": "application/pdf",
+      "tamanho_bytes": 245760,
+      "categoria": "principal",
+      "conteudo_base64": null
+    },
+    {
+      "id": "secundario-169...",
+      "nome": "Extrato_eCAC.pdf",
+      "extensao": ".pdf",
+      "tipo_mime": "application/pdf",
+      "tamanho_bytes": 102400,
+      "categoria": "secundario",
+      "conteudo_base64": null
+    }
+  ]
+}
