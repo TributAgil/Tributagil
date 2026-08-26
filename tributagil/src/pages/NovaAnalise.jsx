@@ -13,6 +13,7 @@ import {
   File,
   ChevronRight
 } from 'lucide-react';
+import CerebroTributario from './CerebroTributario';
 
 const EXTENSOES_PERMITIDAS = ['.pdf', '.docx', '.txt'];
 const TIPOS_MIME = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
@@ -136,7 +137,7 @@ const AreaUpload = ({
 
   const handleInputChange = (e) => {
     processarArquivos(e.target.files);
-    e.target.value = ''; // Reset para permitir re-upload do mesmo arquivo
+    e.target.value = '';
   };
 
   const formatarTamanho = (bytes) => {
@@ -308,6 +309,8 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const [isDraggingGlobal, setIsDraggingGlobal] = useState(false);
   const [analisando, setAnalisando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  const [fase, setFase] = useState('upload'); // 'upload' | 'processando' | 'resultado'
+  const [payloadAnalise, setPayloadAnalise] = useState(null);
 
   // Drag global para highlight em todas as áreas
   React.useEffect(() => {
@@ -334,34 +337,36 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   };
 
   const handleAnalisar = async () => {
-  const arquivosValidos = arquivos.filter((a) => a.status === 'pronto');
-  const arquivosPrincipal = arquivosValidos.filter((a) => a.area === 'principal');
+    const arquivosValidos = arquivos.filter((a) => a.status === 'pronto');
+    const arquivosPrincipal = arquivosValidos.filter((a) => a.area === 'principal');
 
-  if (arquivosPrincipal.length === 0) {
-    alert('Adicione pelo menos um documento principal para prosseguir.');
-    return;
-  }
+    if (arquivosPrincipal.length === 0) {
+      alert('Adicione pelo menos um documento principal para prosseguir.');
+      return;
+    }
 
-  const payload = {
-    metadata: {
-      usuario_id: user?.id || null,
-      timestamp: new Date().toISOString(),
-      total_arquivos: arquivosValidos.length,
-      origem: 'tributagil_web',
-    },
-    documentos: arquivosValidos.map((arquivo) => ({
-      id: arquivo.id,
-      nome: arquivo.nome,
-      extensao: arquivo.extensao,
-      tipo_mime: arquivo.tipo,
-      tamanho_bytes: arquivo.tamanho,
-      categoria: arquivo.area,
-      conteudo_base64: null,
-    })),
+    const payload = {
+      metadata: {
+        usuario_id: user?.id || null,
+        timestamp: new Date().toISOString(),
+        total_arquivos: arquivosValidos.length,
+        origem: 'tributagil_web',
+      },
+      documentos: arquivosValidos.map((arquivo) => ({
+        id: arquivo.id,
+        nome: arquivo.nome,
+        extensao: arquivo.extensao,
+        tipo_mime: arquivo.tipo,
+        tamanho_bytes: arquivo.tamanho,
+        categoria: arquivo.area,
+        conteudo_base64: null,
+      })),
+    };
+
+    setPayloadAnalise(payload);
+    setFase('processando');
+    onIniciarAnalise(payload);
   };
-
-  onIniciarAnalise(payload); // ← Dispara os dados para o App.jsx gerenciar a próxima tela
-};
 
   const arquivosValidos = arquivos.filter((a) => a.status === 'pronto');
   const arquivosPrincipal = arquivosValidos.filter((a) => a.area === 'principal');
@@ -369,6 +374,21 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const totalArquivos = arquivosValidos.length;
 
   const podeAnalisar = arquivosPrincipal.length > 0 && !analisando;
+
+  // Renderização condicional segura dentro da função componente
+  if (fase === 'processando') {
+    return (
+      <CerebroTributario
+        payload={payloadAnalise}
+        onConcluido={() => setFase('resultado')}
+        onErro={(err) => {
+          console.error(err);
+          setFase('upload');
+          alert('Erro no processamento. Tente novamente.');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -516,29 +536,3 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
 };
 
 export default NovaAnalise;
-import CerebroTributario from './CerebroTributario';
-const [fase, setFase] = useState('upload'); // 'upload' | 'processando' | 'resultado'
-const [payloadAnalise, setPayloadAnalise] = useState(null);
-// NO FINAL DO COMPONENTE NovaAnalise, SUBSTITUA O RETURN:
-
-if (fase === 'processando') {
-  return (
-    <CerebroTributario
-      payload={payloadAnalise}
-      onConcluido={() => setFase('resultado')}
-      onErro={(err) => {
-        console.error(err);
-        setFase('upload');
-        alert('Erro no processamento. Tente novamente.');
-      }}
-    />
-  );
-}
-
-// if (fase === 'resultado') return <ResultadoAnalise ... />; // Etapa 4
-
-return (
-  <div className="min-h-screen bg-slate-50">
-    {/* ... todo o conteúdo anterior do return ... */}
-  </div>
-);
