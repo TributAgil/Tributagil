@@ -486,7 +486,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               <button
                 onClick={handleDownloadParecer}
                 disabled={baixando}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
+                className="cursor-gavel flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
               >
                 {baixando ? (
                   <>

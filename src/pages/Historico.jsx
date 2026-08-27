@@ -333,7 +333,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
             </button>
             <button
               onClick={onNovaAnalise}
-              className="px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm"
+              className="cursor-gavel px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm"
             >
               + Nova Análise
             </button>
@@ -420,7 +420,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
             </p>
             <button
               onClick={onNovaAnalise}
-              className="mt-5 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
+              className="cursor-gavel mt-5 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
             >
               Criar primeira análise
             </button>
