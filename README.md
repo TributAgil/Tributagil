@@ -48,9 +48,15 @@ Fluxo:
    Supabase Storage** (bucket `documentos`, pasta `<user_id>/<analise_id>/`).
    Os arquivos **não passam** pelo corpo de nenhuma Function → sem o teto de 4 MB.
 2. `/api/gemini` (Node, `maxDuration` 300s) recebe só os *caminhos* + o token do
-   usuário. Baixa cada arquivo do Storage **respeitando a RLS**, sobe para a
-   **Files API do Gemini** e chama `streamGenerateContent` com os `file_uri`.
+   usuário. Baixa cada arquivo do Storage **respeitando a RLS** e os embute como
+   `inline_data` na chamada `streamGenerateContent` (auth via header
+   `X-goog-api-key`).
 3. A resposta volta em streaming para a tela do Cérebro.
+
+> Como o `inline_data` tem teto de ~20 MB de request, o limite prático hoje é
+> **~12 MB de documentos por análise**. Para processos maiores, migrar para a
+> **Files API do Gemini** (pendente de acerto de credencial — a chave da conta
+> deu 401 no endpoint de upload).
 
 O `system instruction` "Motor TributÁgil" mora em `api/_motor-tributagil.js`.
 A IA responde **somente** com base nos anexos; faltando dado essencial devolve

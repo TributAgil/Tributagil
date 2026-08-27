@@ -1,22 +1,20 @@
 // api/gemini.js
 //
-// Proxy seguro para o Google Gemini — arquitetura "Storage + Files API":
+// Proxy seguro para o Google Gemini.
 //
 //   navegador ──(upload direto)──> Supabase Storage
 //   navegador ──(paths + token)──> ESTA FUNÇÃO
 //   ESTA FUNÇÃO ──(baixa via RLS)──> Storage
-//   ESTA FUNÇÃO ──(sobe)──> Gemini Files API ──> file_uri
-//   ESTA FUNÇÃO ──(stream SSE)──> navegador
+//   ESTA FUNÇÃO ──(inline_data + stream SSE)──> navegador
 //
-// Assim os documentos (que podem ter dezenas de MB / centenas de páginas)
-// nunca passam pelo corpo de uma request de Function.
+// Os arquivos vêm do Storage (não do corpo da request), então não esbarram no
+// limite de ~4 MB de uma Function. Eles são embutidos como `inline_data` na
+// chamada ao Gemini — o limite passa a ser o da própria API (~20 MB de request).
 //
-// Runtime: Node (não Edge) — precisa de mais tempo/memória para a cadeia
-// download → upload → geração. maxDuration configurado em vercel.json.
+// Autenticação: header `X-goog-api-key` (formato mostrado pelo cURL de início
+// rápido do Google, tanto para chaves `AIzaSy...` quanto para as novas `AQ...`).
 //
-// Segredo: apenas GEMINI_API_KEY (server-side). A URL e a anon key do Supabase
-// são públicas (já estão no bundle) e chegam no corpo da request; o token do
-// usuário garante, via RLS, que só a pasta dele é lida.
+// Runtime: Node. `maxDuration` configurado em vercel.json.
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 
@@ -25,32 +23,18 @@ const MODELO_PADRAO = 'gemini-2.5-flash-lite';
 const THINKING_BUDGET_PADRAO = 512;
 const TIMEOUT_GERACAO_MS = 280_000;
 const MAX_DOCS = 20;
-const MAX_BYTES_POR_DOC = 30 * 1024 * 1024;
-const MAX_BYTES_TOTAL = 50 * 1024 * 1024;
+const MAX_BYTES_POR_DOC = 12 * 1024 * 1024;
+const MAX_BYTES_TOTAL = 13 * 1024 * 1024; // base64 ~17 MB de request — abaixo do teto do Gemini
 const BUCKET = 'documentos';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
-// A credencial do Gemini pode chegar em dois formatos:
-//   - API key clássica "AIzaSy..."  -> vai em ?key= na URL
-//   - Token novo / OAuth "AQ..." / "ya29..." -> vai em Authorization: Bearer
-// (os endpoints do generativelanguage não aceitam os dois de forma intercambiável.)
-function gAuth(apiKey) {
-  if (/^AIza/.test(apiKey)) {
-    return { qs: `key=${encodeURIComponent(apiKey)}`, headers: {} };
-  }
-  return { qs: '', headers: { Authorization: `Bearer ${apiKey}` } };
-}
-const withQs = (url, qs) => (qs ? `${url}${url.includes('?') ? '&' : '?'}${qs}` : url);
-
-// IMPORTANTE: no runtime Node da Vercel, o `export default` só funciona com a
-// assinatura `(req, res)`. Para receber um `Request` e devolver um `Response`
-// (com streaming), é preciso exportar um método HTTP nomeado — `POST` aqui.
+// No runtime Node da Vercel o `export default` só aceita `(req, res)`.
+// Um método HTTP nomeado recebe `Request` e devolve `Response` (com streaming).
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
-  const auth = gAuth(apiKey);
 
   // ---- 1. Entrada -------------------------------------------------------------
   let body;
@@ -76,7 +60,7 @@ export async function POST(request) {
     return json({ error: `Máximo de ${MAX_DOCS} documentos por análise.` }, 413);
   }
 
-  // ---- 2. Baixa cada doc do Storage e sobe para a Files API do Gemini -------
+  // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
   const parts = [{ text: prompt }];
   let bytesTotal = 0;
 
@@ -105,14 +89,17 @@ export async function POST(request) {
       }
       bytesTotal += buffer.byteLength;
       if (bytesTotal > MAX_BYTES_TOTAL) {
-        return json({ error: `Total de documentos excede ${mb(MAX_BYTES_TOTAL)} MB.` }, 413);
+        return json(
+          { error: `Total de documentos excede ${mb(MAX_BYTES_TOTAL)} MB. Reduza a quantidade ou o tamanho.` },
+          413,
+        );
       }
 
       const mime = d?.mime_type || arqResp.headers.get('content-type') || 'application/octet-stream';
-      const fileUri = await subirParaGeminiFiles(auth, buffer, mime, d?.nome);
-
       if (d?.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
-      parts.push({ file_data: { mime_type: mime, file_uri: fileUri } });
+      parts.push({
+        inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') },
+      });
     }
   } catch (err) {
     console.error('[api/gemini] Preparação de documentos falhou:', err);
@@ -131,10 +118,13 @@ export async function POST(request) {
 
   try {
     const upstream = await fetch(
-      withQs(`${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`, auth.qs),
+      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth.headers },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey,
+        },
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -176,73 +166,6 @@ export async function POST(request) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Files API do Gemini — protocolo "resumable" (2 passos), com a chave em ?key=
-// (o endpoint /upload NÃO aceita o header x-goog-api-key → responde 401).
-// ---------------------------------------------------------------------------
-async function subirParaGeminiFiles(auth, arrayBuffer, mimeType, displayName) {
-  const numBytes = arrayBuffer.byteLength;
-
-  // Passo 1 — inicia o upload e recebe a URL de destino.
-  const start = await fetch(withQs(`${GEMINI}/upload/v1beta/files`, auth.qs), {
-    method: 'POST',
-    headers: {
-      ...auth.headers,
-      'X-Goog-Upload-Protocol': 'resumable',
-      'X-Goog-Upload-Command': 'start',
-      'X-Goog-Upload-Header-Content-Length': String(numBytes),
-      'X-Goog-Upload-Header-Content-Type': mimeType,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ file: { display_name: asciiSafe(displayName || 'documento') } }),
-  });
-  if (!start.ok) {
-    const t = await start.text().catch(() => '');
-    throw new Error(`Files API (início) falhou (HTTP ${start.status}). ${t.slice(0, 200)}`);
-  }
-  const uploadUrl = start.headers.get('x-goog-upload-url');
-  if (!uploadUrl) throw new Error('Files API não retornou a URL de upload.');
-
-  // Passo 2 — envia os bytes e finaliza.
-  const up = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'X-Goog-Upload-Offset': '0',
-      'X-Goog-Upload-Command': 'upload, finalize',
-    },
-    body: arrayBuffer,
-  });
-  if (!up.ok) {
-    const t = await up.text().catch(() => '');
-    throw new Error(`Files API (upload) falhou (HTTP ${up.status}). ${t.slice(0, 200)}`);
-  }
-
-  const data = await up.json().catch(() => ({}));
-  let file = data.file || data;
-
-  // PDFs/imagens costumam já vir ACTIVE; se estiver PROCESSING, aguarda.
-  let tentativas = 0;
-  while (file?.state === 'PROCESSING' && file?.name && tentativas < 12) {
-    await sleep(1500);
-    const chk = await fetch(withQs(`${GEMINI}/v1beta/${file.name}`, auth.qs), {
-      headers: { ...auth.headers },
-    });
-    file = await chk.json().catch(() => file);
-    tentativas += 1;
-  }
-
-  if (!file?.uri || (file.state && file.state !== 'ACTIVE')) {
-    throw new Error(`Documento não ficou pronto na Files API (state=${file?.state || 'desconhecido'}).`);
-  }
-  return file.uri;
-}
-
-function asciiSafe(s) {
-  return String(s).replace(/[^\x20-\x7E]/g, '_').slice(0, 120);
-}
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 function mb(bytes) {
   return Math.round(bytes / (1024 * 1024));
 }

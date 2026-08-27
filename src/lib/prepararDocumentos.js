@@ -6,12 +6,14 @@
 //   - PDFs passam sem alteração (não dá para recomprimir no browser sem libs
 //     pesadas — e a Files API do Gemini aceita PDF grande de qualquer forma).
 
-// Limite do TOTAL de documentos por análise. Agora o arquivo vai direto para o
-// Supabase Storage (não passa mais pelo corpo de uma Function), então o teto é
-// bem maior — limitado pela Files API do Gemini e por bom senso de custo/latência.
-export const LIMITE_TOTAL_DOCS = 45 * 1024 * 1024; // 45 MB no total da análise
-export const MAX_PDF_BYTES = 30 * 1024 * 1024; // 30 MB por arquivo (limite do bucket do Storage)
-export const MAX_IMAGEM_BYTES = 30 * 1024 * 1024; // 30 MB por arquivo (antes de comprimir)
+// Limite do TOTAL de documentos por análise. Os arquivos vão direto para o
+// Supabase Storage, mas o backend os embute como `inline_data` na chamada ao
+// Gemini — cujo teto de request é ~20 MB. Por isso ~12 MB de conteúdo.
+// (Para processos maiores, o caminho é a Files API do Gemini — pendente de
+//  ajuste de credencial.)
+export const LIMITE_TOTAL_DOCS = 12 * 1024 * 1024; // 12 MB no total da análise
+export const MAX_PDF_BYTES = 12 * 1024 * 1024; // 12 MB por arquivo
+export const MAX_IMAGEM_BYTES = 30 * 1024 * 1024; // imagem entra maior e é comprimida
 
 const MAX_DIMENSAO_PX = 2600; // lado maior da imagem após a redução
 const QUALIDADE_JPEG = 0.75;
