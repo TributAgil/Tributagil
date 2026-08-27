@@ -204,9 +204,9 @@ Enviado via TributÁgil — Sistema de Suporte
                       />
                     </button>
                   ))}
-                  <span className="text-sm text-slate-400 ml-2">
-                    {feedback.avaliacao > 0 ? `${feedback.avaliao}/5` : 'Selecione'}
-                  </span>
+                 <span className="text-sm text-slate-400 ml-2">
+  {feedback.avaliacao > 0 ? `${feedback.avaliacao}/5` : 'Selecione'}
+</span>
                 </div>
               </div>
 
