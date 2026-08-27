@@ -118,10 +118,10 @@ export async function POST(request) {
 
   try {
     const upstream = await fetch(
-      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
+      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -164,35 +164,55 @@ export async function POST(request) {
 }
 
 // ---------------------------------------------------------------------------
-// Files API do Gemini: sobe os bytes e devolve o file_uri já ATIVO.
+// Files API do Gemini — protocolo "resumable" (2 passos), com a chave em ?key=
+// (o endpoint /upload NÃO aceita o header x-goog-api-key → responde 401).
 // ---------------------------------------------------------------------------
 async function subirParaGeminiFiles(apiKey, arrayBuffer, mimeType, displayName) {
-  const resp = await fetch(`${GEMINI}/upload/v1beta/files?uploadType=media`, {
+  const numBytes = arrayBuffer.byteLength;
+  const key = encodeURIComponent(apiKey);
+
+  // Passo 1 — inicia o upload e recebe a URL de destino.
+  const start = await fetch(`${GEMINI}/upload/v1beta/files?key=${key}`, {
     method: 'POST',
     headers: {
-      'x-goog-api-key': apiKey,
-      'Content-Type': mimeType,
-      ...(displayName ? { 'X-Goog-Upload-Header-Display-Name': asciiSafe(displayName) } : {}),
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(numBytes),
+      'X-Goog-Upload-Header-Content-Type': mimeType,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: asciiSafe(displayName || 'documento') } }),
+  });
+  if (!start.ok) {
+    const t = await start.text().catch(() => '');
+    throw new Error(`Files API (início) falhou (HTTP ${start.status}). ${t.slice(0, 200)}`);
+  }
+  const uploadUrl = start.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new Error('Files API não retornou a URL de upload.');
+
+  // Passo 2 — envia os bytes e finaliza.
+  const up = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
     },
     body: arrayBuffer,
   });
-
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => '');
-    throw new Error(`Upload para a Files API falhou (HTTP ${resp.status}). ${txt.slice(0, 200)}`);
+  if (!up.ok) {
+    const t = await up.text().catch(() => '');
+    throw new Error(`Files API (upload) falhou (HTTP ${up.status}). ${t.slice(0, 200)}`);
   }
 
-  const data = await resp.json();
+  const data = await up.json().catch(() => ({}));
   let file = data.file || data;
 
   // PDFs/imagens costumam já vir ACTIVE; se estiver PROCESSING, aguarda.
   let tentativas = 0;
-  while (file?.state === 'PROCESSING' && tentativas < 12) {
+  while (file?.state === 'PROCESSING' && file?.name && tentativas < 12) {
     await sleep(1500);
-    const chk = await fetch(`${GEMINI}/v1beta/${file.name}`, {
-      headers: { 'x-goog-api-key': apiKey },
-    });
-    file = await chk.json();
+    const chk = await fetch(`${GEMINI}/v1beta/${file.name}?key=${key}`);
+    file = await chk.json().catch(() => file);
     tentativas += 1;
   }
 
