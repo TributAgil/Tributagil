@@ -16,6 +16,7 @@ import {
   Eye,
   Loader2,
   RefreshCw,
+  LogOut,
 } from 'lucide-react';
 import { listarAnalises, excluirAnalise } from '../lib/analises';
 
@@ -225,7 +226,7 @@ const ModalLGPD = ({ aberto, onFechar, onConfirmar, tipo }) => {
 // ============================================
 // COMPONENTE PRINCIPAL: HISTÓRICO DE RESULTADOS
 // ============================================
-const Historico = ({ user, onNovaAnalise, onReabrirAnalise }) => {
+const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
   const [analises, setAnalises] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
@@ -318,7 +319,9 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise }) => {
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800">Histórico de Resultados</h1>
-            <p className="text-sm text-slate-500">Suas análises tributárias concluídas</p>
+            <p className="text-sm text-slate-500">
+              {user?.email ? user.email : 'Suas análises tributárias concluídas'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -333,6 +336,14 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise }) => {
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/20 transition-all text-sm"
             >
               + Nova Análise
+            </button>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+              title="Sair da conta"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </div>

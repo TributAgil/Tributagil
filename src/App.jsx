@@ -99,6 +99,20 @@ export default function App() {
     setTelaAtual('resultado');
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('[Auth] Falha ao sair:', err);
+    } finally {
+      // Garante a volta ao login mesmo se o signOut falhar (rede, etc.).
+      setUser(null);
+      setPayloadAnalise(null);
+      setAnaliseSelecionada(null);
+      setTelaAtual('login');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -116,6 +130,7 @@ export default function App() {
           user={user}
           onNovaAnalise={handleNovaAnalise}
           onReabrirAnalise={handleReabrirAnalise}
+          onLogout={handleLogout}
         />
       )}
 
