@@ -71,10 +71,14 @@ async function lerStreamGemini(body, { signal } = {}) {
         if (!dados || dados === '[DONE]') continue;
         try {
           const obj = JSON.parse(dados);
-          const parte = obj?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (parte) texto += parte;
+          // Concatena o texto de TODAS as parts (modelos com "thinking" podem
+          // devolver mais de uma part por chunk).
+          const partes = obj?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(partes)) {
+            for (const p of partes) if (typeof p?.text === 'string') texto += p.text;
+          }
           const motivo = obj?.candidates?.[0]?.finishReason;
-          if (motivo && motivo !== 'STOP') {
+          if (motivo && motivo !== 'STOP' && motivo !== 'MAX_TOKENS') {
             throw new Error(`A IA interrompeu a geração (motivo: ${motivo}).`);
           }
         } catch (e) {

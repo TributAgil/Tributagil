@@ -29,7 +29,7 @@ yarn dev
 | `VITE_SUPABASE_URL` | browser | ✅ | URL do projeto Supabase |
 | `VITE_SUPABASE_ANON_KEY` | browser | ✅ | Chave `anon` (pública, protegida por RLS) |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
-| `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-2.5-flash-lite`; `gemini-flash-latest` para casos difíceis |
+| `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash-lite`; `gemini-3.5-flash` para casos difíceis |
 | `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento de *thinking* (padrão `512`; `0` desliga) |
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
@@ -49,8 +49,7 @@ Fluxo:
    Os arquivos **não passam** pelo corpo de nenhuma Function → sem o teto de 4 MB.
 2. `/api/gemini` (Node, `maxDuration` 300s) recebe só os *caminhos* + o token do
    usuário. Baixa cada arquivo do Storage **respeitando a RLS** e os embute como
-   `inline_data` na chamada `streamGenerateContent` (auth via header
-   `X-goog-api-key`).
+   `inline_data` na chamada `streamGenerateContent` (auth via `?key=` na URL).
 3. A resposta volta em streaming para a tela do Cérebro.
 
 > Como o `inline_data` tem teto de ~20 MB de request, o limite prático hoje é

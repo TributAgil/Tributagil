@@ -11,16 +11,16 @@
 // limite de ~4 MB de uma Function. Eles são embutidos como `inline_data` na
 // chamada ao Gemini — o limite passa a ser o da própria API (~20 MB de request).
 //
-// Autenticação: header `X-goog-api-key` (formato mostrado pelo cURL de início
-// rápido do Google, tanto para chaves `AIzaSy...` quanto para as novas `AQ...`).
+// Autenticação: `?key=` na URL (funciona tanto para chaves `AIzaSy...` quanto
+// para as novas `AQ...` — o header `X-goog-api-key` NÃO funciona com as `AQ.`).
 //
 // Runtime: Node. `maxDuration` configurado em vercel.json.
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
-const MODELO_PADRAO = 'gemini-2.5-flash-lite';
-const THINKING_BUDGET_PADRAO = 512;
+const MODELO_PADRAO = 'gemini-3.5-flash-lite';
+const THINKING_BUDGET_PADRAO = 512; // 0 é inválido no 3.5-flash-lite; <=0 => omite
 const TIMEOUT_GERACAO_MS = 280_000;
 const MAX_DOCS = 20;
 const MAX_BYTES_POR_DOC = 12 * 1024 * 1024;
@@ -118,13 +118,10 @@ export async function POST(request) {
 
   try {
     const upstream = await fetch(
-      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
+      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey,
-        },
+        headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -132,7 +129,10 @@ export async function POST(request) {
           generationConfig: {
             temperature: 0.1,
             responseMimeType: 'application/json',
-            ...(Number.isFinite(thinkingBudget) ? { thinkingConfig: { thinkingBudget } } : {}),
+            // thinkingBudget <= 0 é inválido em alguns modelos → só envia se > 0.
+            ...(Number.isFinite(thinkingBudget) && thinkingBudget > 0
+              ? { thinkingConfig: { thinkingBudget } }
+              : {}),
           },
           // Sem `tools`: nada de Google Search / acesso externo.
         }),
