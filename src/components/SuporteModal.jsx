@@ -1,5 +1,5 @@
 // src/components/SuporteModal.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   MessageSquare,
   Bug,
@@ -10,13 +10,14 @@ import {
   CheckCircle2,
   Loader2,
   HelpCircle,
+  ImagePlus,
 } from 'lucide-react';
 
 // ============================================
 // COMPONENTE: MODAL DE SUPORTE UNIFICADO
 // ============================================
-// Envia feedback e reports de bug para o backend seguro `/api/contato`, que por
-// sua vez encaminha o e-mail para a caixa corporativa (contato@tributagil.online).
+// Envia feedback e reports de bug para o backend seguro `/api/contato`, que
+// encaminha o e-mail para a caixa corporativa (contato@tributagil.online).
 // O cliente NUNCA define o destinatário nem manipula credenciais de e-mail.
 
 const TIPOS_BUG = [
@@ -29,8 +30,76 @@ const TIPOS_BUG = [
   'Outro',
 ];
 
-const FEEDBACK_INICIAL = { avaliacao: 0, comentario: '', analiseId: '' };
-const BUG_INICIAL = { tipo: '', descricao: '', passos: '', analiseId: '', email: '' };
+const FEEDBACK_INICIAL = { avaliacao: 0, comentario: '' };
+const BUG_INICIAL = { tipo: '', descricao: '', passos: '', email: '' };
+
+const SCREENSHOT_MAX_BYTES = 3 * 1024 * 1024; // 3 MB (vira base64 no corpo do POST)
+
+// ============================================
+// SUBCOMPONENTE: ANEXO DE SCREENSHOT (imagens)
+// ============================================
+function AnexoScreenshot({ screenshot, onSelecionar, onRemover, erro }) {
+  const inputRef = useRef(null);
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+        Captura de tela (opcional)
+      </label>
+
+      {screenshot ? (
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <img
+            src={screenshot.base64}
+            alt="Prévia da captura de tela"
+            className="h-14 w-14 rounded-lg object-cover border border-slate-200"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-slate-700">{screenshot.nome}</p>
+            <p className="text-[11px] text-slate-400">
+              {(screenshot.tamanho / 1024).toFixed(0)} KB
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRemover}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            aria-label="Remover captura de tela"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-4 text-sm text-slate-500 transition-colors hover:bg-slate-50"
+        >
+          <ImagePlus size={18} className="text-emerald-600" />
+          Anexar screenshot do erro (PNG, JPG ou WEBP — até 3 MB)
+        </button>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) onSelecionar(file);
+        }}
+      />
+
+      {erro && (
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+          <AlertCircle size={13} /> {erro}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const SuporteModal = ({ aberto, onFechar }) => {
   const [abaAtiva, setAbaAtiva] = useState('feedback');
@@ -40,12 +109,16 @@ const SuporteModal = ({ aberto, onFechar }) => {
 
   const [feedback, setFeedback] = useState(FEEDBACK_INICIAL);
   const [bug, setBug] = useState(BUG_INICIAL);
+  const [screenshot, setScreenshot] = useState(null); // { nome, base64, tamanho }
+  const [screenshotErro, setScreenshotErro] = useState(null);
   // Honeypot anti-bot: mantido fora da tela; humanos nunca preenchem.
   const [honeypot, setHoneypot] = useState('');
 
   const resetar = () => {
     setFeedback(FEEDBACK_INICIAL);
     setBug(BUG_INICIAL);
+    setScreenshot(null);
+    setScreenshotErro(null);
     setHoneypot('');
     setErro(null);
   };
@@ -55,9 +128,23 @@ const SuporteModal = ({ aberto, onFechar }) => {
     onFechar();
   };
 
-  // ============================================
-  // ENVIO PARA O BACKEND
-  // ============================================
+  // Lê o arquivo de imagem e converte para data URL (base64) para enviar no JSON.
+  const handleSelecionarScreenshot = (file) => {
+    setScreenshotErro(null);
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setScreenshotErro('Envie uma imagem PNG, JPG ou WEBP.');
+      return;
+    }
+    if (file.size > SCREENSHOT_MAX_BYTES) {
+      setScreenshotErro('Imagem muito grande (máx. 3 MB).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setScreenshot({ nome: file.name, base64: reader.result, tamanho: file.size });
+    reader.onerror = () => setScreenshotErro('Não foi possível ler o arquivo.');
+    reader.readAsDataURL(file);
+  };
+
   const enviarSuporte = async (payload) => {
     setEnviando(true);
     setErro(null);
@@ -66,11 +153,15 @@ const SuporteModal = ({ aberto, onFechar }) => {
       const resposta = await fetch('/api/contato', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, website: honeypot }),
+        body: JSON.stringify({
+          ...payload,
+          website: honeypot,
+          screenshotNome: screenshot?.nome,
+          screenshotBase64: screenshot?.base64,
+        }),
       });
 
       const dados = await resposta.json().catch(() => ({}));
-
       if (!resposta.ok) {
         throw new Error(dados.error || 'Não foi possível enviar sua mensagem. Tente novamente.');
       }
@@ -94,7 +185,6 @@ const SuporteModal = ({ aberto, onFechar }) => {
       tipo: 'feedback',
       avaliacao: feedback.avaliacao,
       comentario: feedback.comentario,
-      analiseId: feedback.analiseId,
     });
   };
 
@@ -105,7 +195,6 @@ const SuporteModal = ({ aberto, onFechar }) => {
       tipoProblema: bug.tipo,
       descricao: bug.descricao,
       passos: bug.passos,
-      analiseId: bug.analiseId,
       email: bug.email,
     });
   };
@@ -116,7 +205,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fecharComReset} />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
@@ -134,32 +223,24 @@ const SuporteModal = ({ aberto, onFechar }) => {
         {/* Abas */}
         <div className="flex border-b border-slate-100">
           <button
-            onClick={() => {
-              setAbaAtiva('feedback');
-              setErro(null);
-            }}
+            onClick={() => { setAbaAtiva('feedback'); setErro(null); }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
               abaAtiva === 'feedback'
                 ? 'text-emerald-700 border-b-2 border-emerald-500 bg-emerald-50/30'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
-            <MessageSquare size={16} />
-            Feedback da Análise
+            <MessageSquare size={16} /> Feedback da Análise
           </button>
           <button
-            onClick={() => {
-              setAbaAtiva('bug');
-              setErro(null);
-            }}
+            onClick={() => { setAbaAtiva('bug'); setErro(null); }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
               abaAtiva === 'bug'
                 ? 'text-emerald-700 border-b-2 border-emerald-500 bg-emerald-50/30'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
-            <Bug size={16} />
-            Reportar Erro
+            <Bug size={16} /> Reportar Erro
           </button>
         </div>
 
@@ -219,19 +300,6 @@ const SuporteModal = ({ aberto, onFechar }) => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  ID da Análise (opcional)
-                </label>
-                <input
-                  type="text"
-                  value={feedback.analiseId}
-                  onChange={(e) => setFeedback({ ...feedback, analiseId: e.target.value })}
-                  placeholder="Ex: TRB-2026-0847"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Seu comentário</label>
                 <textarea
                   value={feedback.comentario}
@@ -243,21 +311,22 @@ const SuporteModal = ({ aberto, onFechar }) => {
                 />
               </div>
 
+              <AnexoScreenshot
+                screenshot={screenshot}
+                onSelecionar={handleSelecionarScreenshot}
+                onRemover={() => setScreenshot(null)}
+                erro={screenshotErro}
+              />
+
               <button
                 type="submit"
                 disabled={enviando || feedback.avaliacao === 0}
                 className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {enviando ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Enviando...
-                  </>
+                  <><Loader2 size={16} className="animate-spin" /> Enviando...</>
                 ) : (
-                  <>
-                    <Send size={16} />
-                    Enviar Feedback
-                  </>
+                  <><Send size={16} /> Enviar Feedback</>
                 )}
               </button>
             </form>
@@ -275,24 +344,9 @@ const SuporteModal = ({ aberto, onFechar }) => {
                 >
                   <option value="">Selecione o tipo de erro</option>
                   {TIPOS_BUG.map((tipo) => (
-                    <option key={tipo} value={tipo}>
-                      {tipo}
-                    </option>
+                    <option key={tipo} value={tipo}>{tipo}</option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  ID da Análise (se aplicável)
-                </label>
-                <input
-                  type="text"
-                  value={bug.analiseId}
-                  onChange={(e) => setBug({ ...bug, analiseId: e.target.value })}
-                  placeholder="Ex: TRB-2026-0847"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
               </div>
 
               <div>
@@ -336,21 +390,22 @@ const SuporteModal = ({ aberto, onFechar }) => {
                 />
               </div>
 
+              <AnexoScreenshot
+                screenshot={screenshot}
+                onSelecionar={handleSelecionarScreenshot}
+                onRemover={() => setScreenshot(null)}
+                erro={screenshotErro}
+              />
+
               <button
                 type="submit"
                 disabled={enviando}
                 className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-lg shadow-red-600/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {enviando ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Enviando...
-                  </>
+                  <><Loader2 size={16} className="animate-spin" /> Enviando...</>
                 ) : (
-                  <>
-                    <AlertCircle size={16} />
-                    Reportar Erro ao Suporte
-                  </>
+                  <><AlertCircle size={16} /> Reportar Erro ao Suporte</>
                 )}
               </button>
             </form>

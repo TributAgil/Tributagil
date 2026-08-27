@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
+import { salvarAnalise } from './lib/analises';
 import Login from './pages/Login';
 import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
 import ResultadoAnalise from './pages/ResultadoAnalise';
 import Historico from './pages/Historico';
 import BotaoSuporteFlutuante from './components/BotaoSuporteFlutuante';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -31,12 +33,19 @@ export default function App() {
       })
       .finally(() => setLoading(false));
 
-    // 2. Escuta mudanças de autenticação (login/logout/refresh de token).
+    // 2. Escuta mudanças de autenticação.
+    //    IMPORTANTE: só forçamos a volta ao login num SIGNED_OUT explícito.
+    //    Antes, qualquer evento com sessão nula (INITIAL_SESSION, TOKEN_REFRESHED
+    //    transitório) jogava o usuário para o login no meio de outra tela —
+    //    era uma das causas da "tela que pisca e some".
     try {
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-        if (!currentUser) setTelaAtual('login');
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (session?.user) {
+          setUser(session.user);
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setTelaAtual('login');
+        }
       });
       subscription = data?.subscription;
     } catch (err) {
@@ -59,6 +68,7 @@ export default function App() {
 
   const handleIniciarAnalise = (payload) => {
     setPayloadAnalise(payload);
+    setAnaliseSelecionada(null);
     setTelaAtual('processando');
   };
 
@@ -66,6 +76,13 @@ export default function App() {
   const handleConcluirProcessamento = (resultadoRealDaIA) => {
     setAnaliseSelecionada(resultadoRealDaIA);
     setTelaAtual('resultado');
+
+    // Persiste no histórico em segundo plano (best-effort — não bloqueia a UI).
+    salvarAnalise({
+      userId: user?.id,
+      payload: payloadAnalise,
+      resultado: resultadoRealDaIA,
+    }).catch((err) => console.error('[App] Falha ao salvar no histórico:', err));
   };
 
   const handleNovaAnalise = () => {
@@ -74,12 +91,11 @@ export default function App() {
     setTelaAtual('analise');
   };
 
-  const handleVerHistorico = () => {
-    setTelaAtual('historico');
-  };
+  const handleVerHistorico = () => setTelaAtual('historico');
 
   const handleReabrirAnalise = (analise) => {
-    setAnaliseSelecionada(analise);
+    // Aceita tanto o objeto de resultado direto quanto o registro do histórico.
+    setAnaliseSelecionada(analise?.resultado ?? analise);
     setTelaAtual('resultado');
   };
 
@@ -92,7 +108,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <ErrorBoundary resetKey={telaAtual} onReset={() => setTelaAtual(user ? 'historico' : 'login')}>
       {telaAtual === 'login' && <Login onLoginSuccess={handleLoginSuccess} />}
 
       {telaAtual === 'historico' && (
@@ -128,6 +144,6 @@ export default function App() {
       )}
 
       {telaAtual !== 'login' && <BotaoSuporteFlutuante />}
-    </>
+    </ErrorBoundary>
   );
 }

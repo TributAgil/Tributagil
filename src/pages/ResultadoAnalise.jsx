@@ -361,6 +361,48 @@ const CardRaciocinio = ({ raciocinio, index }) => {
 };
 
 // ============================================
+// NORMALIZAÇÃO DO RESULTADO DA IA
+// ============================================
+// A IA pode devolver um JSON incompleto ou com um campo no tipo errado
+// (ex.: `conclusoes` como objeto em vez de array). Antes, um `.map`/`.filter`
+// sobre esse valor lançava erro em pleno render — o React desmontava a árvore
+// inteira e a tela "piscava e sumia". Aqui garantimos um formato seguro.
+const garantirArray = (v) => (Array.isArray(v) ? v : []);
+
+// Placeholders neutros para os campos de metadata que a IA pode não devolver —
+// evita exibir nomes/números fictícios do mock num parecer real.
+const METADATA_NEUTRA = {
+  id_analise: '—',
+  data_analise: new Date().toLocaleDateString('pt-BR'),
+  hora_analise: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+  advogado: '—',
+  oab: '—',
+  escritorio: '—',
+  processo: '—',
+  parte_autora: '—',
+  parte_reu: '—',
+  valor_causa: '—',
+  modelo_ia: 'Gemini (Backend)',
+};
+
+function normalizarResultado(analise) {
+  if (!analise || typeof analise !== 'object') return RESULTADO_MOCK;
+
+  return {
+    ...RESULTADO_MOCK,
+    ...analise,
+    // merge PROFUNDO do metadata a partir de uma base neutra (não do mock).
+    metadata: { ...METADATA_NEUTRA, ...(analise.metadata || {}) },
+    conclusoes: garantirArray(analise.conclusoes),
+    fatos_importantes: garantirArray(analise.fatos_importantes),
+    raciocinio: garantirArray(analise.raciocinio),
+    recomendacoes: garantirArray(analise.recomendacoes).map((r) =>
+      typeof r === 'string' ? r : String(r?.texto ?? r?.descricao ?? JSON.stringify(r)),
+    ),
+  };
+}
+
+// ============================================
 // COMPONENTE PRINCIPAL: RESULTADO DA ANÁLISE
 // ============================================
 const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
@@ -368,11 +410,8 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
   const [baixando, setBaixando] = useState(false);
 
-  // USA O RESULTADO REAL DA IA SE HOUVER, CASO CONTRÁRIO USA O MOCK
-  const resultado = analise ? {
-    ...RESULTADO_MOCK,
-    ...analise
-  } : RESULTADO_MOCK;
+  // Usa o resultado real da IA (normalizado) ou o mock, se não houver análise.
+  const resultado = analise ? normalizarResultado(analise) : RESULTADO_MOCK;
 
   const handleDownloadParecer = async () => {
     setBaixando(true);

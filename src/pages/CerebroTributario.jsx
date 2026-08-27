@@ -11,7 +11,13 @@ import {
   Activity,
   ShieldCheck,
   Clock,
+  AlertTriangle,
+  ArrowLeft,
 } from 'lucide-react';
+
+// Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
+// muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
+const TEMPO_MINIMO_VISIVEL_MS = 2600;
 
 // ============================================
 // CONFIGURAÇÃO DOS ESTÁGIOS DE PROCESSAMENTO
@@ -155,6 +161,9 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   const [logs, setLogs] = useState([]);
   const [concluido, setConcluido] = useState(false);
   const [pulsando, setPulsando] = useState(true);
+  // Quando a IA falha, mostramos o erro NA PRÓPRIA tela em vez de "sumir"
+  // instantaneamente de volta para o upload.
+  const [erroFatal, setErroFatal] = useState(null);
   const intervalRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -178,10 +187,12 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
     if (!payload) return;
 
     const abortController = new AbortController();
+    const inicio = Date.now();
     let cancelado = false;
     let progressoLocal = 0;
     let estagioLocal = 0;
 
+    setErroFatal(null);
     addLog('Inicializando conexão segura com backend...', 'info');
 
     // 1. Progresso "otimista" enquanto a IA trabalha (trava em 90% até a resposta).
@@ -257,15 +268,20 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
         setConcluido(true);
         setPulsando(false);
 
+        // Só avança para o resultado depois do tempo mínimo de exibição —
+        // assim a tela de andamento nunca "pisca".
+        const restante = Math.max(0, TEMPO_MINIMO_VISIVEL_MS - (Date.now() - inicio));
         setTimeout(() => {
           if (!cancelado) onConcluido?.(resultadoIA);
-        }, 1500);
+        }, restante + 700);
       } catch (erro) {
         if (cancelado || erro?.name === 'AbortError') return;
         clearInterval(intervalRef.current);
         addLog(`Falha na IA: ${erro.message}`, 'erro');
         console.error('[CerebroTributario] Erro no processamento:', erro);
-        onErro?.(erro);
+        // Mantém a tela visível com o erro; o usuário decide voltar/tentar de novo.
+        setPulsando(false);
+        setErroFatal(erro.message || 'Falha ao processar a análise.');
       }
     };
 
@@ -285,6 +301,32 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   const corAtual = COR_CLASSES[estagio.cor] ?? COR_CLASSES.emerald;
 
   const particulas = Array.from({ length: 12 }, (_, i) => ({ delay: i * 200, x: 10 + (i * 7) % 80, y: 15 + (i * 13) % 70, tamanho: 4 + (i % 3) * 3 }));
+
+  // ---- Estado de ERRO: permanece na tela, sem "piscar" de volta ao upload ----
+  if (erroFatal) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-red-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/15 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle size={32} className="text-red-400" />
+          </div>
+          <h1 className="text-xl font-bold text-white">Não foi possível concluir a análise</h1>
+          <p className="text-sm text-slate-400 mt-2">{erroFatal}</p>
+          <p className="text-xs text-slate-600 mt-3">
+            Verifique se a chave <code className="text-slate-400">GEMINI_API_KEY</code> está
+            configurada na Vercel e tente novamente.
+          </p>
+          <button
+            onClick={() => onErro?.(new Error(erroFatal))}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-white text-slate-900 text-sm font-semibold rounded-xl transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Voltar e revisar os documentos
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">

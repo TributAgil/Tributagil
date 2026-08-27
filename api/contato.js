@@ -9,6 +9,7 @@
 //   - Honeypot anti-bot: o campo `website` é invisível no formulário; se vier
 //     preenchido, tratamos como bot e descartamos silenciosamente.
 //   - Toda entrada do usuário é sanitizada e truncada antes de ir para o e-mail.
+//   - O screenshot é validado (tipo e tamanho) antes de virar anexo.
 //   - Sem RESEND_API_KEY o endpoint apenas registra a mensagem (útil em dev/preview)
 //     e responde 202, sem quebrar o fluxo do formulário.
 
@@ -18,9 +19,11 @@ const DESTINATARIO = process.env.CONTATO_EMAIL_TO || 'contato@tributagil.online'
 const REMETENTE = process.env.CONTATO_EMAIL_FROM || 'TributÁgil <no-reply@tributagil.online>';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Caracteres de controle ASCII (U+0000–U+001F e U+007F): removidos para evitar
-// header injection e lixo no corpo do e-mail. Construído via string para não
-// inserir bytes de controle no código-fonte.
+// header injection e lixo no corpo do e-mail.
 const CONTROLE_RE = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
+// data URL de imagem: data:image/png;base64,AAAA...
+const DATA_URL_RE = /^data:(image\/(png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$/;
+const SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024; // ~4 MB já decodificado
 
 export default async function handler(req) {
   if (req.method !== 'POST') {
@@ -40,7 +43,6 @@ export default async function handler(req) {
   }
 
   const tipo = body.tipo === 'bug' ? 'bug' : 'feedback';
-  const analiseId = sanitize(body.analiseId, 60);
   const emailUsuario = sanitize(body.email, 160);
   const mensagem = sanitize(body.comentario ?? body.descricao, 5000);
   const passos = sanitize(body.passos, 3000);
@@ -58,19 +60,38 @@ export default async function handler(req) {
     return json({ error: 'Informe um e-mail para retorno do suporte.' }, 400);
   }
 
+  // ---- Screenshot (opcional) ---------------------------------------------
+  let anexo = null;
+  if (body.screenshotBase64) {
+    const match = String(body.screenshotBase64).match(DATA_URL_RE);
+    if (!match) {
+      return json({ error: 'A captura de tela deve ser uma imagem PNG, JPG ou WEBP.' }, 400);
+    }
+    const base64 = match[3];
+    const bytes = Math.floor((base64.length * 3) / 4);
+    if (bytes > SCREENSHOT_MAX_BYTES) {
+      return json({ error: 'A captura de tela excede o limite de 4 MB.' }, 413);
+    }
+    const ext = match[1] === 'image/jpeg' ? 'jpg' : match[1].split('/')[1];
+    anexo = {
+      filename: sanitize(body.screenshotNome, 120) || `screenshot.${ext}`,
+      content: base64, // Resend aceita string base64 pura
+    };
+  }
+
   // ---- Montagem do e-mail ------------------------------------------------
   const assunto =
     tipo === 'bug'
       ? `[BUG] ${tipoBug || 'Não especificado'}`
-      : `[Feedback] Análise ${analiseId || 'geral'}${avaliacao ? ` — ${avaliacao}/5` : ''}`;
+      : `[Feedback] TributÁgil${avaliacao ? ` — ${avaliacao}/5` : ''}`;
 
   const corpo = [
     `Tipo .............: ${tipo}`,
     `Data .............: ${new Date().toISOString()}`,
     `E-mail do usuário : ${emailUsuario || 'não informado'}`,
-    `ID da análise ....: ${analiseId || 'não informado'}`,
     tipo === 'feedback' && avaliacao ? `Avaliação ........: ${avaliacao}/5` : null,
     tipo === 'bug' && tipoBug ? `Categoria ........: ${tipoBug}` : null,
+    `Screenshot .......: ${anexo ? anexo.filename : 'nenhum'}`,
     '',
     'Mensagem:',
     mensagem,
@@ -87,6 +108,7 @@ export default async function handler(req) {
     console.warn('[api/contato] RESEND_API_KEY ausente — mensagem apenas registrada:', {
       assunto,
       emailUsuario,
+      temAnexo: !!anexo,
     });
     return json({ ok: true, delivered: false }, 202);
   }
@@ -104,6 +126,7 @@ export default async function handler(req) {
         subject: assunto,
         text: corpo,
         ...(emailUsuario ? { reply_to: emailUsuario } : {}),
+        ...(anexo ? { attachments: [anexo] } : {}),
       }),
     });
 

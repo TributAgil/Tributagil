@@ -42,13 +42,41 @@ Preview e Development).
 ```
 api/
   gemini.js      Proxy Edge + streaming para o Gemini (evita timeout 504)
-  contato.js     Envio de e-mail do "Central de Suporte" (Edge, com honeypot)
+  contato.js     Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
 src/
   lib/supabase.js          Cliente único do Supabase
+  lib/analises.js          Camada de dados do histórico (listar/salvar/excluir)
+  components/ErrorBoundary  Impede que um erro de render derrube o app inteiro
   pages/                    Telas (Login, Histórico, NovaAnalise, Cérebro, Resultado)
   components/               UI reutilizável (upload, modal de suporte, etc.)
   vite-env.d.ts             Tipagem de import.meta.env
 ```
+
+## Banco de dados — tabela `analises`
+
+O Histórico de Resultados lê e grava nesta tabela. Rode no **SQL Editor** do Supabase:
+
+```sql
+create table if not exists public.analises (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  titulo     text,
+  resumo     text,
+  payload    jsonb,
+  resultado  jsonb
+);
+
+alter table public.analises enable row level security;
+
+-- Cada usuário só enxerga e manipula as próprias análises.
+create policy "analises: leitura própria"  on public.analises for select using  (auth.uid() = user_id);
+create policy "analises: inserção própria" on public.analises for insert with check (auth.uid() = user_id);
+create policy "analises: exclusão própria" on public.analises for delete using  (auth.uid() = user_id);
+```
+
+> Enquanto a tabela não existir, a tela de Histórico simplesmente mostra o estado
+> "nenhuma análise ainda" — nada quebra.
 
 ## Testes (opcional)
 
