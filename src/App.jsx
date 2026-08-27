@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabase.ts';  // <-- CORREÇÃO: adicionado .ts
+import { supabase } from './lib/supabase';
 import Login from './pages/Login';
 import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
@@ -15,23 +15,41 @@ export default function App() {
   const [analiseSelecionada, setAnaliseSelecionada] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        setTelaAtual('historico');
-      }
-      setLoading(false);
-    });
+    let subscription;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+    // 1. Recupera a sessão atual (se houver) de forma resiliente a falha de rede.
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (session?.user) {
+          setUser(session.user);
+          setTelaAtual('historico');
+        }
+      })
+      .catch((err) => {
+        console.error('[Auth] Falha ao recuperar a sessão:', err);
+      })
+      .finally(() => setLoading(false));
+
+    // 2. Escuta mudanças de autenticação (login/logout/refresh de token).
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (!currentUser) setTelaAtual('login');
-      }
-    );
+      });
+      subscription = data?.subscription;
+    } catch (err) {
+      console.error('[Auth] Não foi possível registrar o listener de autenticação:', err);
+    }
 
-    return () => subscription.unsubscribe();
+    return () => {
+      try {
+        subscription?.unsubscribe();
+      } catch {
+        /* listener já removido */
+      }
+    };
   }, []);
 
   const handleLoginSuccess = (userData) => {
@@ -44,7 +62,7 @@ export default function App() {
     setTelaAtual('processando');
   };
 
-  // AJUSTADO PARA RECEBER O RESULTADO REAL DA IA
+  // Recebe o resultado real devolvido pela IA e avança para a tela de resultado.
   const handleConcluirProcessamento = (resultadoRealDaIA) => {
     setAnaliseSelecionada(resultadoRealDaIA);
     setTelaAtual('resultado');
@@ -65,16 +83,18 @@ export default function App() {
     setTelaAtual('resultado');
   };
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="animate-pulse text-slate-400">Carregando TributÁgil...</div>
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-pulse text-slate-400">Carregando TributÁgil...</div>
+      </div>
+    );
+  }
 
   return (
     <>
       {telaAtual === 'login' && <Login onLoginSuccess={handleLoginSuccess} />}
-      
+
       {telaAtual === 'historico' && (
         <Historico
           user={user}
@@ -82,15 +102,15 @@ export default function App() {
           onReabrirAnalise={handleReabrirAnalise}
         />
       )}
-      
+
       {telaAtual === 'analise' && (
-        <NovaAnalise 
-          user={user} 
+        <NovaAnalise
+          user={user}
           onIniciarAnalise={handleIniciarAnalise}
           onVoltar={handleVerHistorico}
         />
       )}
-      
+
       {telaAtual === 'processando' && (
         <CerebroTributario
           payload={payloadAnalise}
@@ -98,7 +118,7 @@ export default function App() {
           onErro={() => setTelaAtual('analise')}
         />
       )}
-      
+
       {telaAtual === 'resultado' && (
         <ResultadoAnalise
           analise={analiseSelecionada}

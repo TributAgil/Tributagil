@@ -1,16 +1,60 @@
-# React + Vite
+# TributÁgil
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Plataforma web que usa IA (Google Gemini) para analisar documentos fiscais e
+diagnosticar **prescrição**, **decadência** e **prescrição intercorrente** à luz do
+CTN e da LEF.
 
-Currently, two official plugins are available:
+- **Frontend:** React 18 + Vite 5 + Tailwind CSS v4
+- **Auth:** Supabase
+- **IA:** Google Gemini, atrás de uma Serverless Function (Edge) da Vercel
+- **E-mail de suporte:** Serverless Function (Edge) + Resend
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Rodando localmente
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+yarn install
+cp .env.example .env   # preencha os valores
+yarn dev
+```
 
-## Expanding the ESLint configuration
+> As rotas `/api/*` só funcionam com `vercel dev` (não com `yarn dev`). Para testar
+> a IA e o formulário de suporte localmente: `npm i -g vercel && vercel dev`.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Variáveis de ambiente
+
+| Variável | Onde | Obrigatória | Descrição |
+| --- | --- | --- | --- |
+| `VITE_SUPABASE_URL` | browser | ✅ | URL do projeto Supabase |
+| `VITE_SUPABASE_ANON_KEY` | browser | ✅ | Chave `anon` (pública, protegida por RLS) |
+| `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini — **sem** prefixo `VITE_` |
+| `GEMINI_MODEL` | servidor | — | Sobrescreve o modelo (padrão `gemini-2.5-flash`) |
+| `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
+| `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
+| `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
+
+Na Vercel: **Project Settings → Environment Variables** (defina para Production,
+Preview e Development).
+
+## Estrutura
+
+```
+api/
+  gemini.js      Proxy Edge + streaming para o Gemini (evita timeout 504)
+  contato.js     Envio de e-mail do "Central de Suporte" (Edge, com honeypot)
+src/
+  lib/supabase.js          Cliente único do Supabase
+  pages/                    Telas (Login, Histórico, NovaAnalise, Cérebro, Resultado)
+  components/               UI reutilizável (upload, modal de suporte, etc.)
+  vite-env.d.ts             Tipagem de import.meta.env
+```
+
+## Testes (opcional)
+
+O projeto já tem `vitest.config.ts` e `src/test/`. Para habilitar:
+
+```bash
+yarn add -D vitest jsdom @testing-library/react @testing-library/jest-dom
+# e adicione  "test": "vitest run"  em package.json → scripts
+```
