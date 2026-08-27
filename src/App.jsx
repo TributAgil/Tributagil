@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { salvarAnalise } from './lib/analises';
 import Login from './pages/Login';
+import Painel from './pages/Painel';
 import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
 import ResultadoAnalise from './pages/ResultadoAnalise';
@@ -25,7 +26,7 @@ export default function App() {
       .then(({ data: { session } }) => {
         if (session?.user) {
           setUser(session.user);
-          setTelaAtual('historico');
+          setTelaAtual('painel');
         }
       })
       .catch((err) => {
@@ -63,7 +64,7 @@ export default function App() {
 
   const handleLoginSuccess = (userData) => {
     setUser(userData);
-    setTelaAtual('historico');
+    setTelaAtual('painel');
   };
 
   const handleIniciarAnalise = (payload) => {
@@ -122,8 +123,18 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary resetKey={telaAtual} onReset={() => setTelaAtual(user ? 'historico' : 'login')}>
+    <ErrorBoundary resetKey={telaAtual} onReset={() => setTelaAtual(user ? 'painel' : 'login')}>
       {telaAtual === 'login' && <Login onLoginSuccess={handleLoginSuccess} />}
+
+      {telaAtual === 'painel' && (
+        <Painel
+          user={user}
+          onNovaAnalise={handleNovaAnalise}
+          onReabrirAnalise={handleReabrirAnalise}
+          onVerHistorico={handleVerHistorico}
+          onLogout={handleLogout}
+        />
+      )}
 
       {telaAtual === 'historico' && (
         <Historico

@@ -1,26 +1,50 @@
 @import "tailwindcss";
 
+/* ============================================================
+   DESIGN SYSTEM — "Autoridade Fluida"
+   Preto premium + dourado elegante. Tokens expostos ao Tailwind v4
+   via @theme (viram utilitários: bg-ink, text-gold, border-line, etc.)
+   ============================================================ */
+@theme {
+  --color-ink: #0f0f0f;
+  --color-ink-900: #121212;
+  --color-ink-800: #171717;
+  --color-ink-700: #1e1e1e;
+  --color-ink-600: #262626;
+
+  --color-gold: #d4af37;
+  --color-gold-soft: #c5a059;
+  --color-gold-dim: #8a7130;
+
+  --color-parchment: #ece7dd; /* texto claro sobre preto */
+  --color-line: #2b2620; /* hairline quente para bordas/divisores */
+
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+
+  --radius-xl2: 1.15rem;
+  --shadow-gold: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 18px 50px -18px rgba(212, 175, 55, 0.28);
+}
+
+/* Compatibilidade com as telas antigas (ainda em claro) */
 :root {
   --text: #334155;
   --text-h: #0f172a;
   --bg: #f8fafc;
   --border: #e2e8f0;
-  --code-bg: #f1f5f9;
   --accent: #2563eb;
-  
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+
   color-scheme: light dark;
-  color: var(--text);
-  background-color: var(--bg);
-  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
+  font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--text);
 }
@@ -31,5 +55,98 @@ body {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  text-align: left; /* Garante que os textos voltem ao alinhamento padrão */
+}
+
+/* Utilitário de fundo "noir" com brilho dourado difuso */
+.bg-noir {
+  background:
+    radial-gradient(70rem 40rem at 78% -10%, rgba(212, 175, 55, 0.10), transparent 60%),
+    radial-gradient(50rem 40rem at 5% 110%, rgba(197, 160, 89, 0.07), transparent 55%),
+    #0f0f0f;
+}
+
+.text-balance { text-wrap: balance; }
+
+/* ============================================================
+   ANIMAÇÃO DO MARTELO (gavel)
+   ============================================================ */
+
+/* wrapper do botão: ancora o martelo e recorta a onda de choque */
+.gavel-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* o martelo em si */
+.gavel-wrap .gavel {
+  position: absolute;
+  right: -14px;
+  top: -46px;
+  width: 56px;
+  height: 56px;
+  color: var(--color-gold);
+  transform-origin: 78% 88%; /* ponta do cabo = "a mão" */
+  transform: rotate(-58deg) scale(0.9);
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
+  z-index: 3;
+}
+
+/* onda de choque + flash (pseudo-elementos do botão) */
+.gavel-strike-btn { position: relative; overflow: visible; }
+.gavel-strike-btn::before,
+.gavel-strike-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+.gavel-strike-btn::before { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.55); }        /* onda */
+.gavel-strike-btn::after  { background: radial-gradient(circle at 50% 50%, rgba(212,175,55,0.35), transparent 70%); } /* flash */
+
+/* estado disparado */
+.gavel-wrap.is-striking .gavel        { animation: gavel-swing 620ms cubic-bezier(0.7, 0, 0.3, 1) forwards; }
+.gavel-wrap.is-striking .gavel-strike-btn        { animation: hammer-impact 620ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.gavel-wrap.is-striking .gavel-strike-btn::before { animation: impact-ring 620ms ease-out both; }
+.gavel-wrap.is-striking .gavel-strike-btn::after  { animation: impact-flash 620ms ease-out both; }
+
+@keyframes gavel-swing {
+  0%   { opacity: 0; transform: rotate(-58deg) translateY(-10px) scale(0.9); }
+  22%  { opacity: 1; transform: rotate(-52deg) scale(0.95); }
+  40%  { opacity: 1; transform: rotate(10deg) scale(1); }     /* IMPACTO */
+  52%  { transform: rotate(-6deg) scale(0.98); }               /* quique */
+  66%  { transform: rotate(2deg); }
+  100% { opacity: 0; transform: rotate(-14deg) translateY(-6px) scale(0.92); }
+}
+
+@keyframes hammer-impact {
+  0%, 30% { transform: scale(1); }
+  40%     { transform: scale(0.94); }   /* afundamento no impacto */
+  55%     { transform: scale(1.015); }  /* overshoot */
+  100%    { transform: scale(1); }
+}
+
+@keyframes impact-ring {
+  0%, 34% { opacity: 0; box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.55); }
+  42%     { opacity: 0.9; box-shadow: 0 0 0 6px rgba(212, 175, 55, 0.35); }
+  100%    { opacity: 0; box-shadow: 0 0 0 26px rgba(212, 175, 55, 0); }
+}
+
+@keyframes impact-flash {
+  0%, 34% { opacity: 0; }
+  42%     { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
+/* respeita quem prefere menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  .gavel-wrap.is-striking .gavel { animation: none; opacity: 0; }
+  .gavel-wrap.is-striking .gavel-strike-btn {
+    animation: hammer-impact 200ms ease both;
+  }
+  .gavel-wrap.is-striking .gavel-strike-btn::before,
+  .gavel-wrap.is-striking .gavel-strike-btn::after { animation: none; }
 }
