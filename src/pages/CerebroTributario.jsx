@@ -473,7 +473,7 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
                 <p className="text-[10px] text-parchment/40 uppercase">Base Legal</p>
               </div>
               <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
-                <Brain size={16} className="text-blue-400 mx-auto mb-1" />
+                <Brain size={16} className="text-gold mx-auto mb-1" />
                 <p className="text-lg font-bold text-parchment">Backend</p>
                 <p className="text-[10px] text-parchment/40 uppercase">API Segura</p>
               </div>
