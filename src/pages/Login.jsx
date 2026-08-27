@@ -142,7 +142,7 @@ export default function Login({ onLoginSuccess }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="cursor-gavel mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gold px-4 py-3
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gold px-4 py-3
                            text-sm font-semibold text-ink shadow-[0_12px_34px_-12px_rgba(212,175,55,0.55)]
                            transition-all duration-300 hover:bg-gold-soft active:scale-[0.985]
                            disabled:cursor-not-allowed disabled:opacity-60

@@ -93,15 +93,6 @@ body {
   z-index: 3;
 }
 
-/* Cursor customizado: martelo do direito em P&B (preto com contorno branco,
-   visível sobre o dourado). Hotspot 16 16 = centro da cabeça do martelo = ponto
-   do clique. Fallback `pointer` caso o navegador ignore SVG-cursor. */
-:root {
-  --cur-gavel: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%20viewBox='0%200%2032%2032'%3E%3Cg%20fill='%23000'%20stroke='%23fff'%20stroke-width='2.6'%20stroke-linejoin='round'%3E%3Crect%20x='6.5'%20y='7.5'%20width='17'%20height='8'%20rx='2.6'%20transform='rotate(38%2015%2011.5)'/%3E%3Crect%20x='12.8'%20y='11.5'%20width='4.6'%20height='16.5'%20rx='2'%20transform='rotate(38%2015%2019.7)'/%3E%3C/g%3E%3C/svg%3E") 16 16, pointer;
-}
-.gavel-strike-btn,
-.cursor-gavel { cursor: var(--cur-gavel); }
-
 /* onda de choque + flash (pseudo-elementos do botão) */
 .gavel-strike-btn { position: relative; overflow: visible; }
 .gavel-strike-btn::before,
