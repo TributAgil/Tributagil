@@ -56,10 +56,10 @@ O `system instruction` "Motor TributÁgil" mora em `api/_motor-tributagil.js`.
 A IA responde **somente** com base nos anexos; faltando dado essencial devolve
 `{"alerta_dados_insuficientes": "..."}` e a tela mostra o aviso em vez de inventar.
 
-**Limites:** 20 documentos, 30 MB por arquivo, 50 MB no total por análise
-(PDF até 25 MB / imagem até 40 MB antes de comprimir). Sem novas variáveis de
-ambiente — a URL e a anon key do Supabase (públicas) viajam no corpo da request;
-o token do usuário garante o isolamento via RLS.
+**Limites:** 20 documentos, **30 MB por arquivo** (alinhado ao limite do bucket
+no Supabase), 45–50 MB no total por análise. Sem novas variáveis de ambiente —
+a URL e a anon key do Supabase (públicas) viajam no corpo da request; o token
+do usuário garante o isolamento via RLS.
 
 > Os arquivos ficam no Storage. Uma limpeza automática (cron) pode ser adicionada
 > depois; hoje dá para apagá-los pelo painel do Supabase.

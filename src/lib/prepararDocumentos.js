@@ -9,9 +9,9 @@
 // Limite do TOTAL de documentos por análise. Agora o arquivo vai direto para o
 // Supabase Storage (não passa mais pelo corpo de uma Function), então o teto é
 // bem maior — limitado pela Files API do Gemini e por bom senso de custo/latência.
-export const LIMITE_TOTAL_DOCS = 45 * 1024 * 1024; // 45 MB
-export const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB por PDF
-export const MAX_IMAGEM_BYTES = 40 * 1024 * 1024; // 40 MB por imagem (antes de comprimir)
+export const LIMITE_TOTAL_DOCS = 45 * 1024 * 1024; // 45 MB no total da análise
+export const MAX_PDF_BYTES = 30 * 1024 * 1024; // 30 MB por arquivo (limite do bucket do Storage)
+export const MAX_IMAGEM_BYTES = 30 * 1024 * 1024; // 30 MB por arquivo (antes de comprimir)
 
 const MAX_DIMENSAO_PX = 2600; // lado maior da imagem após a redução
 const QUALIDADE_JPEG = 0.75;
