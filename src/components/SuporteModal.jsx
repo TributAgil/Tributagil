@@ -43,27 +43,27 @@ function AnexoScreenshot({ screenshot, onSelecionar, onRemover, erro }) {
 
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+      <label className="block text-sm font-medium text-parchment/80 mb-1.5">
         Captura de tela (opcional)
       </label>
 
       {screenshot ? (
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+        <div className="flex items-center gap-3 rounded-xl border border-line bg-ink-900 p-2">
           <img
             src={screenshot.base64}
             alt="Prévia da captura de tela"
-            className="h-14 w-14 rounded-lg object-cover border border-slate-200"
+            className="h-14 w-14 rounded-lg object-cover border border-line"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-slate-700">{screenshot.nome}</p>
-            <p className="text-[11px] text-slate-400">
+            <p className="truncate text-sm text-parchment/80">{screenshot.nome}</p>
+            <p className="text-[11px] text-parchment/40">
               {(screenshot.tamanho / 1024).toFixed(0)} KB
             </p>
           </div>
           <button
             type="button"
             onClick={onRemover}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            className="rounded-md p-1.5 text-parchment/40 hover:bg-ink-600 hover:text-parchment/60"
             aria-label="Remover captura de tela"
           >
             <X size={15} />
@@ -73,9 +73,9 @@ function AnexoScreenshot({ screenshot, onSelecionar, onRemover, erro }) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-4 text-sm text-slate-500 transition-colors hover:bg-slate-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-4 text-sm text-parchment/50 transition-colors hover:bg-white/5"
         >
-          <ImagePlus size={18} className="text-emerald-600" />
+          <ImagePlus size={18} className="text-gold" />
           Anexar screenshot do erro (PNG, JPG ou WEBP — até 3 MB)
         </button>
       )}
@@ -205,29 +205,29 @@ const SuporteModal = ({ aberto, onFechar }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fecharComReset} />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="relative bg-ink-800/95 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <div className="px-6 py-4 border-b border-line flex items-center justify-between bg-ink-900">
           <div className="flex items-center gap-2">
-            <HelpCircle size={20} className="text-emerald-600" />
-            <h2 className="text-lg font-bold text-slate-800">Central de Suporte</h2>
+            <HelpCircle size={20} className="text-gold" />
+            <h2 className="text-lg font-bold text-parchment">Central de Suporte</h2>
           </div>
           <button
             onClick={fecharComReset}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-all"
+            className="p-1.5 text-parchment/40 hover:text-parchment/60 hover:bg-ink-600 rounded-lg transition-all"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Abas */}
-        <div className="flex border-b border-slate-100">
+        <div className="flex border-b border-line">
           <button
             onClick={() => { setAbaAtiva('feedback'); setErro(null); }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
               abaAtiva === 'feedback'
-                ? 'text-emerald-700 border-b-2 border-emerald-500 bg-emerald-50/30'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? 'text-gold border-b-2 border-gold bg-gold/[0.06]'
+                : 'text-parchment/50 hover:text-parchment/80 hover:bg-white/5'
             }`}
           >
             <MessageSquare size={16} /> Feedback da Análise
@@ -236,8 +236,8 @@ const SuporteModal = ({ aberto, onFechar }) => {
             onClick={() => { setAbaAtiva('bug'); setErro(null); }}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
               abaAtiva === 'bug'
-                ? 'text-emerald-700 border-b-2 border-emerald-500 bg-emerald-50/30'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? 'text-gold border-b-2 border-gold bg-gold/[0.06]'
+                : 'text-parchment/50 hover:text-parchment/80 hover:bg-white/5'
             }`}
           >
             <Bug size={16} /> Reportar Erro
@@ -267,16 +267,16 @@ const SuporteModal = ({ aberto, onFechar }) => {
 
           {enviado ? (
             <div className="text-center py-8">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 size={32} className="text-emerald-600" />
+              <div className="w-16 h-16 bg-gold/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 size={32} className="text-gold" />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800">Enviado com sucesso!</h3>
-              <p className="text-sm text-slate-500 mt-1">Nossa equipe analisará sua mensagem em breve.</p>
+              <h3 className="text-lg font-semibold text-parchment">Enviado com sucesso!</h3>
+              <p className="text-sm text-parchment/50 mt-1">Nossa equipe analisará sua mensagem em breve.</p>
             </div>
           ) : abaAtiva === 'feedback' ? (
             <form onSubmit={handleEnviarFeedback} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-parchment/80 mb-2">
                   Como você avalia a qualidade desta análise?
                 </label>
                 <div className="flex items-center gap-2">
@@ -289,24 +289,24 @@ const SuporteModal = ({ aberto, onFechar }) => {
                     >
                       <Star
                         size={28}
-                        className={estrela <= feedback.avaliacao ? 'text-amber-400 fill-amber-400' : 'text-slate-200'}
+                        className={estrela <= feedback.avaliacao ? 'text-amber-400 fill-amber-400' : 'text-parchment/25'}
                       />
                     </button>
                   ))}
-                  <span className="text-sm text-slate-400 ml-2">
+                  <span className="text-sm text-parchment/40 ml-2">
                     {feedback.avaliacao > 0 ? `${feedback.avaliacao}/5` : 'Selecione'}
                   </span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Seu comentário</label>
+                <label className="block text-sm font-medium text-parchment/80 mb-1.5">Seu comentário</label>
                 <textarea
                   value={feedback.comentario}
                   onChange={(e) => setFeedback({ ...feedback, comentario: e.target.value })}
                   placeholder="Conte-nos o que achou da análise, sugestões de melhoria..."
                   rows={4}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-line bg-ink-900 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold resize-none"
                   required
                 />
               </div>
@@ -321,7 +321,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
               <button
                 type="submit"
                 disabled={enviando || feedback.avaliacao === 0}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-3 bg-gold hover:bg-gold-soft text-white font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {enviando ? (
                   <><Loader2 size={16} className="animate-spin" /> Enviando...</>
@@ -333,13 +333,13 @@ const SuporteModal = ({ aberto, onFechar }) => {
           ) : (
             <form onSubmit={handleEnviarBug} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-parchment/80 mb-1.5">
                   Tipo do problema <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={bug.tipo}
                   onChange={(e) => setBug({ ...bug, tipo: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 rounded-xl border border-line bg-ink-900 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold"
                   required
                 >
                   <option value="">Selecione o tipo de erro</option>
@@ -350,7 +350,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-parchment/80 mb-1.5">
                   Seu e-mail <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -358,13 +358,13 @@ const SuporteModal = ({ aberto, onFechar }) => {
                   value={bug.email}
                   onChange={(e) => setBug({ ...bug, email: e.target.value })}
                   placeholder="para retorno do suporte"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 rounded-xl border border-line bg-ink-900 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-parchment/80 mb-1.5">
                   Descrição do erro <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -372,13 +372,13 @@ const SuporteModal = ({ aberto, onFechar }) => {
                   onChange={(e) => setBug({ ...bug, descricao: e.target.value })}
                   placeholder="Descreva o erro com o máximo de detalhes possível..."
                   rows={3}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-line bg-ink-900 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold resize-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-parchment/80 mb-1.5">
                   Passos para reproduzir
                 </label>
                 <textarea
@@ -386,7 +386,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
                   onChange={(e) => setBug({ ...bug, passos: e.target.value })}
                   placeholder={'1. Acessei a tela...\n2. Cliquei em...\n3. O erro ocorreu...'}
                   rows={3}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-line bg-ink-900 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold resize-none"
                 />
               </div>
 

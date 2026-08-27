@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, BrainCircuit, Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
 import { AreaUpload } from '../components/AreaUpload';
-import { BlocoResultado } from '../components/BlocoResultado';
+import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
 import { formatarBytes, LIMITE_TOTAL_DOCS } from '../lib/prepararDocumentos';
 import { uploadDocumento, removerDocumentos } from '../lib/storageDocumentos';
 
@@ -11,14 +11,12 @@ const AREA_CONFIG = {
     titulo: 'Documentos Principais',
     descricao: 'Documentos essenciais para a análise tributária',
     tooltip: 'CDA, Auto de Infração/Notificação, Petição Inicial, Despacho "Cite-se", Mandado Frustrado e SISBAJUD.',
-    cor: 'emerald',
   },
   secundario: {
     id: 'secundario',
     titulo: 'Documentos Secundários',
     descricao: 'Documentos complementares para enriquecer a análise',
     tooltip: 'Extratos (e-CAC/SEFAZ), DCTF/PGDAS, Comprovantes DARF/DAS, Andamento Integral, Decisões Administrativas e CPEN.',
-    cor: 'blue',
   },
 };
 
@@ -29,7 +27,6 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const [arquivos, setArquivos] = useState([]);
   const [isDraggingGlobal, setIsDraggingGlobal] = useState(false);
   const [analisando, setAnalisando] = useState(false);
-  // Uma pasta no Storage por sessão de "Nova Análise".
   const analiseIdRef = useRef(novoId());
 
   useEffect(() => {
@@ -45,7 +42,6 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
     };
   }, []);
 
-  // Sobe cada novo arquivo para o Supabase Storage, em segundo plano.
   const enviarParaStorage = async (novos) => {
     for (const item of novos) {
       if (item.status !== 'processando' || !item._file) continue;
@@ -94,13 +90,11 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const processando = arquivos.some((a) => a.status === 'processando');
   const totalBytes = prontos.reduce((s, a) => s + (a.tamanhoFinal || 0), 0);
   const acimaDoLimite = totalBytes > LIMITE_TOTAL_DOCS;
-
   const podeAnalisar =
     principaisProntos.length > 0 && !processando && !acimaDoLimite && !analisando;
 
   const handleAnalisar = () => {
     if (!podeAnalisar) return;
-
     const payload = {
       metadata: {
         usuario_id: user?.id || null,
@@ -117,7 +111,6 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
         storage_path: a.storagePath,
       })),
     };
-
     setAnalisando(true);
     onIniciarAnalise(payload);
   };
@@ -125,27 +118,27 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const pctLimite = Math.min(100, Math.round((totalBytes / LIMITE_TOTAL_DOCS) * 100));
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3">
+    <div className="bg-noir min-h-screen font-sans text-parchment">
+      <header className="border-b border-line">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-5">
           <button
             onClick={onVoltar}
             disabled={analisando}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-40"
+            className="rounded-lg border border-line p-2 text-parchment/50 transition-colors hover:border-gold/40 hover:text-gold disabled:opacity-40"
           >
-            <ChevronRight size={20} className="rotate-180" />
+            <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Nova Análise</h1>
-            <p className="text-sm text-slate-500">
-              Anexe os documentos — a IA analisa <strong>somente</strong> o que for enviado aqui.
+            <h1 className="font-display text-xl font-semibold text-parchment">Nova Análise</h1>
+            <p className="text-sm text-parchment/45">
+              Anexe os documentos — a IA analisa <strong className="text-parchment/70">somente</strong> o que for enviado aqui.
             </p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
+      <main className="mx-auto max-w-5xl px-6 py-10">
+        <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <AreaUpload
             config={AREA_CONFIG.principal}
             arquivos={arquivos}
@@ -162,23 +155,22 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
           />
         </div>
 
-        {/* Medidor do limite */}
         {prontos.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+          <div className="mb-8">
+            <div className="mb-1 flex items-center justify-between text-xs text-parchment/45">
               <span>Tamanho total dos documentos</span>
-              <span className={acimaDoLimite ? 'text-red-600 font-semibold' : ''}>
+              <span className={acimaDoLimite ? 'font-semibold text-red-400' : ''}>
                 {formatarBytes(totalBytes)} / {formatarBytes(LIMITE_TOTAL_DOCS)}
               </span>
             </div>
-            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-2 overflow-hidden rounded-full bg-ink-700">
               <div
-                className={`h-full rounded-full transition-all ${acimaDoLimite ? 'bg-red-500' : 'bg-emerald-500'}`}
+                className={`h-full rounded-full transition-all ${acimaDoLimite ? 'bg-red-500' : 'bg-gold'}`}
                 style={{ width: `${pctLimite}%` }}
               />
             </div>
             {acimaDoLimite && (
-              <p className="mt-2 flex items-start gap-1.5 text-xs text-red-600">
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-red-400">
                 <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
                 Limite excedido. Remova alguns arquivos desta análise.
               </p>
@@ -186,37 +178,20 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
           </div>
         )}
 
-        <div className="flex flex-col items-center gap-2">
-          <button
-            onClick={handleAnalisar}
-            disabled={!podeAnalisar}
-            className={`group relative px-8 py-4 rounded-2xl font-semibold text-lg shadow-xl transition-all flex items-center gap-3 ${
-              podeAnalisar
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25 hover:shadow-emerald-600/40 hover:-translate-y-0.5'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-          >
-            {analisando || processando ? (
-              <>
-                <Loader2 size={22} className="animate-spin" />
-                {analisando ? 'Enviando para análise...' : 'Enviando arquivos...'}
-              </>
-            ) : (
-              <>
-                <BrainCircuit size={22} className="group-hover:scale-110 transition-transform" />
-                Analisar com IA
-                {prontos.length > 0 && (
-                  <span className="ml-1 text-sm bg-white/20 px-2 py-0.5 rounded-lg">{prontos.length}</span>
-                )}
-              </>
-            )}
-          </button>
-          {principaisProntos.length === 0 && !processando && (
-            <p className="text-xs text-slate-400">Adicione ao menos 1 documento principal.</p>
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <BotaoComecarAnalise onComecar={handleAnalisar} disabled={!podeAnalisar}>
+            {analisando ? 'Enviando para análise...' : 'Analisar Documento'}
+          </BotaoComecarAnalise>
+
+          {processando && (
+            <p className="flex items-center gap-2 text-xs text-parchment/45">
+              <Loader2 size={13} className="animate-spin" /> Preparando arquivos...
+            </p>
+          )}
+          {!processando && principaisProntos.length === 0 && (
+            <p className="text-xs text-parchment/35">Adicione ao menos 1 documento principal.</p>
           )}
         </div>
-
-        <BlocoResultado resultado={null} />
       </main>
     </div>
   );

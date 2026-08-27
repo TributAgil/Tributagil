@@ -10,12 +10,16 @@ import { ArrowRight } from 'lucide-react';
 
 const DELAY_NAVEGACAO_MS = 240; // logo após o impacto, parece instantâneo
 
-export default function BotaoComecarAnalise({ onComecar, children = 'Começar a Análise' }) {
+export default function BotaoComecarAnalise({
+  onComecar,
+  children = 'Começar a Análise',
+  disabled = false,
+}) {
   const [striking, setStriking] = useState(false);
   const jaChamou = useRef(false);
 
   const disparar = () => {
-    if (striking) return;
+    if (striking || disabled) return;
     jaChamou.current = false;
     setStriking(true);
 
@@ -68,12 +72,14 @@ export default function BotaoComecarAnalise({ onComecar, children = 'Começar a 
       <button
         type="button"
         onClick={disparar}
+        disabled={disabled}
         className="gavel-strike-btn group inline-flex items-center gap-3 rounded-[var(--radius-xl2)]
                    bg-gold px-8 py-4 font-sans text-base font-semibold text-ink
                    shadow-[var(--shadow-gold)] transition-[transform,box-shadow,background-color]
                    duration-300 hover:bg-gold-soft hover:shadow-[0_0_0_1px_rgba(212,175,55,0.35),0_22px_60px_-18px_rgba(212,175,55,0.45)]
                    focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold
-                   active:scale-[0.98]"
+                   active:scale-[0.98]
+                   disabled:cursor-not-allowed disabled:bg-ink-600 disabled:text-parchment/40 disabled:shadow-none"
       >
         {children}
         <ArrowRight

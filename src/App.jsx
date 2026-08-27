@@ -127,8 +127,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-pulse text-slate-400">Carregando TributÁgil...</div>
+      <div className="bg-noir min-h-screen flex items-center justify-center">
+        <div className="animate-pulse text-parchment/40 font-sans">Carregando TributÁgil...</div>
       </div>
     );
   }

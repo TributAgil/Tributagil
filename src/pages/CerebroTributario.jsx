@@ -32,12 +32,19 @@ const ESTAGIOS = [
   { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, cor: 'emerald', detalhe: 'Parecer pronto para revisão' },
 ];
 
+// Todos os estágios usam a mesma família dourada (identidade única).
+const COR_DOURADA = {
+  text: 'text-gold',
+  bg: 'bg-gold',
+  glow: 'shadow-[0_0_40px_rgba(212,175,55,0.25)]',
+  light: 'bg-gold/[0.06]',
+};
 const COR_CLASSES = {
-  emerald: { text: 'text-emerald-500', bg: 'bg-emerald-500', glow: 'shadow-emerald-500/30', light: 'bg-emerald-50' },
-  teal: { text: 'text-teal-500', bg: 'bg-teal-500', glow: 'shadow-teal-500/30', light: 'bg-teal-50' },
-  cyan: { text: 'text-cyan-500', bg: 'bg-cyan-500', glow: 'shadow-cyan-500/30', light: 'bg-cyan-50' },
-  blue: { text: 'text-blue-500', bg: 'bg-blue-500', glow: 'shadow-blue-500/30', light: 'bg-blue-50' },
-  indigo: { text: 'text-indigo-500', bg: 'bg-indigo-500', glow: 'shadow-indigo-500/30', light: 'bg-indigo-50' },
+  emerald: COR_DOURADA,
+  teal: COR_DOURADA,
+  cyan: COR_DOURADA,
+  blue: COR_DOURADA,
+  indigo: COR_DOURADA,
 };
 
 // ============================================
@@ -120,14 +127,14 @@ function extrairJson(texto) {
 // COMPONENTES VISUAIS AUXILIARES
 // ============================================
 const Particula = ({ delay, x, y, tamanho }) => (
-  <div className="absolute rounded-full bg-emerald-400/20 animate-pulse" style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms`, animationDuration: '3s' }} />
+  <div className="absolute rounded-full bg-gold/20 animate-pulse" style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms`, animationDuration: '3s' }} />
 );
 
 const BarraProgresso = ({ progresso, cor }) => {
   const c = COR_CLASSES[cor] ?? COR_CLASSES.emerald;
   return (
     <div className="relative w-full">
-      <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+      <div className="h-3 bg-ink-700 rounded-full overflow-hidden">
         <div className={`h-full ${c.bg} rounded-full transition-all duration-500 ease-out relative`} style={{ width: `${progresso}%` }}>
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
         </div>
@@ -135,13 +142,13 @@ const BarraProgresso = ({ progresso, cor }) => {
       <div className="flex justify-between mt-2">
         {ESTAGIOS.slice(0, -1).map((est) => (
           <div key={est.id} className={`flex flex-col items-center transition-all duration-300 ${progresso >= est.min ? 'opacity-100' : 'opacity-30'}`}>
-            <div className={`w-2 h-2 rounded-full ${progresso >= est.max ? c.bg : 'bg-slate-300'}`} />
-            <span className="text-[10px] text-slate-400 mt-1 hidden sm:block">{est.min}%</span>
+            <div className={`w-2 h-2 rounded-full ${progresso >= est.max ? c.bg : 'bg-ink-600'}`} />
+            <span className="text-[10px] text-parchment/50 mt-1 hidden sm:block">{est.min}%</span>
           </div>
         ))}
         <div className={`flex flex-col items-center transition-all duration-300 ${progresso >= 100 ? 'opacity-100' : 'opacity-30'}`}>
-          <div className={`w-2 h-2 rounded-full ${progresso >= 100 ? c.bg : 'bg-slate-300'}`} />
-          <span className="text-[10px] text-slate-400 mt-1 hidden sm:block">100%</span>
+          <div className={`w-2 h-2 rounded-full ${progresso >= 100 ? c.bg : 'bg-ink-600'}`} />
+          <span className="text-[10px] text-parchment/50 mt-1 hidden sm:block">100%</span>
         </div>
       </div>
     </div>
@@ -149,18 +156,18 @@ const BarraProgresso = ({ progresso, cor }) => {
 };
 
 const LogProcessamento = ({ logs }) => (
-  <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto">
-    <div className="flex items-center gap-2 text-slate-500 mb-2 border-b border-slate-800 pb-2">
+  <div className="bg-ink-900 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto">
+    <div className="flex items-center gap-2 text-parchment/40 mb-2 border-b border-line pb-2">
       <Activity size={12} />
       <span>console.log — Cérebro Tributário v2.1 (Conectado via API)</span>
     </div>
     {logs.map((log, idx) => (
-      <div key={idx} className={`flex items-start gap-2 transition-all duration-300 ${idx === logs.length - 1 ? 'text-emerald-400' : 'text-slate-400'}`}>
-        <span className="text-slate-600 flex-shrink-0">[{log.tempo}]</span>
-        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-emerald-400' : ''}>{log.mensagem}</span>
+      <div key={idx} className={`flex items-start gap-2 transition-all duration-300 ${idx === logs.length - 1 ? 'text-gold' : 'text-parchment/50'}`}>
+        <span className="text-parchment/30 flex-shrink-0">[{log.tempo}]</span>
+        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-gold' : ''}>{log.mensagem}</span>
       </div>
     ))}
-    <div className="animate-pulse text-emerald-500">_</div>
+    <div className="animate-pulse text-gold">_</div>
   </div>
 );
 
@@ -360,20 +367,20 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
   // ---- ALERTA DE DADOS INSUFICIENTES: a IA não inventa — pede mais documentos --
   if (alertaDados) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
           <div className="w-16 h-16 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-5">
             <AlertTriangle size={32} className="text-amber-400" />
           </div>
-          <h1 className="text-xl font-bold text-white">Dados insuficientes</h1>
-          <p className="text-sm text-slate-300 mt-3 whitespace-pre-wrap">{alertaDados}</p>
-          <p className="text-xs text-slate-500 mt-3">
+          <h1 className="text-xl font-bold text-parchment">Dados insuficientes</h1>
+          <p className="text-sm text-parchment/70 mt-3 whitespace-pre-wrap">{alertaDados}</p>
+          <p className="text-xs text-parchment/40 mt-3">
             A IA está restrita aos documentos enviados e não preenche lacunas por conta própria.
             Anexe o documento que traz a data/informação faltante e rode de novo.
           </p>
           <button
             onClick={() => onErro?.(new Error('dados_insuficientes'))}
-            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 text-sm font-semibold rounded-xl transition-colors"
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-ink text-sm font-semibold rounded-xl transition-colors"
           >
             <ArrowLeft size={16} />
             Voltar e anexar mais documentos
@@ -386,19 +393,19 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
   // ---- Estado de ERRO: permanece na tela, sem "piscar" de volta ao upload ----
   if (erroFatal) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-red-500/30 shadow-2xl p-8 text-center">
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-red-500/30 shadow-2xl p-8 text-center">
           <div className="w-16 h-16 rounded-2xl bg-red-500/15 flex items-center justify-center mx-auto mb-5">
             <AlertTriangle size={32} className="text-red-400" />
           </div>
-          <h1 className="text-xl font-bold text-white">Não foi possível concluir a análise</h1>
-          <p className="text-sm text-slate-400 mt-2">{erroFatal}</p>
-          <p className="text-xs text-slate-600 mt-3">
+          <h1 className="text-xl font-bold text-parchment">Não foi possível concluir a análise</h1>
+          <p className="text-sm text-parchment/50 mt-2">{erroFatal}</p>
+          <p className="text-xs text-parchment/30 mt-3">
             Tente novamente. Se persistir, reduza a quantidade/tamanho dos documentos.
           </p>
           <button
             onClick={() => onErro?.(new Error(erroFatal))}
-            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-white text-slate-900 text-sm font-semibold rounded-xl transition-colors"
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 border border-line text-parchment/80 hover:border-gold/40 hover:text-gold text-sm font-semibold rounded-xl transition-colors"
           >
             <ArrowLeft size={16} />
             Voltar e revisar os documentos
@@ -409,79 +416,79 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-noir flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0">
         {particulas.map((p, i) => <Particula key={i} {...p} />)}
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
       </div>
 
       <div className="relative z-10 w-full max-w-2xl">
-        <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+        <div className="bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-line shadow-2xl overflow-hidden">
 
           <div className="relative px-8 pt-10 pb-6 text-center">
             <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full ${corAtual.bg} opacity-10 blur-3xl transition-all duration-1000`} />
             <div className="relative inline-block">
-              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-emerald-500/20' : 'bg-slate-800'} border border-slate-700 transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
-                {concluido ? <CheckCircle2 size={40} className="text-emerald-400" /> : <Brain size={40} className={`${corAtual.text} transition-colors duration-500`} />}
+              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-gold/15' : 'bg-ink-800'} border border-line transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
+                {concluido ? <CheckCircle2 size={40} className="text-gold" /> : <Brain size={40} className={`${corAtual.text} transition-colors duration-500`} />}
               </div>
               {pulsando && (
                 <>
-                  <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/20 animate-ping" style={{ animationDuration: '2s' }} />
-                  <div className="absolute inset-0 rounded-2xl border border-emerald-500/10 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }} />
+                  <div className="absolute inset-0 rounded-2xl border-2 border-gold/20 animate-ping" style={{ animationDuration: '2s' }} />
+                  <div className="absolute inset-0 rounded-2xl border border-gold/10 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }} />
                 </>
               )}
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">{concluido ? 'Pronto!' : 'Cérebro Tributário'}</h1>
-            <p className="text-slate-400 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
+            <h1 className="text-2xl font-bold text-parchment mb-2">{concluido ? 'Pronto!' : 'Cérebro Tributário'}</h1>
+            <p className="text-parchment/50 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
           </div>
 
           <div className="px-8 pb-8 space-y-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-300">{estagio.frase}</span>
+                <span className="text-sm font-medium text-parchment/70">{estagio.frase}</span>
                 <span className={`text-sm font-bold ${corAtual.text} tabular-nums`}>{Math.floor(progresso)}%</span>
               </div>
               <BarraProgresso progresso={progresso} cor={estagio.cor} />
             </div>
 
-            <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${corAtual.light} border-slate-700/50`}>
+            <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${corAtual.light} border-line`}>
               <div className={`p-2 rounded-lg ${corAtual.bg} bg-opacity-20`}>
                 <IconeAtual size={18} className={corAtual.text} />
               </div>
               <div>
-                <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Etapa {estagio.id} de {ESTAGIOS.length}</p>
-                <p className="text-sm text-slate-300 mt-0.5">{estagio.detalhe}</p>
+                <p className="text-xs text-parchment/40 uppercase tracking-wider font-semibold">Etapa {estagio.id} de {ESTAGIOS.length}</p>
+                <p className="text-sm text-parchment/70 mt-0.5">{estagio.detalhe}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
-                <Zap size={16} className="text-amber-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">{payload?.documentos?.length || 0}</p>
-                <p className="text-[10px] text-slate-500 uppercase">Documentos</p>
+              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
+                <Zap size={16} className="text-gold mx-auto mb-1" />
+                <p className="text-lg font-bold text-parchment">{payload?.documentos?.length || 0}</p>
+                <p className="text-[10px] text-parchment/40 uppercase">Documentos</p>
               </div>
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
-                <ShieldCheck size={16} className="text-emerald-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">CTN/LEF</p>
-                <p className="text-[10px] text-slate-500 uppercase">Base Legal</p>
+              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
+                <ShieldCheck size={16} className="text-gold mx-auto mb-1" />
+                <p className="text-lg font-bold text-parchment">CTN/LEF</p>
+                <p className="text-[10px] text-parchment/40 uppercase">Base Legal</p>
               </div>
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
+              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
                 <Brain size={16} className="text-blue-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">Backend</p>
-                <p className="text-[10px] text-slate-500 uppercase">API Segura</p>
+                <p className="text-lg font-bold text-parchment">Backend</p>
+                <p className="text-[10px] text-parchment/40 uppercase">API Segura</p>
               </div>
             </div>
 
             <LogProcessamento logs={logs} />
             <div ref={logsEndRef} />
 
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
-              <div className={`w-1.5 h-1.5 rounded-full ${pulsando ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'}`} />
+            <div className="flex items-center justify-center gap-2 text-xs text-parchment/30">
+              <div className={`w-1.5 h-1.5 rounded-full ${pulsando ? 'bg-gold animate-pulse' : 'bg-gold'}`} />
               <span>{concluido ? 'Processo finalizado' : 'Processamento ativo — aguardando resposta da IA'}</span>
             </div>
           </div>
         </div>
-        <p className="text-center text-slate-600 text-xs mt-6">"Da decadência à prescrição, o TributÁgil é a sua solução."</p>
+        <p className="text-center text-parchment/30 text-xs mt-6">"Da decadência à prescrição, o TributÁgil é a sua solução."</p>
       </div>
 
       <style>{`

@@ -33,16 +33,16 @@ export default class ErrorBoundary extends React.Component {
     if (!this.state.erro) return this.props.children;
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-          <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle size={26} className="text-red-500" />
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-ink-800/70 rounded-2xl border border-line p-8 text-center">
+          <div className="w-14 h-14 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle size={26} className="text-red-400" />
           </div>
-          <h1 className="text-lg font-bold text-slate-800">Algo deu errado ao exibir esta tela</h1>
-          <p className="text-sm text-slate-500 mt-2">
+          <h1 className="text-lg font-bold text-parchment">Algo deu errado ao exibir esta tela</h1>
+          <p className="text-sm text-parchment/50 mt-2">
             O erro foi registrado. Você pode voltar e tentar novamente sem perder o acesso ao sistema.
           </p>
-          <pre className="mt-4 text-left text-xs text-slate-400 bg-slate-50 rounded-lg p-3 overflow-x-auto">
+          <pre className="mt-4 text-left text-xs text-parchment/40 bg-ink-900 rounded-lg p-3 overflow-x-auto">
             {String(this.state.erro?.message || this.state.erro)}
           </pre>
           <button
@@ -50,7 +50,7 @@ export default class ErrorBoundary extends React.Component {
               this.setState({ erro: null });
               this.props.onReset?.();
             }}
-            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors"
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
           >
             <RotateCcw size={16} />
             Voltar ao início

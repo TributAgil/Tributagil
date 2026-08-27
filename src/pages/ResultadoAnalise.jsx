@@ -160,10 +160,10 @@ const RESULTADO_MOCK = {
 // ============================================
 const BadgeSeveridade = ({ tipo }) => {
   const configs = {
-    favoravel: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: 'Favorável', icon: CheckCircle2 },
-    atencao: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', label: 'Atenção', icon: AlertTriangle },
-    neutro: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', label: 'Neutro', icon: Shield },
-    desfavoravel: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', label: 'Desfavorável', icon: AlertTriangle },
+    favoravel: { bg: 'bg-gold/10', text: 'text-gold', border: 'border-gold/30', label: 'Favorável', icon: CheckCircle2 },
+    atencao: { bg: 'bg-amber-500/10', text: 'text-amber-300', border: 'border-amber-500/30', label: 'Atenção', icon: AlertTriangle },
+    neutro: { bg: 'bg-white/5', text: 'text-parchment/60', border: 'border-line', label: 'Neutro', icon: Shield },
+    desfavoravel: { bg: 'bg-red-500/10', text: 'text-red-300', border: 'border-red-500/30', label: 'Desfavorável', icon: AlertTriangle },
   };
 
   const config = configs[tipo] || configs.neutro;
@@ -182,45 +182,45 @@ const BadgeSeveridade = ({ tipo }) => {
 // ============================================
 const CardConclusao = ({ conclusao, expandido, onToggle }) => {
   return (
-    <div className={`bg-white rounded-xl border transition-all duration-300 overflow-hidden ${
-      conclusao.severidade === 'favoravel' ? 'border-emerald-200 shadow-sm shadow-emerald-50' :
-      conclusao.severidade === 'atencao' ? 'border-amber-200 shadow-sm shadow-amber-50' :
-      'border-slate-200'
+    <div className={`bg-ink-800/50 rounded-xl border transition-all duration-300 overflow-hidden ${
+      conclusao.severidade === 'favoravel' ? 'border-gold/30 shadow-sm shadow-none' :
+      conclusao.severidade === 'atencao' ? 'border-amber-500/30 shadow-sm shadow-none' :
+      'border-line'
     }`}>
       <button
         onClick={onToggle}
-        className="w-full px-5 py-4 flex items-start gap-4 text-left hover:bg-slate-50/50 transition-colors"
+        className="w-full px-5 py-4 flex items-start gap-4 text-left hover:bg-white/[0.03] transition-colors"
       >
         <div className={`
           w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
-          ${conclusao.severidade === 'favoravel' ? 'bg-emerald-100' :
-            conclusao.severidade === 'atencao' ? 'bg-amber-100' :
-            'bg-slate-100'
+          ${conclusao.severidade === 'favoravel' ? 'bg-gold/15' :
+            conclusao.severidade === 'atencao' ? 'bg-amber-500/15' :
+            'bg-ink-700'
           }
         `}>
           <Scale size={18} className={
-            conclusao.severidade === 'favoravel' ? 'text-emerald-600' :
-            conclusao.severidade === 'atencao' ? 'text-amber-600' :
-            'text-slate-500'
+            conclusao.severidade === 'favoravel' ? 'text-gold' :
+            conclusao.severidade === 'atencao' ? 'text-amber-400' :
+            'text-parchment/50'
           } />
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-semibold text-slate-800">{conclusao.titulo}</h4>
+            <h4 className="font-semibold text-parchment">{conclusao.titulo}</h4>
             <BadgeSeveridade tipo={conclusao.severidade} />
           </div>
-          <p className="text-sm text-slate-500 mt-1 line-clamp-2">{conclusao.resumo}</p>
+          <p className="text-sm text-parchment/50 mt-1 line-clamp-2">{conclusao.resumo}</p>
           
           <div className="flex items-center gap-4 mt-2">
             <div className="flex items-center gap-1.5">
-              <Brain size={12} className="text-slate-400" />
-              <span className="text-xs text-slate-400">Confiança: {conclusao.confianca}%</span>
-              <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <Brain size={12} className="text-parchment/40" />
+              <span className="text-xs text-parchment/40">Confiança: {conclusao.confianca}%</span>
+              <div className="w-16 h-1.5 bg-ink-700 rounded-full overflow-hidden">
                 <div 
                   className={`h-full rounded-full ${
-                    conclusao.confianca >= 90 ? 'bg-emerald-500' :
-                    conclusao.confianca >= 75 ? 'bg-amber-500' : 'bg-red-500'
+                    conclusao.confianca >= 90 ? 'bg-gold' :
+                    conclusao.confianca >= 75 ? 'bg-amber-500/100' : 'bg-red-500/100'
                   }`}
                   style={{ width: `${conclusao.confianca}%` }}
                 />
@@ -229,23 +229,23 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
           </div>
         </div>
 
-        <div className="text-slate-400 mt-1">
+        <div className="text-parchment/40 mt-1">
           {expandido ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
       </button>
 
       {expandido && (
-        <div className="px-5 pb-5 pt-2 border-t border-slate-100 bg-slate-50/30">
+        <div className="px-5 pb-5 pt-2 border-t border-line bg-white/[0.02]">
           <div className="space-y-3">
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Análise Detalhada</p>
-              <p className="text-sm text-slate-700 leading-relaxed">{conclusao.resumo}</p>
+              <p className="text-xs font-semibold text-parchment/50 uppercase tracking-wider mb-1">Análise Detalhada</p>
+              <p className="text-sm text-parchment/80 leading-relaxed">{conclusao.resumo}</p>
             </div>
-            <div className="flex items-start gap-2 p-3 bg-slate-100 rounded-lg">
-              <BookOpen size={14} className="text-slate-500 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-2 p-3 bg-ink-700 rounded-lg">
+              <BookOpen size={14} className="text-parchment/50 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-xs font-semibold text-slate-500">Fundamento Legal</p>
-                <p className="text-sm text-slate-700">{conclusao.fundamento_legal}</p>
+                <p className="text-xs font-semibold text-parchment/50">Fundamento Legal</p>
+                <p className="text-sm text-parchment/80">{conclusao.fundamento_legal}</p>
               </div>
             </div>
           </div>
@@ -260,10 +260,10 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
 // ============================================
 const CardFato = ({ fato }) => {
   const relevanciaCores = {
-    critica: 'bg-red-50 text-red-700 border-red-200',
-    alta: 'bg-amber-50 text-amber-700 border-amber-200',
-    media: 'bg-blue-50 text-blue-700 border-blue-200',
-    baixa: 'bg-slate-50 text-slate-600 border-slate-200',
+    critica: 'bg-red-500/10 text-red-300 border-red-500/30',
+    alta: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    media: 'bg-white/5 text-parchment/70 border-line',
+    baixa: 'bg-white/5 text-parchment/60 border-line',
   };
 
   const categoriaIcones = {
@@ -275,23 +275,23 @@ const CardFato = ({ fato }) => {
   const Icon = categoriaIcones[fato.categoria] || FileText;
 
   return (
-    <div className="flex gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition-colors">
+    <div className="flex gap-4 p-4 bg-ink-800/50 rounded-xl border border-line hover:border-gold/40 transition-colors">
       <div className="flex flex-col items-center gap-1">
-        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <Icon size={18} className="text-slate-500" />
+        <div className="w-10 h-10 rounded-lg bg-ink-700 flex items-center justify-center">
+          <Icon size={18} className="text-parchment/50" />
         </div>
-        <div className="w-px flex-1 bg-slate-200" />
+        <div className="w-px flex-1 bg-ink-600" />
       </div>
 
       <div className="flex-1 min-w-0 pb-2">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="text-sm font-bold text-slate-800">{fato.data}</span>
+          <span className="text-sm font-bold text-parchment">{fato.data}</span>
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase ${relevanciaCores[fato.relevancia]}`}>
             {fato.relevancia}
           </span>
         </div>
-        <p className="text-sm text-slate-700 leading-relaxed">{fato.descricao}</p>
-        <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-400">
+        <p className="text-sm text-parchment/80 leading-relaxed">{fato.descricao}</p>
+        <div className="flex items-center gap-1.5 mt-2 text-xs text-parchment/40">
           <FileText size={12} />
           <span>Fonte: {fato.fonte}</span>
         </div>
@@ -314,17 +314,17 @@ const CardRaciocinio = ({ raciocinio, index }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+    <div className="bg-ink-800/50 rounded-xl border border-line p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700">
+          <div className="w-7 h-7 rounded-lg bg-gold/15 flex items-center justify-center text-xs font-bold text-gold">
             {index + 1}
           </div>
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Silogismo Jurídico</span>
+          <span className="text-xs font-semibold text-parchment/40 uppercase tracking-wider">Silogismo Jurídico</span>
         </div>
         <button
           onClick={copiarTexto}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-indigo-600 transition-colors px-2 py-1 rounded-lg hover:bg-indigo-50"
+          className="flex items-center gap-1.5 text-xs text-parchment/40 hover:text-gold transition-colors px-2 py-1 rounded-lg hover:bg-gold/10"
         >
           {copiado ? <Check size={13} /> : <Copy size={13} />}
           {copiado ? 'Copiado' : 'Copiar'}
@@ -332,24 +332,24 @@ const CardRaciocinio = ({ raciocinio, index }) => {
       </div>
 
       <div className="space-y-3">
-        <div className="p-3 bg-slate-50 rounded-lg border-l-3 border-l-slate-300">
-          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Premissa (Major)</p>
-          <p className="text-sm text-slate-700 leading-relaxed">{raciocinio.premissa}</p>
+        <div className="p-3 bg-white/5 rounded-lg border-l-3 border-l-line">
+          <p className="text-[10px] font-bold text-parchment/40 uppercase mb-1">Premissa (Major)</p>
+          <p className="text-sm text-parchment/80 leading-relaxed">{raciocinio.premissa}</p>
         </div>
 
-        <div className="p-3 bg-indigo-50/50 rounded-lg border-l-3 border-l-indigo-300">
-          <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1">Aplicação ao Caso Concreto (Minor)</p>
-          <p className="text-sm text-slate-700 leading-relaxed">{raciocinio.aplicacao}</p>
+        <div className="p-3 bg-gold/[0.06] rounded-lg border-l-3 border-l-gold/50">
+          <p className="text-[10px] font-bold text-gold/70 uppercase mb-1">Aplicação ao Caso Concreto (Minor)</p>
+          <p className="text-sm text-parchment/80 leading-relaxed">{raciocinio.aplicacao}</p>
         </div>
 
-        <div className="p-3 bg-emerald-50/50 rounded-lg border-l-3 border-l-emerald-400">
-          <p className="text-[10px] font-bold text-emerald-600 uppercase mb-1">Conclusão Lógica</p>
-          <p className="text-sm text-slate-800 font-medium leading-relaxed">{raciocinio.conclusao_logica}</p>
+        <div className="p-3 bg-gold/[0.06] rounded-lg border-l-3 border-l-gold">
+          <p className="text-[10px] font-bold text-gold uppercase mb-1">Conclusão Lógica</p>
+          <p className="text-sm text-parchment font-medium leading-relaxed">{raciocinio.conclusao_logica}</p>
         </div>
 
-        <div className="flex items-start gap-2 pt-2 border-t border-slate-100">
-          <Gavel size={14} className="text-slate-400 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-slate-500 italic">{raciocinio.referencia}</p>
+        <div className="flex items-start gap-2 pt-2 border-t border-line">
+          <Gavel size={14} className="text-parchment/40 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-parchment/50 italic">{raciocinio.referencia}</p>
         </div>
       </div>
     </div>
@@ -453,20 +453,20 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+    <div className="min-h-screen bg-noir">
+      <header className="bg-ink-800/50 border-b border-line sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={onVoltar}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                className="p-2 text-parchment/40 hover:text-parchment hover:bg-ink-700 rounded-lg transition-all"
               >
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-slate-800">Resultado da Análise</h1>
-                <p className="text-sm text-slate-500">
+                <h1 className="text-xl font-bold text-parchment">Resultado da Análise</h1>
+                <p className="text-sm text-parchment/50">
                   {resultado.metadata.processo !== 'Não identificado'
                     ? `Processo ${resultado.metadata.processo} • `
                     : ''}
@@ -478,7 +478,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => window.print()}
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
               >
                 <Printer size={16} />
                 Imprimir
@@ -486,7 +486,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               <button
                 onClick={handleDownloadParecer}
                 disabled={baixando}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-60"
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
               >
                 {baixando ? (
                   <>
@@ -505,24 +505,24 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </header>
 
-      <div className="bg-white border-b border-slate-200">
+      <div className="bg-ink-800/50 border-b border-line">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parte Autora</p>
-              <p className="text-sm font-medium text-slate-700 truncate">{resultado.metadata.parte_autora}</p>
+              <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Parte Autora</p>
+              <p className="text-sm font-medium text-parchment/80 truncate">{resultado.metadata.parte_autora}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parte Ré</p>
-              <p className="text-sm font-medium text-slate-700 truncate">{resultado.metadata.parte_reu}</p>
+              <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Parte Ré</p>
+              <p className="text-sm font-medium text-parchment/80 truncate">{resultado.metadata.parte_reu}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor da Causa</p>
-              <p className="text-sm font-medium text-emerald-700">{resultado.metadata.valor_causa}</p>
+              <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Valor da Causa</p>
+              <p className="text-sm font-medium text-gold">{resultado.metadata.valor_causa}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Local</p>
-              <p className="text-sm font-medium text-slate-700 truncate" title={resultado.metadata.local}>
+              <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Local</p>
+              <p className="text-sm font-medium text-parchment/80 truncate" title={resultado.metadata.local}>
                 {resultado.metadata.local}
               </p>
             </div>
@@ -530,7 +530,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <div className="bg-white border-b border-slate-200 sticky top-[73px] z-30">
+      <div className="bg-ink-800/50 border-b border-line sticky top-[73px] z-30">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex gap-1 -mb-px">
             {abas.map((aba) => {
@@ -543,8 +543,8 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
                   className={`
                     flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all
                     ${ativa
-                      ? 'border-emerald-500 text-emerald-700 bg-emerald-50/50'
-                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                      ? 'border-gold text-gold bg-gold/[0.06]'
+                      : 'border-transparent text-parchment/50 hover:text-parchment hover:bg-white/5'
                     }
                   `}
                 >
@@ -552,7 +552,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
                   {aba.label}
                   <span className={`
                     text-xs px-1.5 py-0.5 rounded-full
-                    ${ativa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}
+                    ${ativa ? 'bg-gold/15 text-gold' : 'bg-ink-700 text-parchment/50'}
                   `}>
                     {aba.count}
                   </span>
@@ -567,12 +567,12 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         {abaAtiva === 'conclusoes' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-bold text-slate-800">Conclusões da IA</h2>
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <CheckCircle2 size={16} className="text-emerald-500" />
+              <h2 className="text-lg font-bold text-parchment">Conclusões da IA</h2>
+              <div className="flex items-center gap-2 text-sm text-parchment/50">
+                <CheckCircle2 size={16} className="text-gold" />
                 <span>{resultado.conclusoes?.filter(c => c.severidade === 'favoravel').length || 0} favoráveis</span>
-                <span className="text-slate-300">•</span>
-                <AlertTriangle size={16} className="text-amber-500" />
+                <span className="text-parchment/30">•</span>
+                <AlertTriangle size={16} className="text-amber-400" />
                 <span>{resultado.conclusoes?.filter(c => c.severidade === 'atencao').length || 0} atenção</span>
               </div>
             </div>
@@ -592,8 +592,8 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         {abaAtiva === 'fatos' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-bold text-slate-800">Fatos Importantes Extraídos</h2>
-              <span className="text-sm text-slate-500">Timeline cronológica</span>
+              <h2 className="text-lg font-bold text-parchment">Fatos Importantes Extraídos</h2>
+              <span className="text-sm text-parchment/50">Timeline cronológica</span>
             </div>
             <div className="space-y-3">
               {resultado.fatos_importantes?.map((fato) => (
@@ -606,8 +606,8 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         {abaAtiva === 'raciocinio' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-bold text-slate-800">Raciocínio Lógico da IA</h2>
-              <span className="text-sm text-slate-500">Silogismos jurídicos aplicados</span>
+              <h2 className="text-lg font-bold text-parchment">Raciocínio Lógico da IA</h2>
+              <span className="text-sm text-parchment/50">Silogismos jurídicos aplicados</span>
             </div>
             <div className="space-y-4">
               {resultado.raciocinio?.map((r, i) => (
@@ -620,18 +620,18 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         {abaAtiva === 'recomendacoes' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-bold text-slate-800">Recomendações Estratégicas</h2>
-              <span className="text-sm text-slate-500">Ações sugeridas pela IA</span>
+              <h2 className="text-lg font-bold text-parchment">Recomendações Estratégicas</h2>
+              <span className="text-sm text-parchment/50">Ações sugeridas pela IA</span>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <div className="bg-ink-800/50 rounded-xl border border-line p-6">
               <div className="space-y-4">
                 {resultado.recomendacoes?.map((rec, i) => (
                   <div key={i} className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-emerald-700">{i + 1}</span>
+                    <div className="w-8 h-8 rounded-lg bg-gold/15 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold text-gold">{i + 1}</span>
                     </div>
                     <div className="flex-1 pt-1">
-                      <p className="text-sm text-slate-700 leading-relaxed">{rec}</p>
+                      <p className="text-sm text-parchment/80 leading-relaxed">{rec}</p>
                     </div>
                   </div>
                 ))}
@@ -642,12 +642,12 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
       </main>
 
       <div className="max-w-6xl mx-auto px-6 pb-12">
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-8 text-center text-white shadow-xl">
+        <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-8 text-center text-ink shadow-xl">
           <h3 className="text-xl font-bold mb-2">Precisa de uma nova análise?</h3>
-          <p className="text-emerald-100 mb-6">Processe novos documentos e obtenha insights tributários em segundos.</p>
+          <p className="text-ink/70 mb-6">Processe novos documentos e obtenha insights tributários em segundos.</p>
           <button
             onClick={onNovaAnalise}
-            className="px-6 py-3 bg-white text-emerald-700 font-semibold rounded-xl hover:bg-emerald-50 transition-all shadow-lg"
+            className="px-6 py-3 bg-ink-800/50 text-gold font-semibold rounded-xl hover:bg-gold/10 transition-all shadow-lg"
           >
             Iniciar Nova Análise
           </button>

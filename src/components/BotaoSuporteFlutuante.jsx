@@ -14,13 +14,13 @@ const BotaoSuporteFlutuante = () => {
       {/* Botão flutuante */}
       <button
         onClick={() => setModalAberto(true)}
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full shadow-xl shadow-emerald-600/30 flex items-center justify-center transition-all hover:scale-110 hover:shadow-2xl group"
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 bg-gold hover:bg-gold-soft text-white rounded-full shadow-xl shadow-[var(--shadow-gold)] flex items-center justify-center transition-all hover:scale-110 hover:shadow-2xl group"
         title="Central de Suporte"
       >
         {modalAberto ? (
           <X size={22} />
         ) : (
-          <HelpCircle size={24} className="group-hover:rotate-12 transition-transform" />
+          <HelpCircle size={24} className="group-hover:rotate-12 text-ink transition-transform" />
         )}
       </button>
 

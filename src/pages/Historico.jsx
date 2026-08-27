@@ -40,51 +40,51 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
   const [menuAberto, setMenuAberto] = useState(false);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all group">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between">
+    <div className="bg-ink-800/50 rounded-xl border border-line hover:border-gold/40 hover:shadow-md transition-all group">
+      <div className="px-5 py-4 border-b border-line flex items-start justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-emerald-50 transition-colors flex-shrink-0">
-            <FolderOpen size={18} className="text-slate-500 group-hover:text-emerald-600 transition-colors" />
+          <div className="w-10 h-10 rounded-xl bg-ink-700 flex items-center justify-center group-hover:bg-gold/10 transition-colors flex-shrink-0">
+            <FolderOpen size={18} className="text-parchment/50 group-hover:text-gold transition-colors" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-800 truncate">{item.titulo}</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 flex-shrink-0">
+              <span className="text-sm font-semibold text-parchment truncate">{item.titulo}</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gold/10 text-gold flex-shrink-0">
                 <CheckCircle2 size={10} />
                 Concluída
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5 font-mono truncate">#{String(item.id).slice(0, 8)}</p>
+            <p className="text-xs text-parchment/40 mt-0.5 font-mono truncate">#{String(item.id).slice(0, 8)}</p>
           </div>
         </div>
 
         <div className="relative flex-shrink-0">
           <button
             onClick={() => setMenuAberto((v) => !v)}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+            className="p-1.5 text-parchment/40 hover:text-parchment hover:bg-ink-700 rounded-lg transition-all"
           >
             <MoreVertical size={16} />
           </button>
           {menuAberto && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl border border-slate-200 shadow-xl z-20 py-1 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-ink-800/50 rounded-xl border border-line shadow-xl z-20 py-1 overflow-hidden">
                 <button
                   onClick={() => { onReabrir(item); setMenuAberto(false); }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
                 >
                   <Eye size={14} /> Reabrir análise
                 </button>
                 <button
                   onClick={() => { onBaixar(item); setMenuAberto(false); }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
                 >
                   <Download size={14} /> Baixar parecer
                 </button>
-                <div className="border-t border-slate-100 my-1" />
+                <div className="border-t border-line my-1" />
                 <button
                   onClick={() => { onExcluir(item); setMenuAberto(false); }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
                 >
                   <Trash2 size={14} /> Excluir
                 </button>
@@ -97,17 +97,17 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
       <div className="px-5 py-4 space-y-3">
         <div className="flex items-center gap-4 flex-wrap">
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Documentos</p>
-            <p className="text-sm text-slate-700">{item.documentos_count} arquivo(s)</p>
+            <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Documentos</p>
+            <p className="text-sm text-parchment/80">{item.documentos_count} arquivo(s)</p>
           </div>
           {item.confianca_media != null && (
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Confiança média</p>
+              <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Confiança média</p>
               <div className="flex items-center gap-1.5">
-                <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${item.confianca_media}%` }} />
+                <div className="w-12 h-1.5 bg-ink-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-gold rounded-full" style={{ width: `${item.confianca_media}%` }} />
                 </div>
-                <span className="text-xs text-slate-600">{item.confianca_media}%</span>
+                <span className="text-xs text-parchment/60">{item.confianca_media}%</span>
               </div>
             </div>
           )}
@@ -115,41 +115,41 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
 
         <div className="flex items-center gap-2 flex-wrap">
           {item.tem_prescricao && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-100">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gold/10 text-gold text-xs font-medium border border-gold/25">
               <Scale size={10} /> Prescrição
             </span>
           )}
           {item.tem_decadencia && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 text-parchment/70 text-xs font-medium border border-line">
               <Clock size={10} /> Decadência
             </span>
           )}
           {!item.tem_prescricao && !item.tem_decadencia && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-50 text-slate-600 text-xs font-medium border border-slate-100">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 text-parchment/60 text-xs font-medium border border-line">
               <AlertTriangle size={10} /> Sem prescrição/decadência
             </span>
           )}
         </div>
 
-        <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 rounded-lg p-3 line-clamp-3">
+        <p className="text-sm text-parchment/60 leading-relaxed bg-white/5 rounded-lg p-3 line-clamp-3">
           {item.resumo}
         </p>
 
         <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs text-parchment/40">
             <Calendar size={12} />
             <span>{formatarDataHora(item.created_at)}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onReabrir(item)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-lg transition-colors"
             >
               <Eye size={12} /> Reabrir
             </button>
             <button
               onClick={() => onBaixar(item)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gold bg-gold/10 hover:bg-gold/15 rounded-lg transition-colors"
             >
               <Download size={12} /> Parecer
             </button>
@@ -184,22 +184,22 @@ const ModalLGPD = ({ aberto, onFechar, onConfirmar, tipo }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onFechar} />
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+      <div className="relative bg-ink-800/50 rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
-            <AlertTriangle size={24} className="text-red-600" />
+          <div className="w-12 h-12 rounded-xl bg-red-500/15 flex items-center justify-center">
+            <AlertTriangle size={24} className="text-red-400" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-slate-800">{config.titulo}</h3>
-            <p className="text-xs text-slate-500">Conformidade LGPD</p>
+            <h3 className="text-lg font-bold text-parchment">{config.titulo}</h3>
+            <p className="text-xs text-parchment/50">Conformidade LGPD</p>
           </div>
         </div>
 
-        <p className="text-sm text-slate-600 leading-relaxed mb-2">{config.descricao}</p>
+        <p className="text-sm text-parchment/60 leading-relaxed mb-2">{config.descricao}</p>
 
-        <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-100 mb-6">
-          <Lock size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-amber-700">
+        <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/25 mb-6">
+          <Lock size={14} className="text-amber-400 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-amber-300">
             Seus dados são protegidos pelo art. 18 da LGPD. Você tem direito ao esquecimento a qualquer momento.
           </p>
         </div>
@@ -207,13 +207,13 @@ const ModalLGPD = ({ aberto, onFechar, onConfirmar, tipo }) => {
         <div className="flex gap-3">
           <button
             onClick={onFechar}
-            className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+            className="flex-1 py-2.5 text-sm font-medium text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl transition-colors"
           >
             Cancelar
           </button>
           <button
             onClick={onConfirmar}
-            className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-lg shadow-red-600/20 transition-all"
+            className="flex-1 py-2.5 text-sm font-semibold text-ink bg-red-500/100 hover:bg-red-600 rounded-xl shadow-lg shadow-red-600/20 transition-all"
           >
             {config.botao}
           </button>
@@ -303,11 +303,11 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
   const vazio = !carregando && analises.length === 0;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-noir">
       {toast && (
         <div
           className={`fixed top-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl ${
-            toast.tipo === 'sucesso' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'
+            toast.tipo === 'sucesso' ? 'bg-gold text-ink' : 'bg-blue-600 text-ink'
           }`}
         >
           {toast.tipo === 'sucesso' ? <CheckCircle2 size={16} /> : <Lock size={16} />}
@@ -315,31 +315,31 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
         </div>
       )}
 
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+      <header className="bg-ink-800/50 border-b border-line sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Histórico de Resultados</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-xl font-bold text-parchment">Histórico de Resultados</h1>
+            <p className="text-sm text-parchment/50">
               {user?.email ? user.email : 'Suas análises tributárias concluídas'}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={carregar}
-              className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+              className="p-2.5 text-parchment/50 hover:text-parchment hover:bg-ink-700 rounded-xl transition-all"
               title="Atualizar"
             >
               <RefreshCw size={16} className={carregando ? 'animate-spin' : ''} />
             </button>
             <button
               onClick={onNovaAnalise}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/20 transition-all text-sm"
+              className="px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm"
             >
               + Nova Análise
             </button>
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+              className="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-parchment/50 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
               title="Sair da conta"
             >
               <LogOut size={16} />
@@ -349,23 +349,23 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
         </div>
       </header>
 
-      <div className="bg-white border-b border-slate-200">
+      <div className="bg-ink-800/50 border-b border-line">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-parchment/40" />
               <input
                 type="text"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 placeholder="Buscar por título ou conteúdo..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-line bg-white/5 text-sm focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/50 transition-all"
               />
             </div>
             <select
               value={filtroResultado}
               onChange={(e) => setFiltroResultado(e.target.value)}
-              className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              className="px-3 py-2.5 rounded-xl border border-line bg-ink-800/50 text-sm text-parchment/60 focus:outline-none focus:ring-2 focus:ring-gold/20"
             >
               <option value="todos">Todos os resultados</option>
               <option value="prescricao">Com prescrição</option>
@@ -375,7 +375,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
           </div>
 
           <div className="flex items-center justify-between mt-3">
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-parchment/40">
               {carregando
                 ? 'Carregando...'
                 : `${itensFiltrados.length} análise${itensFiltrados.length !== 1 ? 's' : ''}`}
@@ -383,7 +383,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
             {analises.length > 0 && (
               <button
                 onClick={() => setModalLGPD({ tipo: 'excluir_tudo' })}
-                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
               >
                 <Trash2 size={12} /> Excluir meus dados/histórico
               </button>
@@ -393,13 +393,13 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-xl mb-6">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-            <Shield size={18} className="text-emerald-600" />
+        <div className="flex items-center gap-3 p-4 bg-gold/10 border border-gold/25 rounded-xl mb-6">
+          <div className="w-10 h-10 rounded-lg bg-gold/15 flex items-center justify-center flex-shrink-0">
+            <Shield size={18} className="text-gold" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-emerald-800">Seus dados estão protegidos</p>
-            <p className="text-xs text-emerald-600 mt-0.5">
+            <p className="text-sm font-semibold text-gold">Seus dados estão protegidos</p>
+            <p className="text-xs text-gold mt-0.5">
               Documentos e pareceres trafegam criptografados (TLS). Conforme a LGPD, você pode
               solicitar a exclusão completa a qualquer momento.
             </p>
@@ -407,29 +407,29 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
         </div>
 
         {carregando ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-20 text-parchment/40">
             <Loader2 size={28} className="animate-spin mb-3" />
             <p className="text-sm">Carregando seu histórico...</p>
           </div>
         ) : vazio ? (
           <div className="text-center py-16">
-            <FolderOpen size={48} className="text-slate-200 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-500">Nenhuma análise ainda</h3>
-            <p className="text-sm text-slate-400 mt-1">
+            <FolderOpen size={48} className="text-parchment/25 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-parchment/50">Nenhuma análise ainda</h3>
+            <p className="text-sm text-parchment/40 mt-1">
               Assim que você concluir uma análise, ela aparece aqui automaticamente.
             </p>
             <button
               onClick={onNovaAnalise}
-              className="mt-5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors"
+              className="mt-5 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
             >
               Criar primeira análise
             </button>
           </div>
         ) : itensFiltrados.length === 0 ? (
           <div className="text-center py-16">
-            <Search size={40} className="text-slate-200 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-400">Nada encontrado com esses filtros</h3>
-            <p className="text-sm text-slate-400 mt-1">Ajuste a busca ou o filtro de resultado.</p>
+            <Search size={40} className="text-parchment/25 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-parchment/40">Nada encontrado com esses filtros</h3>
+            <p className="text-sm text-parchment/40 mt-1">Ajuste a busca ou o filtro de resultado.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -2,22 +2,12 @@ import React, { useRef, useState } from 'react';
 import { UploadCloud, FileText, X, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import { formatarBytes, MAX_PDF_BYTES, MAX_IMAGEM_BYTES } from '../lib/prepararDocumentos';
 
-// ============================================
-// COMPONENTE: ÁREA DE UPLOAD (drag & drop + seleção)
-// ============================================
-// Só faz: escolher arquivos, validar tipo/tamanho e exibir a lista.
-// O upload para o Supabase Storage (e a compressão de imagens) acontece em
-// `NovaAnalise`, que é a dona do estado. Status de cada arquivo:
-//   'processando' → subindo p/ o Storage    'pronto'    'erro'
-//
-// O objeto entregue por `onAdicionarArquivos` traz o File original em `_file`.
+// ============================================================
+// ÁREA DE UPLOAD (drag & drop) — design system preto + dourado
+// Status por arquivo: 'processando' | 'pronto' | 'erro'
+// ============================================================
 
 const TIPOS_ACEITOS = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
-
-const CORES = {
-  emerald: { base: 'border-emerald-200', ativo: 'border-emerald-500 bg-emerald-50', icone: 'text-emerald-600' },
-  blue: { base: 'border-blue-200', ativo: 'border-blue-500 bg-blue-50', icone: 'text-blue-600' },
-};
 
 function validar(file) {
   if (!TIPOS_ACEITOS.includes(file.type)) {
@@ -43,7 +33,6 @@ export function AreaUpload({
   const [dragLocal, setDragLocal] = useState(false);
   const [erro, setErro] = useState(null);
 
-  const cor = CORES[config.cor] ?? CORES.emerald;
   const arquivosDaArea = arquivos.filter((a) => a.area === config.id);
 
   const processarLista = (fileList) => {
@@ -60,7 +49,7 @@ export function AreaUpload({
         area: config.id,
         status: problema ? 'erro' : 'processando',
         motivoErro: problema ?? undefined,
-        _file: file, // NovaAnalise converte para base64
+        _file: file,
       };
     });
     if (novos.length > 0) onAdicionarArquivos(config.id, novos);
@@ -80,10 +69,10 @@ export function AreaUpload({
   const destacar = dragLocal || isDraggingGlobal;
 
   return (
-    <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+    <section className="rounded-[var(--radius-xl2)] border border-line bg-ink-800/50 p-6">
       <header className="mb-3">
-        <h3 className="text-base font-semibold text-slate-800">{config.titulo}</h3>
-        <p className="text-xs text-slate-500">{config.descricao}</p>
+        <h3 className="font-display text-base font-semibold text-parchment/90">{config.titulo}</h3>
+        <p className="text-xs text-parchment/45">{config.descricao}</p>
       </header>
 
       <button
@@ -95,16 +84,18 @@ export function AreaUpload({
         }}
         onDragLeave={() => setDragLocal(false)}
         onDrop={handleDrop}
-        className={`w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all ${
-          destacar ? cor.ativo : `${cor.base} bg-slate-50/50 hover:bg-slate-50`
+        className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all ${
+          destacar
+            ? 'border-gold/60 bg-gold/[0.06]'
+            : 'border-line bg-ink-900/50 hover:border-gold/30 hover:bg-ink-900'
         }`}
         title={config.tooltip}
       >
-        <UploadCloud size={28} className={cor.icone} />
-        <span className="text-sm font-medium text-slate-700">
+        <UploadCloud size={28} className="text-gold" />
+        <span className="text-sm font-medium text-parchment/85">
           Arraste arquivos aqui ou clique para selecionar
         </span>
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-parchment/35">
           PDF (até {formatarBytes(MAX_PDF_BYTES)}) ou imagens JPG/PNG/WEBP — vários arquivos
         </span>
         <input
@@ -118,7 +109,7 @@ export function AreaUpload({
       </button>
 
       {erro && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-red-600">
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-red-400">
           <AlertCircle size={13} className="mt-0.5 flex-shrink-0" />
           {erro}
         </p>
@@ -130,20 +121,22 @@ export function AreaUpload({
             <li
               key={arquivo.id}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-                arquivo.status === 'erro' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'
+                arquivo.status === 'erro'
+                  ? 'border-red-500/30 bg-red-500/10'
+                  : 'border-line bg-ink-900/60'
               }`}
             >
               {arquivo.status === 'processando' ? (
-                <Loader2 size={16} className="animate-spin text-slate-400 flex-shrink-0" />
+                <Loader2 size={16} className="flex-shrink-0 animate-spin text-parchment/40" />
               ) : arquivo.status === 'erro' ? (
-                <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+                <AlertCircle size={16} className="flex-shrink-0 text-red-400" />
               ) : (
-                <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+                <CheckCircle2 size={16} className="flex-shrink-0 text-gold" />
               )}
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-slate-700">{arquivo.nome}</p>
-                <p className="text-[11px] text-slate-400">
+                <p className="truncate text-parchment/85">{arquivo.nome}</p>
+                <p className="text-[11px] text-parchment/35">
                   {arquivo.status === 'processando' && 'enviando ao servidor seguro...'}
                   {arquivo.status === 'pronto' &&
                     formatarBytes(arquivo.tamanhoFinal ?? arquivo.tamanho)}
@@ -154,7 +147,7 @@ export function AreaUpload({
               <button
                 type="button"
                 onClick={() => onRemoverArquivo(arquivo.id)}
-                className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                className="rounded-md p-1 text-parchment/40 transition-colors hover:bg-white/5 hover:text-parchment/80"
                 aria-label={`Remover ${arquivo.nome}`}
               >
                 <X size={14} />
