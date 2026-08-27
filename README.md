@@ -28,8 +28,9 @@ yarn dev
 | --- | --- | --- | --- |
 | `VITE_SUPABASE_URL` | browser | ✅ | URL do projeto Supabase |
 | `VITE_SUPABASE_ANON_KEY` | browser | ✅ | Chave `anon` (pública, protegida por RLS) |
-| `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini — **sem** prefixo `VITE_` |
-| `GEMINI_MODEL` | servidor | — | Sobrescreve o modelo (padrão `gemini-2.5-flash`) |
+| `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
+| `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-2.5-flash-lite`; `gemini-flash-latest` para casos difíceis |
+| `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento de *thinking* (padrão `512`; `0` desliga) |
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
@@ -39,9 +40,25 @@ Preview e Development).
 
 ## Estrutura
 
+### Envio de documentos à IA
+
+Os arquivos são convertidos para base64 no browser (imagens são comprimidas via
+`canvas`) e vão como `inline_data` na chamada ao Gemini, que faz o OCR nativo.
+O `system instruction` "Motor TributÁgil" mora em `api/_motor-tributagil.js`.
+
+**Limite:** ~3,6 MB no total de documentos por análise — a request roda em Edge
+Function (teto de ~4 MB de corpo). Para processos grandes, o próximo passo é
+subir os arquivos para o **Supabase Storage** e o backend ler de lá (ou usar a
+**Files API do Gemini**). Hoje: fotografe as páginas em vez de escanear PDFs pesados.
+
+A IA responde **somente** com base nos anexos. Faltando dado essencial, ela
+devolve `{"alerta_dados_insuficientes": "..."}` e a tela do Cérebro mostra o
+aviso em vez de inventar.
+
 ```
 api/
-  gemini.js      Proxy Edge + streaming para o Gemini (evita timeout 504)
+  gemini.js             Proxy Edge + streaming; injeta o system instruction e os documentos
+  _motor-tributagil.js  Texto do system instruction "Motor TributÁgil"
   contato.js     Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
 src/
   lib/supabase.js          Cliente único do Supabase

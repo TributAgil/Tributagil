@@ -99,9 +99,16 @@ function extrairJson(texto) {
   const inicio = limpo.indexOf('{');
   const fim = limpo.lastIndexOf('}');
   if (inicio === -1 || fim === -1 || fim <= inicio) {
-    throw new Error('A IA não retornou um JSON válido.');
+    const e = new Error('A IA não retornou um JSON válido.');
+    e.textoBruto = limpo;
+    throw e;
   }
-  return JSON.parse(limpo.slice(inicio, fim + 1));
+  try {
+    return JSON.parse(limpo.slice(inicio, fim + 1));
+  } catch (err) {
+    err.textoBruto = limpo;
+    throw err;
+  }
 }
 
 // ============================================
@@ -164,6 +171,8 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   // Quando a IA falha, mostramos o erro NA PRÓPRIA tela em vez de "sumir"
   // instantaneamente de volta para o upload.
   const [erroFatal, setErroFatal] = useState(null);
+  // Quando a IA responde que faltam dados (Protocolo de Alerta do Motor TributÁgil).
+  const [alertaDados, setAlertaDados] = useState(null);
   const intervalRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -193,6 +202,7 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
     let estagioLocal = 0;
 
     setErroFatal(null);
+    setAlertaDados(null);
     addLog('Inicializando conexão segura com backend...', 'info');
 
     // 1. Progresso "otimista" enquanto a IA trabalha (trava em 90% até a resposta).
@@ -214,38 +224,42 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
     // 2. Chamada real (streaming) ao backend.
     const processarComIA = async () => {
       try {
-        const promptEngenharia = `
-          Você é um advogado tributarista sênior analisando um caso para a plataforma TributÁgil.
-          Analise os dados fornecidos abaixo e retorne APENAS um JSON válido. Não inclua blocos de código markdown (como \`\`\`json).
-          O JSON deve seguir EXATAMENTE esta estrutura de chaves e arrays para não quebrar o frontend:
-          {
-            "metadata": { "modelo_ia": "Gemini (Backend)" },
-            "conclusoes": [
-              { "id": 1, "tipo": "prescricao", "severidade": "favoravel", "titulo": "Título Curto", "resumo": "Análise detalhada...", "fundamento_legal": "Lei X...", "confianca": 95 }
-            ],
-            "fatos_importantes": [
-              { "id": 1, "categoria": "cronologica", "data": "DD/MM/AAAA", "descricao": "Fato...", "fonte": "Documento Y", "relevancia": "alta" }
-            ],
-            "raciocinio": [
-              { "id": 1, "premissa": "Regra geral...", "aplicacao": "No caso...", "conclusao_logica": "Portanto...", "referencia": "STJ..." }
-            ],
-            "recomendacoes": ["Ação 1", "Ação 2"]
-          }
+        // As regras jurídicas ficam no system instruction "Motor TributÁgil"
+        // (backend). Aqui só definimos o FORMATO da resposta.
+        const promptEngenharia = `Execute a análise pericial completa conforme suas instruções de sistema (Motor TributÁgil), usando EXCLUSIVAMENTE os documentos anexados nesta mensagem. Não invente dados, não use conhecimento externo e não faça buscas.
 
-          Use severidades: "favoravel", "atencao", "neutro", "desfavoravel".
-          Use relevancias: "critica", "alta", "media", "baixa".
-          Use categorias: "cronologica", "processual", "tributaria".
+Retorne APENAS um objeto JSON com esta estrutura:
+{
+  "metadata": { "modelo_ia": "Gemini" },
+  "conclusoes": [
+    { "id": 1, "tipo": "prescricao|decadencia|prescricao_intercorrente|cautela|procedimental", "severidade": "favoravel|atencao|neutro|desfavoravel", "titulo": "...", "resumo": "...", "fundamento_legal": "...", "confianca": 0 a 100 }
+  ],
+  "fatos_importantes": [
+    { "id": 1, "categoria": "cronologica|processual|tributaria", "data": "DD/MM/AAAA", "descricao": "...", "fonte": "nome do documento anexado", "relevancia": "critica|alta|media|baixa" }
+  ],
+  "raciocinio": [
+    { "id": 1, "premissa": "regra jurídica (DIREITO)", "aplicacao": "aplicação ao caso concreto (FATO)", "conclusao_logica": "conclusão / pedido", "referencia": "CTN/LEF/Súmula/REsp" }
+  ],
+  "recomendacoes": ["ação estratégica 1", "ação estratégica 2"]
+}
 
-          DADOS ENVIADOS PELO USUÁRIO PARA ANÁLISE:
-          ${JSON.stringify(payload)}
-        `;
+Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
+Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, responda APENAS: {"alerta_dados_insuficientes": "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir."}
 
-        addLog('Disparando requisição POST para /api/gemini...', 'info');
+Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
+
+        const documentos = (payload?.documentos ?? []).map((d) => ({
+          nome: d.nome,
+          mime_type: d.mime_type,
+          data_base64: d.data_base64,
+        }));
+
+        addLog(`Enviando ${documentos.length} documento(s) para /api/gemini...`, 'info');
 
         const resposta = await fetch('/api/gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptEngenharia }),
+          body: JSON.stringify({ prompt: promptEngenharia, documentos }),
           signal: abortController.signal,
         });
 
@@ -260,6 +274,15 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
 
         addLog('Resposta recebida. Estruturando dados...', 'info');
         const resultadoIA = extrairJson(textoIA);
+
+        // Protocolo de Alerta do Motor TributÁgil: dados insuficientes.
+        if (resultadoIA && resultadoIA.alerta_dados_insuficientes) {
+          clearInterval(intervalRef.current);
+          setPulsando(false);
+          addLog('IA sinalizou dados insuficientes.', 'erro');
+          setAlertaDados(String(resultadoIA.alerta_dados_insuficientes));
+          return;
+        }
 
         clearInterval(intervalRef.current);
         setProgresso(100);
@@ -277,10 +300,18 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
       } catch (erro) {
         if (cancelado || erro?.name === 'AbortError') return;
         clearInterval(intervalRef.current);
-        addLog(`Falha na IA: ${erro.message}`, 'erro');
         console.error('[CerebroTributario] Erro no processamento:', erro);
-        // Mantém a tela visível com o erro; o usuário decide voltar/tentar de novo.
         setPulsando(false);
+
+        // Se o texto continha o alerta mas não parseou como JSON, trata como alerta.
+        if (typeof erro?.textoBruto === 'string' && erro.textoBruto.includes('[ALERTA DE DADOS INSUFICIENTES]')) {
+          addLog('IA sinalizou dados insuficientes.', 'erro');
+          setAlertaDados(erro.textoBruto.trim());
+          return;
+        }
+
+        addLog(`Falha na IA: ${erro.message}`, 'erro');
+        // Mantém a tela visível com o erro; o usuário decide voltar/tentar de novo.
         setErroFatal(erro.message || 'Falha ao processar a análise.');
       }
     };
@@ -301,6 +332,32 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   const corAtual = COR_CLASSES[estagio.cor] ?? COR_CLASSES.emerald;
 
   const particulas = Array.from({ length: 12 }, (_, i) => ({ delay: i * 200, x: 10 + (i * 7) % 80, y: 15 + (i * 13) % 70, tamanho: 4 + (i % 3) * 3 }));
+
+  // ---- ALERTA DE DADOS INSUFICIENTES: a IA não inventa — pede mais documentos --
+  if (alertaDados) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle size={32} className="text-amber-400" />
+          </div>
+          <h1 className="text-xl font-bold text-white">Dados insuficientes</h1>
+          <p className="text-sm text-slate-300 mt-3 whitespace-pre-wrap">{alertaDados}</p>
+          <p className="text-xs text-slate-500 mt-3">
+            A IA está restrita aos documentos enviados e não preenche lacunas por conta própria.
+            Anexe o documento que traz a data/informação faltante e rode de novo.
+          </p>
+          <button
+            onClick={() => onErro?.(new Error('dados_insuficientes'))}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 text-sm font-semibold rounded-xl transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Voltar e anexar mais documentos
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ---- Estado de ERRO: permanece na tela, sem "piscar" de volta ao upload ----
   if (erroFatal) {

@@ -1,45 +1,35 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, FileText, X, AlertCircle } from 'lucide-react';
+import { UploadCloud, FileText, X, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { formatarBytes } from '../lib/prepararDocumentos';
 
 // ============================================
 // COMPONENTE: ÁREA DE UPLOAD (drag & drop + seleção)
 // ============================================
-// Produz objetos de arquivo no formato que `NovaAnalise` consome:
-//   { id, nome, extensao, tipo, tamanho, area, status }
-// `status: 'pronto'` marca o arquivo como válido para envio.
+// Só faz: escolher arquivos, validar tipo/tamanho e exibir a lista.
+// A conversão para base64 (e a compressão de imagens) acontece em `NovaAnalise`,
+// que é a dona do estado. O status de cada arquivo:
+//   'processando' → sendo convertido    'pronto' → pronto p/ enviar    'erro'
+//
+// O objeto entregue por `onAdicionarArquivos` traz o File original em `_file`.
 
 const TIPOS_ACEITOS = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
-const TAMANHO_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_IMAGEM_BYTES = 25 * 1024 * 1024; // será comprimida
+const MAX_PDF_BYTES = 5 * 1024 * 1024; // PDF não comprime no browser
 
-// Classes fixas por cor — necessário porque o Tailwind não detecta classes
-// montadas dinamicamente (ex.: `border-${cor}-500`).
 const CORES = {
-  emerald: {
-    base: 'border-emerald-200',
-    ativo: 'border-emerald-500 bg-emerald-50',
-    icone: 'text-emerald-600',
-    chip: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  },
-  blue: {
-    base: 'border-blue-200',
-    ativo: 'border-blue-500 bg-blue-50',
-    icone: 'text-blue-600',
-    chip: 'bg-blue-50 text-blue-700 border-blue-100',
-  },
+  emerald: { base: 'border-emerald-200', ativo: 'border-emerald-500 bg-emerald-50', icone: 'text-emerald-600' },
+  blue: { base: 'border-blue-200', ativo: 'border-blue-500 bg-blue-50', icone: 'text-blue-600' },
 };
-
-function formatarTamanho(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function validar(file) {
   if (!TIPOS_ACEITOS.includes(file.type)) {
     return 'Formato não suportado (use PDF, PNG, JPG ou WEBP).';
   }
-  if (file.size > TAMANHO_MAX_BYTES) {
-    return `Arquivo muito grande (máx. ${formatarTamanho(TAMANHO_MAX_BYTES)}).`;
+  if (file.type === 'application/pdf' && file.size > MAX_PDF_BYTES) {
+    return `PDF muito grande (máx. ${formatarBytes(MAX_PDF_BYTES)}). Fotografe as páginas ou divida o arquivo.`;
+  }
+  if (file.type !== 'application/pdf' && file.size > MAX_IMAGEM_BYTES) {
+    return `Imagem muito grande (máx. ${formatarBytes(MAX_IMAGEM_BYTES)}).`;
   }
   return null;
 }
@@ -60,24 +50,21 @@ export function AreaUpload({
 
   const processarLista = (fileList) => {
     setErro(null);
-    const novos = [];
-    for (const file of Array.from(fileList)) {
+    const novos = Array.from(fileList).map((file) => {
       const problema = validar(file);
-      novos.push({
+      if (problema) setErro(problema);
+      return {
         id: `${config.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         nome: file.name,
         extensao: file.name.includes('.') ? `.${file.name.split('.').pop().toLowerCase()}` : '',
         tipo: file.type,
         tamanho: file.size,
         area: config.id,
-        status: problema ? 'erro' : 'pronto',
+        status: problema ? 'erro' : 'processando',
         motivoErro: problema ?? undefined,
-        // Referência ao File original — útil se, futuramente, for preciso
-        // converter para base64 e enviar o conteúdo à IA.
-        _file: file,
-      });
-      if (problema) setErro(problema);
-    }
+        _file: file, // NovaAnalise converte para base64
+      };
+    });
     if (novos.length > 0) onAdicionarArquivos(config.id, novos);
   };
 
@@ -89,7 +76,7 @@ export function AreaUpload({
 
   const handleInput = (e) => {
     if (e.target.files?.length) processarLista(e.target.files);
-    e.target.value = ''; // permite re-selecionar o mesmo arquivo
+    e.target.value = '';
   };
 
   const destacar = dragLocal || isDraggingGlobal;
@@ -120,7 +107,7 @@ export function AreaUpload({
           Arraste arquivos aqui ou clique para selecionar
         </span>
         <span className="text-[11px] text-slate-400">
-          PDF, PNG, JPG ou WEBP • até {formatarTamanho(TAMANHO_MAX_BYTES)}
+          PDF (até {formatarBytes(MAX_PDF_BYTES)}) ou imagens JPG/PNG/WEBP
         </span>
         <input
           ref={inputRef}
@@ -133,8 +120,8 @@ export function AreaUpload({
       </button>
 
       {erro && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
-          <AlertCircle size={13} />
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-red-600">
+          <AlertCircle size={13} className="mt-0.5 flex-shrink-0" />
           {erro}
         </p>
       )}
@@ -145,22 +132,27 @@ export function AreaUpload({
             <li
               key={arquivo.id}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-                arquivo.status === 'erro'
-                  ? 'border-red-200 bg-red-50'
-                  : 'border-slate-200 bg-slate-50'
+                arquivo.status === 'erro' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'
               }`}
             >
-              <FileText
-                size={16}
-                className={arquivo.status === 'erro' ? 'text-red-500' : 'text-slate-400'}
-              />
+              {arquivo.status === 'processando' ? (
+                <Loader2 size={16} className="animate-spin text-slate-400 flex-shrink-0" />
+              ) : arquivo.status === 'erro' ? (
+                <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+              ) : (
+                <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+              )}
+
               <div className="min-w-0 flex-1">
                 <p className="truncate text-slate-700">{arquivo.nome}</p>
                 <p className="text-[11px] text-slate-400">
-                  {formatarTamanho(arquivo.tamanho)}
-                  {arquivo.status === 'erro' && ` • ${arquivo.motivoErro}`}
+                  {arquivo.status === 'processando' && 'preparando...'}
+                  {arquivo.status === 'pronto' &&
+                    formatarBytes(arquivo.tamanhoFinal ?? arquivo.tamanho)}
+                  {arquivo.status === 'erro' && arquivo.motivoErro}
                 </p>
               </div>
+
               <button
                 type="button"
                 onClick={() => onRemoverArquivo(arquivo.id)}

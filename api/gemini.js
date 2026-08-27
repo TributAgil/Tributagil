@@ -2,18 +2,25 @@
 //
 // Proxy seguro para a API do Google Gemini.
 //
-// Por que Edge Runtime + streaming?
-//   - No runtime Node "clássico" da Vercel, o plano Hobby derruba a função em ~10s
-//     (504). Respostas de IA longas estouram esse limite com facilidade.
-//   - O Edge Runtime não tem esse teto rígido e, como devolvemos a resposta em
-//     STREAM (SSE), a conexão fica "viva" enviando bytes continuamente — a Vercel
-//     não a considera travada e não a encerra.
-//   - A API key nunca chega ao browser: ela só existe aqui, no servidor.
+// - Edge Runtime + streaming (SSE): a resposta chega em pedaços, mantendo a
+//   conexão viva; evita o 504 da Vercel em respostas longas de IA.
+// - A API key só existe aqui, no servidor (header x-goog-api-key).
+// - System instruction "Motor TributÁgil" injetada em toda requisição.
+// - Documentos do usuário entram como `inline_data` (o Gemini faz OCR nativo).
+// - Sem `tools`: o modelo NÃO tem Google Search nem acesso externo — fica
+//   restrito ao conteúdo dos anexos.
+
+import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 
 export const config = { runtime: 'edge' };
 
-const MODELO_PADRAO = 'gemini-2.5-flash';
-const TIMEOUT_MS = 55_000; // margem de segurança antes de qualquer teto da plataforma
+// Modelo padrão: pinado num ID que sabemos existir. Para "sempre o Flash mais
+// barato do momento", defina GEMINI_MODEL=gemini-flash-lite-latest na Vercel.
+const MODELO_PADRAO = 'gemini-2.5-flash-lite';
+const THINKING_BUDGET_PADRAO = 512; // "pouco espaço para delírio"; 0 desliga
+const TIMEOUT_MS = 55_000;
+const MAX_DOCS = 12;
+const MAX_BYTES_INLINE_TOTAL = 14 * 1024 * 1024; // teto prático do inline_data
 
 export default async function handler(req) {
   if (req.method !== 'POST') {
@@ -22,26 +29,50 @@ export default async function handler(req) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return json(
-      { error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' },
-      500,
-    );
+    return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
 
-  // ---- 1. Validação de entrada -------------------------------------------------
+  // ---- 1. Validação de entrada ---------------------------------------------
   let prompt;
+  let documentos;
   try {
     const body = await req.json();
     prompt = body?.prompt;
+    documentos = Array.isArray(body?.documentos) ? body.documentos : [];
   } catch {
     return json({ error: 'Corpo da requisição inválido — envie um JSON.' }, 400);
   }
   if (typeof prompt !== 'string' || prompt.trim().length === 0) {
     return json({ error: 'O campo "prompt" é obrigatório.' }, 400);
   }
+  if (documentos.length > MAX_DOCS) {
+    return json({ error: `Máximo de ${MAX_DOCS} documentos por análise.` }, 413);
+  }
 
-  // ---- 2. Chamada ao Gemini com timeout controlado ---------------------------
+  // ---- 2. Monta as "parts": texto + cada documento como inline_data -------
+  const parts = [{ text: prompt }];
+  let bytesInline = 0;
+  for (const d of documentos) {
+    const b64 = typeof d?.data_base64 === 'string' ? d.data_base64.trim() : '';
+    const mime = typeof d?.mime_type === 'string' ? d.mime_type : '';
+    if (!b64 || !mime) continue;
+
+    bytesInline += Math.floor((b64.length * 3) / 4);
+    if (bytesInline > MAX_BYTES_INLINE_TOTAL) {
+      return json({ error: 'Documentos excedem o limite total. Reduza a quantidade ou o tamanho.' }, 413);
+    }
+
+    if (d.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
+    parts.push({ inline_data: { mime_type: mime, data: b64 } });
+  }
+
   const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
+  const thinkingBudget = Number.parseInt(
+    process.env.GEMINI_THINKING_BUDGET ?? String(THINKING_BUDGET_PADRAO),
+    10,
+  );
+
+  // ---- 3. Chamada ao Gemini com timeout controlado -----------------------
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -52,16 +83,18 @@ export default async function handler(req) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // A chave vai no header (recomendação atual do Google e obrigatório na
-          // prática para as novas keys `AQ.…`). Nunca na URL — evita vazamento em log.
           'x-goog-api-key': apiKey,
         },
         signal: controller.signal,
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
+          contents: [{ role: 'user', parts }],
           generationConfig: {
-            temperature: 0.2, // precisão jurídica > criatividade
-            responseMimeType: 'text/plain',
+            temperature: 0.1, // máxima aderência às instruções
+            responseMimeType: 'application/json', // força JSON válido na saída
+            ...(Number.isFinite(thinkingBudget)
+              ? { thinkingConfig: { thinkingBudget } }
+              : {}),
           },
         }),
       },
@@ -70,15 +103,12 @@ export default async function handler(req) {
     if (!upstream.ok || !upstream.body) {
       const detalhe = await upstream.text().catch(() => '');
       return json(
-        {
-          error: `Falha na API do Gemini (HTTP ${upstream.status}).`,
-          detalhe: detalhe.slice(0, 500),
-        },
+        { error: `Falha na API do Gemini (HTTP ${upstream.status}).`, detalhe: detalhe.slice(0, 600) },
         502,
       );
     }
 
-    // ---- 3. Repassa o stream SSE do Google direto ao cliente -----------------
+    // ---- 4. Repassa o stream SSE do Google direto ao cliente -------------
     return new Response(upstream.body, {
       status: 200,
       headers: {
