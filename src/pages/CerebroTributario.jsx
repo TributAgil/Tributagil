@@ -17,60 +17,12 @@ import {
 // CONFIGURAÇÃO DOS ESTÁGIOS DE PROCESSAMENTO
 // ============================================
 const ESTAGIOS = [
-  {
-    id: 1,
-    min: 0,
-    max: 20,
-    frase: 'Lendo documentos e extraindo variáveis fiscais...',
-    icone: FileSearch,
-    cor: 'emerald',
-    detalhe: 'OCR + NLP ativos nos documentos principais',
-  },
-  {
-    id: 2,
-    min: 20,
-    max: 40,
-    frase: 'Limpando ruídos de imagem e carimbos processuais...',
-    icone: Sparkles,
-    cor: 'teal',
-    detalhe: 'Denoising e reconstrução de texto degradado',
-  },
-  {
-    id: 3,
-    min: 40,
-    max: 60,
-    frase: 'Identificando datas do Fato Gerador e Notificações...',
-    icone: Clock,
-    cor: 'cyan',
-    detalhe: 'Extração de timelines e marcos processuais',
-  },
-  {
-    id: 4,
-    min: 60,
-    max: 80,
-    frase: 'Rodando motores de cálculo de Decadência e Prescrição (CTN/LEF)...',
-    icone: Scale,
-    cor: 'blue',
-    detalhe: 'Aplicação de art. 150 CTN e art. 40 LEF',
-  },
-  {
-    id: 5,
-    min: 80,
-    max: 99,
-    frase: 'Cruzando resultados com Súmulas do STJ e formatando defesa...',
-    icone: Gavel,
-    cor: 'indigo',
-    detalhe: 'Matching com jurisprudência e templates advocatícios',
-  },
-  {
-    id: 6,
-    min: 100,
-    max: 100,
-    frase: 'Análise Concluída!',
-    icone: CheckCircle2,
-    cor: 'emerald',
-    detalhe: 'Parecer pronto para revisão',
-  },
+  { id: 1, min: 0, max: 20, frase: 'Enviando documentos para a Inteligência Artificial...', icone: FileSearch, cor: 'emerald', detalhe: 'Conexão segura com o backend estabelecida' },
+  { id: 2, min: 20, max: 40, frase: 'IA analisando variáveis fiscais e carimbos...', icone: Sparkles, cor: 'teal', detalhe: 'Leitura de Fato Gerador e Notificações em andamento' },
+  { id: 3, min: 40, max: 60, frase: 'Identificando datas e marcos processuais...', icone: Clock, cor: 'cyan', detalhe: 'Extração de timelines' },
+  { id: 4, min: 60, max: 80, frase: 'Rodando motores de cálculo (CTN/LEF)...', icone: Scale, cor: 'blue', detalhe: 'Aplicação de regras de Decadência e Prescrição' },
+  { id: 5, min: 80, max: 99, frase: 'Estruturando silogismos jurídicos e recomendações...', icone: Gavel, cor: 'indigo', detalhe: 'Aguardando finalização do modelo Gemini' },
+  { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, cor: 'emerald', detalhe: 'Parecer pronto para revisão' },
 ];
 
 const COR_CLASSES = {
@@ -82,51 +34,24 @@ const COR_CLASSES = {
 };
 
 // ============================================
-// COMPONENTE: PARTÍCULA FLUTUANTE (DECORATIVA)
+// COMPONENTES MENORES MANTIDOS (VISUAL)
 // ============================================
 const Particula = ({ delay, x, y, tamanho }) => (
-  <div
-    className="absolute rounded-full bg-emerald-400/20 animate-pulse"
-    style={{
-      left: `${x}%`,
-      top: `${y}%`,
-      width: tamanho,
-      height: tamanho,
-      animationDelay: `${delay}ms`,
-      animationDuration: '3s',
-    }}
-  />
+  <div className="absolute rounded-full bg-emerald-400/20 animate-pulse" style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms`, animationDuration: '3s' }} />
 );
 
-// ============================================
-// COMPONENTE: BARRA DE PROGRESSO ESTILIZADA
-// ============================================
 const BarraProgresso = ({ progresso, cor, concluido }) => {
   const c = COR_CLASSES[cor];
-  
   return (
     <div className="relative w-full">
-      {/* Fundo */}
       <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-        {/* Barra principal */}
-        <div
-          className={`h-full ${c.bg} rounded-full transition-all duration-500 ease-out relative`}
-          style={{ width: `${progresso}%` }}
-        >
-          {/* Brilho animado */}
+        <div className={`h-full ${c.bg} rounded-full transition-all duration-500 ease-out relative`} style={{ width: `${progresso}%` }}>
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
         </div>
       </div>
-      
-      {/* Marcadores de estágio */}
       <div className="flex justify-between mt-2">
         {ESTAGIOS.slice(0, -1).map((est) => (
-          <div
-            key={est.id}
-            className={`flex flex-col items-center transition-all duration-300 ${
-              progresso >= est.min ? 'opacity-100' : 'opacity-30'
-            }`}
-          >
+          <div key={est.id} className={`flex flex-col items-center transition-all duration-300 ${progresso >= est.min ? 'opacity-100' : 'opacity-30'}`}>
             <div className={`w-2 h-2 rounded-full ${progresso >= est.max ? c.bg : 'bg-slate-300'}`} />
             <span className="text-[10px] text-slate-400 mt-1 hidden sm:block">{est.min}%</span>
           </div>
@@ -140,26 +65,16 @@ const BarraProgresso = ({ progresso, cor, concluido }) => {
   );
 };
 
-// ============================================
-// COMPONENTE: LOG DE PROCESSAMENTO
-// ============================================
-const LogProcessamento = ({ logs, estagioAtual }) => (
+const LogProcessamento = ({ logs }) => (
   <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto">
     <div className="flex items-center gap-2 text-slate-500 mb-2 border-b border-slate-800 pb-2">
       <Activity size={12} />
-      <span>console.log — Cérebro Tributário v2.1</span>
+      <span>console.log — Cérebro Tributário v2.1 (Conectado via API)</span>
     </div>
     {logs.map((log, idx) => (
-      <div
-        key={idx}
-        className={`flex items-start gap-2 transition-all duration-300 ${
-          idx === logs.length - 1 ? 'text-emerald-400' : 'text-slate-400'
-        }`}
-      >
+      <div key={idx} className={`flex items-start gap-2 transition-all duration-300 ${idx === logs.length - 1 ? 'text-emerald-400' : 'text-slate-400'}`}>
         <span className="text-slate-600 flex-shrink-0">[{log.tempo}]</span>
-        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-emerald-400' : ''}>
-          {log.mensagem}
-        </span>
+        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-emerald-400' : ''}>{log.mensagem}</span>
       </div>
     ))}
     <div className="animate-pulse text-emerald-500">_</div>
@@ -178,144 +93,138 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   const intervalRef = useRef(null);
   const logsEndRef = useRef(null);
 
-  // Auto-scroll do log
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // Gerar timestamp formatado
   const getTimestamp = () => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
   };
 
-  // Adicionar log
   const addLog = (mensagem, tipo = 'info') => {
     setLogs((prev) => [...prev, { tempo: getTimestamp(), mensagem, tipo }]);
   };
 
   // ============================================
-  // LÓGICA PRINCIPAL DE PROGRESSÃO
+  // INTEGRAÇÃO REAL COM A API DO GEMINI
   // ============================================
   useEffect(() => {
-    addLog('Inicializando Cérebro Tributário...', 'info');
-    addLog(`Payload recebido: ${payload?.documentos?.length || 0} documento(s)`, 'info');
+    if (!payload) return;
 
+    addLog('Inicializando conexão segura com backend...', 'info');
     let currentProgress = 0;
-    const totalDuration = 12000; // 12 segundos totais de simulação
-    const updateInterval = 80; // Atualiza a cada 80ms
-    const increment = 100 / (totalDuration / updateInterval);
 
+    // 1. Inicia o progresso visual simulando a "espera" da IA
     intervalRef.current = setInterval(() => {
-      currentProgress += increment + (Math.random() * 0.3); // Variação natural
-
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        clearInterval(intervalRef.current);
-      }
-
-      setProgresso(currentProgress);
-
-      // Determinar estágio atual
-      const novoEstagio = ESTAGIOS.findIndex(
-        (e) => currentProgress >= e.min && currentProgress <= e.max
-      );
-
-      if (novoEstagio !== -1 && novoEstagio !== estagioAtual) {
-        setEstagioAtual(novoEstagio);
-        const est = ESTAGIOS[novoEstagio];
+      if (currentProgress < 90) {
+        currentProgress += Math.random() * 4; // Vai subindo aos poucos
+        setProgresso(currentProgress);
         
-        // Logs por estágio
-        if (est.id === 1) {
-          addLog('Módulo OCR carregado — resolução 300 DPI', 'info');
-          addLog('Extraindo texto de PDFs e DOCXs...', 'info');
-        } else if (est.id === 2) {
-          addLog('Aplicando filtros de denoising (Gaussian blur + threshold)', 'info');
-          addLog('Reconhecendo carimbos e assinaturas digitais...', 'info');
-        } else if (est.id === 3) {
-          addLog('Regex engine ativo — padrões de data identificados', 'info');
-          addLog('Fato Gerador localizado em documento principal', 'sucesso');
-        } else if (est.id === 4) {
-          addLog('Carregando base legal: CTN (arts. 146-175) + LEF (arts. 38-46)', 'info');
-          addLog('Calculando prazos decadenciais e prescricionais...', 'info');
-          addLog('⚖️ Decadência: ARTIGO 173 CTN aplicado', 'sucesso');
-        } else if (est.id === 5) {
-          addLog('Consultando Súmulas STJ (Vinculantes 1-100)', 'info');
-          addLog('Gerando template de defesa preliminar...', 'info');
-        } else if (est.id === 6) {
-          addLog('✅ Parecer tributário gerado com sucesso', 'sucesso');
-          addLog('Redirecionando para tela de resultados...', 'info');
-          setConcluido(true);
-          setPulsando(false);
-          
-          // Redirecionar após 2 segundos
-          setTimeout(() => {
-            onConcluido?.();
-          }, 2500);
+        const novoEstagio = ESTAGIOS.findIndex(e => currentProgress >= e.min && currentProgress <= e.max);
+        if (novoEstagio !== -1 && novoEstagio !== estagioAtual) {
+          setEstagioAtual(novoEstagio);
+          addLog(ESTAGIOS[novoEstagio].frase, 'info');
         }
       }
-    }, updateInterval);
+    }, 1000);
+
+    // 2. Faz a chamada real para a IA
+    const processarComIA = async () => {
+      try {
+        const promptEngenharia = `
+          Você é um advogado tributarista sênior analisando um caso para a plataforma TributÁgil.
+          Analise os dados fornecidos abaixo e retorne APENAS um JSON válido. Não inclua blocos de código markdown (como \`\`\`json).
+          O JSON deve seguir EXATAMENTE esta estrutura de chaves e arrays para não quebrar o frontend:
+          {
+            "metadata": { "modelo_ia": "Gemini 1.5 Flash (Backend)" },
+            "conclusoes": [
+              { "id": 1, "tipo": "prescricao", "severidade": "favoravel", "titulo": "Título Curto", "resumo": "Análise detalhada...", "fundamento_legal": "Lei X...", "confianca": 95 }
+            ],
+            "fatos_importantes": [
+              { "id": 1, "categoria": "cronologica", "data": "DD/MM/AAAA", "descricao": "Fato...", "fonte": "Documento Y", "relevancia": "alta" }
+            ],
+            "raciocinio": [
+              { "id": 1, "premissa": "Regra geral...", "aplicacao": "No caso...", "conclusao_logica": "Portanto...", "referencia": "STJ..." }
+            ],
+            "recomendacoes": ["Ação 1", "Ação 2"]
+          }
+          
+          Use severidades: "favoravel", "atencao", "neutro", "desfavoravel".
+          Use relevancias: "critica", "alta", "media", "baixa".
+          Use categorias: "cronologica", "processual", "tributaria".
+          
+          DADOS ENVIADOS PELO USUÁRIO PARA ANÁLISE:
+          ${JSON.stringify(payload)}
+        `;
+
+        addLog('Disparando requisição POST para /api/gemini...', 'info');
+
+        const resposta = await fetch('/api/gemini', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: promptEngenharia })
+        });
+
+        const dados = await resposta.json();
+        
+        if (dados.error) throw new Error(dados.error);
+
+        addLog('Resposta da IA recebida! Processando dados...', 'info');
+
+        // Extrai o texto da IA, limpa a formatação e transforma num Objeto JavaScript
+        const textoIA = dados.candidates[0].content.parts[0].text;
+        const jsonLimpo = textoIA.replace(/```json/g, '').replace(/```/g, '').trim();
+        const resultadoIA = JSON.parse(jsonLimpo);
+
+        // Sucesso! Trava no estágio final.
+        clearInterval(intervalRef.current);
+        setProgresso(100);
+        setEstagioAtual(5);
+        addLog('✅ Parecer tributário estruturado com sucesso!', 'sucesso');
+        setConcluido(true);
+        setPulsando(false);
+
+        // Redireciona enviando o objeto real da IA para a próxima tela
+        setTimeout(() => {
+          onConcluido?.(resultadoIA);
+        }, 2000);
+
+      } catch (erro) {
+        clearInterval(intervalRef.current);
+        addLog(`Falha na IA: ${erro.message}`, 'erro');
+        console.error("Erro no processamento:", erro);
+        onErro?.(erro);
+      }
+    };
+
+    processarComIA();
 
     return () => clearInterval(intervalRef.current);
-  }, []);
+  }, [payload, estagioAtual]); // Dependências corrigidas
 
   const estagio = ESTAGIOS[estagioAtual] || ESTAGIOS[0];
   const IconeAtual = estagio.icone;
   const corAtual = COR_CLASSES[estagio.cor];
 
-  // Partículas decorativas
-  const particulas = Array.from({ length: 12 }, (_, i) => ({
-    delay: i * 200,
-    x: 10 + (i * 7) % 80,
-    y: 15 + (i * 13) % 70,
-    tamanho: 4 + (i % 3) * 3,
-  }));
+  const particulas = Array.from({ length: 12 }, (_, i) => ({ delay: i * 200, x: 10 + (i * 7) % 80, y: 15 + (i * 13) % 70, tamanho: 4 + (i % 3) * 3 }));
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background decorativo */}
       <div className="absolute inset-0">
-        {particulas.map((p, i) => (
-          <Particula key={i} {...p} />
-        ))}
-        {/* Grid sutil */}
-        <div 
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
-            backgroundSize: '50px 50px',
-          }}
-        />
+        {particulas.map((p, i) => <Particula key={i} {...p} />)}
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
       </div>
 
       <div className="relative z-10 w-full max-w-2xl">
-        {/* Card principal */}
         <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
           
-          {/* Header com cérebro pulsante */}
           <div className="relative px-8 pt-10 pb-6 text-center">
-            {/* Círculo de glow */}
             <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full ${corAtual.bg} opacity-10 blur-3xl transition-all duration-1000`} />
-            
-            {/* Ícone do cérebro */}
             <div className="relative inline-block">
-              <div className={`
-                w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6
-                ${concluido ? 'bg-emerald-500/20' : 'bg-slate-800'}
-                border border-slate-700 transition-all duration-500
-                ${pulsando ? 'animate-pulse-slow' : ''}
-              `}>
-                {concluido ? (
-                  <CheckCircle2 size={40} className="text-emerald-400" />
-                ) : (
-                  <Brain 
-                    size={40} 
-                    className={`${corAtual.text} transition-colors duration-500`}
-                  />
-                )}
+              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-emerald-500/20' : 'bg-slate-800'} border border-slate-700 transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
+                {concluido ? <CheckCircle2 size={40} className="text-emerald-400" /> : <Brain size={40} className={`${corAtual.text} transition-colors duration-500`} />}
               </div>
-              
-              {/* Anéis de pulso */}
               {pulsando && (
                 <>
                   <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/20 animate-ping" style={{ animationDuration: '2s' }} />
@@ -323,58 +232,29 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
                 </>
               )}
             </div>
-
-            <h1 className="text-2xl font-bold text-white mb-2">
-              {concluido ? 'Pronto!' : 'Cérebro Tributário'}
-            </h1>
-            <p className="text-slate-400 text-sm">
-              {concluido 
-                ? 'Sua análise foi processada com sucesso' 
-                : 'Processando documentos com IA avançada'
-              }
-            </p>
+            <h1 className="text-2xl font-bold text-white mb-2">{concluido ? 'Pronto!' : 'Cérebro Tributário'}</h1>
+            <p className="text-slate-400 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
           </div>
 
-          {/* Conteúdo */}
           <div className="px-8 pb-8 space-y-6">
-            
-            {/* Progresso */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-300">
-                  {estagio.frase}
-                </span>
-                <span className={`text-sm font-bold ${corAtual.text} tabular-nums`}>
-                  {Math.floor(progresso)}%
-                </span>
+                <span className="text-sm font-medium text-slate-300">{estagio.frase}</span>
+                <span className={`text-sm font-bold ${corAtual.text} tabular-nums`}>{Math.floor(progresso)}%</span>
               </div>
-              
-              <BarraProgresso 
-                progresso={progresso} 
-                cor={estagio.cor} 
-                concluido={concluido} 
-              />
+              <BarraProgresso progresso={progresso} cor={estagio.cor} concluido={concluido} />
             </div>
 
-            {/* Detalhe do estágio */}
-            <div className={`
-              flex items-center gap-3 p-4 rounded-xl border transition-all duration-500
-              ${corAtual.light} border-slate-700/50
-            `}>
+            <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${corAtual.light} border-slate-700/50`}>
               <div className={`p-2 rounded-lg ${corAtual.bg} bg-opacity-20`}>
                 <IconeAtual size={18} className={corAtual.text} />
               </div>
               <div>
-                <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
-                  Etapa {estagio.id} de {ESTAGIOS.length}
-                </p>
-                <p className="text-sm text-slate-300 mt-0.5">
-                  {estagio.detalhe}
-                </p>
+                <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Etapa {estagio.id} de {ESTAGIOS.length}</p>
+                <p className="text-sm text-slate-300 mt-0.5">{estagio.detalhe}</p>
               </div>
             </div>
 
-            {/* Métricas rápidas */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
                 <Zap size={16} className="text-amber-400 mx-auto mb-1" />
@@ -388,45 +268,28 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
               </div>
               <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
                 <Brain size={16} className="text-blue-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">GPT-4o</p>
-                <p className="text-[10px] text-slate-500 uppercase">Modelo IA</p>
+                <p className="text-lg font-bold text-white">Backend</p>
+                <p className="text-[10px] text-slate-500 uppercase">API Segura</p>
               </div>
             </div>
 
-            {/* Console/Log */}
-            <LogProcessamento logs={logs} estagioAtual={estagioAtual} />
+            <LogProcessamento logs={logs} />
             <div ref={logsEndRef} />
 
-            {/* Footer */}
             <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
               <div className={`w-1.5 h-1.5 rounded-full ${pulsando ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'}`} />
-              <span>{concluido ? 'Processo finalizado' : 'Processamento ativo — não feche esta janela'}</span>
+              <span>{concluido ? 'Processo finalizado' : 'Processamento ativo — aguardando resposta da IA'}</span>
             </div>
           </div>
         </div>
-
-        {/* Slogan */}
-        <p className="text-center text-slate-600 text-xs mt-6">
-          "Da decadência à prescrição, o TributÁgil é a sua solução."
-        </p>
+        <p className="text-center text-slate-600 text-xs mt-6">"Da decadência à prescrição, o TributÁgil é a sua solução."</p>
       </div>
 
-      {/* Estilos de animação customizados */}
       <style>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(200%); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.05); opacity: 0.8; }
-        }
-        .animate-shimmer {
-          animation: shimmer 2s infinite;
-        }
-        .animate-pulse-slow {
-          animation: pulse-slow 3s ease-in-out infinite;
-        }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
+        @keyframes pulse-slow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.8; } }
+        .animate-shimmer { animation: shimmer 2s infinite; }
+        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
       `}</style>
     </div>
   );

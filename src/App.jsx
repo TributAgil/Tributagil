@@ -44,7 +44,9 @@ export default function App() {
     setTelaAtual('processando');
   };
 
-  const handleConcluirProcessamento = () => {
+  // AJUSTADO PARA RECEBER O RESULTADO REAL DA IA
+  const handleConcluirProcessamento = (resultadoRealDaIA) => {
+    setAnaliseSelecionada(resultadoRealDaIA);
     setTelaAtual('resultado');
   };
 
@@ -105,7 +107,6 @@ export default function App() {
         />
       )}
 
-      {/* Botão de suporte flutuante — visível em todas as telas exceto login */}
       {telaAtual !== 'login' && <BotaoSuporteFlutuante />}
     </>
   );

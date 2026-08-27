@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 
 // ============================================
-// DADOS MOCK DO RESULTADO DA IA
+// DADOS MOCK DE SEGURANÇA (FALLBACK)
 // ============================================
 const RESULTADO_MOCK = {
   metadata: {
@@ -37,7 +37,7 @@ const RESULTADO_MOCK = {
     parte_autora: 'Fazenda Nacional',
     parte_reu: 'Indústria Alpha Ltda.',
     valor_causa: 'R$ 847.320,00',
-    modelo_ia: 'Cérebro Tributário v2.1 (GPT-4o)',
+    modelo_ia: 'Cérebro Tributário v2.1 (Gemini Backend)',
   },
   conclusoes: [
     {
@@ -363,25 +363,24 @@ const CardRaciocinio = ({ raciocinio, index }) => {
 // ============================================
 // COMPONENTE PRINCIPAL: RESULTADO DA ANÁLISE
 // ============================================
-const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
+const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
   const [baixando, setBaixando] = useState(false);
 
-  const resultado = RESULTADO_MOCK;
+  // USA O RESULTADO REAL DA IA SE HOUVER, CASO CONTRÁRIO USA O MOCK
+  const resultado = analise ? {
+    ...RESULTADO_MOCK,
+    ...analise
+  } : RESULTADO_MOCK;
 
   const handleDownloadParecer = async () => {
     setBaixando(true);
 
-    // ============================================
-    // SIMULAÇÃO DE DOWNLOAD DO PARECER COMPLETO
-    // ============================================
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
-    // Gerar conteúdo do parecer em formato texto
     const conteudoParecer = gerarConteudoParecer(resultado);
 
-    // Criar blob e disparar download
     const blob = new Blob([conteudoParecer], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -396,15 +395,14 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
   };
 
   const abas = [
-    { id: 'conclusoes', label: 'Conclusões', icon: CheckCircle2, count: resultado.conclusoes.length },
-    { id: 'fatos', label: 'Fatos Importantes', icon: FileText, count: resultado.fatos_importantes.length },
-    { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio.length },
-    { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes.length },
+    { id: 'conclusoes', label: 'Conclusões', icon: CheckCircle2, count: resultado.conclusoes?.length || 0 },
+    { id: 'fatos', label: 'Fatos Importantes', icon: FileText, count: resultado.fatos_importantes?.length || 0 },
+    { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio?.length || 0 },
+    { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes?.length || 0 },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header Fixo */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -458,7 +456,6 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
         </div>
       </header>
 
-      {/* Metadata do Processo */}
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -490,7 +487,6 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      {/* Navegação por Abas */}
       <div className="bg-white border-b border-slate-200 sticky top-[73px] z-30">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex gap-1 -mb-px">
@@ -524,22 +520,20 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      {/* Conteúdo */}
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {/* ABA: CONCLUSÕES */}
         {abaAtiva === 'conclusoes' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-lg font-bold text-slate-800">Conclusões da IA</h2>
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <CheckCircle2 size={16} className="text-emerald-500" />
-                <span>{resultado.conclusoes.filter(c => c.severidade === 'favoravel').length} favoráveis</span>
+                <span>{resultado.conclusoes?.filter(c => c.severidade === 'favoravel').length || 0} favoráveis</span>
                 <span className="text-slate-300">•</span>
                 <AlertTriangle size={16} className="text-amber-500" />
-                <span>{resultado.conclusoes.filter(c => c.severidade === 'atencao').length} atenção</span>
+                <span>{resultado.conclusoes?.filter(c => c.severidade === 'atencao').length || 0} atenção</span>
               </div>
             </div>
-            {resultado.conclusoes.map((conclusao) => (
+            {resultado.conclusoes?.map((conclusao) => (
               <CardConclusao
                 key={conclusao.id}
                 conclusao={conclusao}
@@ -552,7 +546,6 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
           </div>
         )}
 
-        {/* ABA: FATOS IMPORTANTES */}
         {abaAtiva === 'fatos' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
@@ -560,14 +553,13 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
               <span className="text-sm text-slate-500">Timeline cronológica</span>
             </div>
             <div className="space-y-3">
-              {resultado.fatos_importantes.map((fato) => (
+              {resultado.fatos_importantes?.map((fato) => (
                 <CardFato key={fato.id} fato={fato} />
               ))}
             </div>
           </div>
         )}
 
-        {/* ABA: RACIOCÍNIO LÓGICO */}
         {abaAtiva === 'raciocinio' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
@@ -575,14 +567,13 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
               <span className="text-sm text-slate-500">Silogismos jurídicos aplicados</span>
             </div>
             <div className="space-y-4">
-              {resultado.raciocinio.map((r, i) => (
+              {resultado.raciocinio?.map((r, i) => (
                 <CardRaciocinio key={r.id} raciocinio={r} index={i} />
               ))}
             </div>
           </div>
         )}
 
-        {/* ABA: RECOMENDAÇÕES */}
         {abaAtiva === 'recomendacoes' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between mb-2">
@@ -591,7 +582,7 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <div className="space-y-4">
-                {resultado.recomendacoes.map((rec, i) => (
+                {resultado.recomendacoes?.map((rec, i) => (
                   <div key={i} className="flex items-start gap-4">
                     <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
                       <span className="text-sm font-bold text-emerald-700">{i + 1}</span>
@@ -607,7 +598,6 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
         )}
       </main>
 
-      {/* Footer com CTA */}
       <div className="max-w-6xl mx-auto px-6 pb-12">
         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-8 text-center text-white shadow-xl">
           <h3 className="text-xl font-bold mb-2">Precisa de uma nova análise?</h3>
@@ -624,11 +614,8 @@ const ResultadoAnalise = ({ onVoltar, onNovaAnalise }) => {
   );
 };
 
-// ============================================
-// FUNÇÃO: GERAR CONTEÚDO DO PARECER COMPLETO
-// ============================================
 function gerarConteudoParecer(resultado) {
-  const { metadata, conclusoes, fatos_importantes, raciocinio, recomendacoes } = resultado;
+  const { metadata, conclusoes = [], fatos_importantes = [], raciocinio = [], recomendacoes = [] } = resultado;
 
   return `================================================================================
                     PARECER TRIBUTÁRIO — TRIBUTÁGIL
@@ -654,8 +641,8 @@ Valor da Causa:       ${metadata.valor_causa}
 ================================================================================
 
 ${conclusoes.map((c, i) => `
-${i + 1}. ${c.titulo.toUpperCase()}
-   Severidade: ${c.severidade.toUpperCase()} | Confiança da IA: ${c.confianca}%
+${i + 1}. ${c.titulo?.toUpperCase()}
+   Severidade: ${c.severidade?.toUpperCase()} | Confiança da IA: ${c.confianca}%
 
    ${c.resumo}
 
@@ -667,7 +654,7 @@ ${i + 1}. ${c.titulo.toUpperCase()}
 ================================================================================
 
 ${fatos_importantes.map((f, i) => `
-[${f.data}] — ${f.categoria.toUpperCase()} (${f.relevancia.toUpperCase()})
+[${f.data}] — ${f.categoria?.toUpperCase()} (${f.relevancia?.toUpperCase()})
 ${f.descricao}
 Fonte: ${f.fonte}
 `).join('\n')}
@@ -695,11 +682,11 @@ Referência: ${r.referencia}
 ${recomendacoes.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 ================================================================================
-                              V. DISCLAIMER
+                             V. DISCLAIMER
 ================================================================================
 
-O presente parecer foi gerado por inteligência artificial (Cérebro Tributário
-v2.1) e deve ser revisado por advogado habilitado antes de sua apresentação
+O presente parecer foi gerado por inteligência artificial (Cérebro Tributário)
+e deve ser revisado por advogado habilitado antes de sua apresentação
 em juízo. A análise baseia-se exclusivamente nos documentos fornecidos e na
 legislação vigente à data de processamento. O TributÁgil não se responsabiliza
 por decisões judiciais baseadas unicamente neste documento.
