@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
+import CreditoAutor from '../components/CreditoAutor';
 
 // Slogan da marca (com "TributÁgil" em destaque dourado).
 const Slogan = ({ className = '' }) => (
@@ -166,6 +167,8 @@ export default function Login({ onLoginSuccess }) {
           <p className="mt-6 text-center text-xs text-parchment/30">
             Problemas de acesso? Fale com a administração do escritório.
           </p>
+
+          <CreditoAutor className="mt-6" />
         </div>
       </main>
     </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LogOut, Scale, Clock, ArrowUpRight, Sparkles } from 'lucide-react';
 import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
 import Logo from '../components/Logo';
+import CreditoAutor from '../components/CreditoAutor';
 import { listarAnalises } from '../lib/analises';
 
 // ============================================================
@@ -143,8 +144,11 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
         </section>
       </main>
 
-      <footer className="border-t border-line/60 py-8 text-center text-xs text-parchment/30">
-        "Da decadência à prescrição, o TributÁgil é a sua solução."
+      <footer className="border-t border-line/60 py-8">
+        <p className="text-center text-xs text-parchment/30">
+          "Da decadência à prescrição, o TributÁgil é a sua solução."
+        </p>
+        <CreditoAutor className="mt-3" />
       </footer>
     </div>
   );

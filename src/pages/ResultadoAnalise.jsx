@@ -21,6 +21,7 @@ import {
   Calendar,
   Hash
 } from 'lucide-react';
+import CreditoAutor from '../components/CreditoAutor';
 
 // ============================================
 // DADOS MOCK DE SEGURANÇA (FALLBACK)
@@ -653,6 +654,13 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
           </button>
         </div>
       </div>
+
+      <footer className="border-t border-line/60 py-8">
+        <p className="text-center text-xs text-parchment/30">
+          "Da decadência à prescrição, o TributÁgil é a sua solução."
+        </p>
+        <CreditoAutor className="mt-3" />
+      </footer>
     </div>
   );
 };

@@ -19,6 +19,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { listarAnalises, excluirAnalise } from '../lib/analises';
+import CreditoAutor from '../components/CreditoAutor';
 
 // ============================================
 // HELPERS
@@ -452,6 +453,13 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
         onConfirmar={confirmarExclusao}
         tipo={modalLGPD?.tipo}
       />
+
+      <footer className="border-t border-line/60 py-8">
+        <p className="text-center text-xs text-parchment/30">
+          "Da decadência à prescrição, o TributÁgil é a sua solução."
+        </p>
+        <CreditoAutor className="mt-3" />
+      </footer>
     </div>
   );
 };

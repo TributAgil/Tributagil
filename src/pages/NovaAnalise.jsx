@@ -4,6 +4,7 @@ import { AreaUpload } from '../components/AreaUpload';
 import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
 import { formatarBytes, LIMITE_TOTAL_DOCS } from '../lib/prepararDocumentos';
 import { uploadDocumento, removerDocumentos } from '../lib/storageDocumentos';
+import CreditoAutor from '../components/CreditoAutor';
 
 const AREA_CONFIG = {
   principal: {
@@ -193,6 +194,13 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
           )}
         </div>
       </main>
+
+      <footer className="border-t border-line/60 py-8">
+        <p className="text-center text-xs text-parchment/30">
+          "Da decadência à prescrição, o TributÁgil é a sua solução."
+        </p>
+        <CreditoAutor className="mt-3" />
+      </footer>
     </div>
   );
 };
