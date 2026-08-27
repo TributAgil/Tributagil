@@ -8,7 +8,9 @@ import { ArrowRight } from 'lucide-react';
 // hammer-impact / impact-ring / impact-flash). Aqui só orquestramos:
 //   clique -> classe .is-striking -> callback ~240ms depois -> limpa no fim.
 
-const DELAY_NAVEGACAO_MS = 240; // logo após o impacto, parece instantâneo
+// Só navega DEPOIS de a batida do martelo se resolver visualmente.
+// Animação = 900ms; impacto aos ~450ms; quique/acomodação terminam aos ~740ms.
+const DELAY_NAVEGACAO_MS = 760;
 
 export default function BotaoComecarAnalise({
   onComecar,
