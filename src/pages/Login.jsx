@@ -3,8 +3,12 @@ import { Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 
-// Troque à vontade — ver opções no chat.
-const SLOGAN = 'O tempo, agora, joga a seu favor.';
+// Slogan da marca (com "TributÁgil" em destaque dourado).
+const Slogan = ({ className = '' }) => (
+  <span className={className}>
+    Da decadência à prescrição, o <span className="text-gold">TributÁgil</span> é a solução.
+  </span>
+);
 
 // Traduz as mensagens mais comuns do Supabase Auth para PT-BR.
 function traduzErroAuth(mensagem = '') {
@@ -60,9 +64,9 @@ export default function Login({ onLoginSuccess }) {
           <Logo size="lg" />
         </div>
 
-        <div className="relative max-w-md">
-          <h1 className="text-balance font-display text-4xl font-semibold leading-[1.12] text-parchment xl:text-[3.25rem]">
-            {SLOGAN}
+        <div className="relative max-w-lg">
+          <h1 className="text-balance font-display text-4xl font-semibold leading-[1.14] text-parchment xl:text-5xl">
+            <Slogan />
           </h1>
           <p className="mt-6 leading-relaxed text-parchment/55">
             Perícia tributária assistida por IA — prescrição, decadência e prescrição
@@ -91,7 +95,7 @@ export default function Login({ onLoginSuccess }) {
           {/* Marca compacta no mobile */}
           <div className="mb-9 flex flex-col items-center text-center lg:hidden">
             <Logo size="md" />
-            <p className="mt-5 text-balance font-display text-xl text-parchment/90">{SLOGAN}</p>
+            <Slogan className="mt-5 block text-balance font-display text-lg leading-snug text-parchment/90" />
           </div>
 
           <div className="rounded-[var(--radius-xl2)] border border-line bg-white/[0.035] p-8 shadow-[var(--shadow-gold)] backdrop-blur-xl">
