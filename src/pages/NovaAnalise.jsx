@@ -121,7 +121,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   return (
     <div className="bg-noir min-h-screen font-sans text-parchment">
       <header className="border-b border-line">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-5">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 sm:px-6 py-5">
           <button
             onClick={onVoltar}
             disabled={analisando}
@@ -138,7 +138,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-4 sm:px-6 py-10">
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <AreaUpload
             config={AREA_CONFIG.principal}

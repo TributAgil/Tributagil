@@ -307,7 +307,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
     <div className="min-h-screen bg-noir">
       {toast && (
         <div
-          className={`fixed top-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl ${
+          className={`fixed top-4 right-4 left-4 sm:left-auto sm:top-6 sm:right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl ${
             toast.tipo === 'sucesso' ? 'bg-gold text-ink' : 'bg-blue-600 text-ink'
           }`}
         >
@@ -317,30 +317,30 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
       )}
 
       <header className="bg-ink-800/50 border-b border-line sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-parchment">Histórico de Resultados</h1>
-            <p className="text-sm text-parchment/50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-parchment">Histórico de Resultados</h1>
+            <p className="text-sm text-parchment/50 truncate">
               {user?.email ? user.email : 'Suas análises tributárias concluídas'}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={carregar}
-              className="p-2.5 text-parchment/50 hover:text-parchment hover:bg-ink-700 rounded-xl transition-all"
+              className="shrink-0 p-2.5 text-parchment/50 hover:text-parchment hover:bg-ink-700 rounded-xl transition-all"
               title="Atualizar"
             >
               <RefreshCw size={16} className={carregando ? 'animate-spin' : ''} />
             </button>
             <button
               onClick={onNovaAnalise}
-              className="cursor-gavel px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm"
+              className="cursor-gavel flex-1 sm:flex-none text-center px-4 sm:px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm whitespace-nowrap"
             >
               + Nova Análise
             </button>
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-parchment/50 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-parchment/50 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
               title="Sair da conta"
             >
               <LogOut size={16} />
@@ -351,7 +351,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
       </header>
 
       <div className="bg-ink-800/50 border-b border-line">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-parchment/40" />
@@ -393,7 +393,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center gap-3 p-4 bg-gold/10 border border-gold/25 rounded-xl mb-6">
           <div className="w-10 h-10 rounded-lg bg-gold/15 flex items-center justify-center flex-shrink-0">
             <Shield size={18} className="text-gold" />

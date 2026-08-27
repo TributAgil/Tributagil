@@ -40,10 +40,25 @@
   text-rendering: optimizeLegibility;
 }
 
+/* `overflow-x: clip` corta qualquer vazamento horizontal (ex.: martelo da
+   animação, transforms) SEM quebrar `position: sticky` — diferente de
+   `overflow: hidden`. Evita a "rolagem lateral fantasma" no celular. */
+html {
+  overflow-x: clip;
+  /* iOS/Android: some o flash cinza ao tocar em links/botões */
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   margin: 0;
   padding: 0;
+  /* 100dvh acompanha a barra de endereço dinâmica do mobile; 100vh é o
+     fallback para navegadores sem `dvh`. */
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
+  /* trava o "pull to refresh"/rubber-band que revela um fundo de outra cor */
+  overscroll-behavior-y: none;
   font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--text);
@@ -52,9 +67,20 @@ body {
 #root {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+}
+
+/* iOS Safari dá zoom automático ao focar um campo com fonte < 16px.
+   Forçamos 16px REAIS no toque (o visual `text-sm` continua no desktop). */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* Utilitário de fundo "noir" com brilho dourado difuso */
@@ -66,6 +92,15 @@ body {
 }
 
 .text-balance { text-wrap: balance; }
+
+/* Faixa com rolagem horizontal (ex.: abas no celular) sem a barra visível */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
 
 /* ============================================================
    ANIMAÇÃO DO MARTELO (gavel)

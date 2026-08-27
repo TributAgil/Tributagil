@@ -38,7 +38,7 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
     <div className="bg-noir min-h-screen text-parchment font-sans">
       {/* ---- Cabeçalho ---- */}
       <header className="border-b border-line/60">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-5">
           <Logo size="md" />
 
           <div className="flex items-center gap-4">
@@ -57,11 +57,11 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
       </header>
 
       {/* ---- Hero ---- */}
-      <main className="mx-auto max-w-6xl px-6">
-        <section className="flex flex-col items-center py-24 text-center sm:py-32">
-          <span className="mb-7 inline-flex items-center gap-2 rounded-full border border-line bg-ink-800/60 px-4 py-1.5 text-xs tracking-wide text-parchment/55">
-            <Sparkles size={13} className="text-gold" />
-            Prescrição · Decadência · Prescrição intercorrente
+      <main className="mx-auto max-w-6xl px-4 sm:px-6">
+        <section className="flex flex-col items-center py-16 text-center sm:py-32">
+          <span className="mb-7 inline-flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-2xl border border-line bg-ink-800/60 px-4 py-1.5 text-xs tracking-wide text-parchment/55">
+            <Sparkles size={13} className="text-gold shrink-0" />
+            Prescrição ordinária · Decadência · Prescrição intercorrente
           </span>
 
           <h1 className="max-w-3xl text-balance font-display text-4xl font-semibold leading-[1.1] text-parchment sm:text-6xl">

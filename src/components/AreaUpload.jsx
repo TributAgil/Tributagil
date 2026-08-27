@@ -69,7 +69,7 @@ export function AreaUpload({
   const destacar = dragLocal || isDraggingGlobal;
 
   return (
-    <section className="rounded-[var(--radius-xl2)] border border-line bg-ink-800/50 p-6">
+    <section className="rounded-[var(--radius-xl2)] border border-line bg-ink-800/50 p-4 sm:p-6">
       <header className="mb-3">
         <h3 className="font-display text-base font-semibold text-parchment/90">{config.titulo}</h3>
         <p className="text-xs text-parchment/45">{config.descricao}</p>

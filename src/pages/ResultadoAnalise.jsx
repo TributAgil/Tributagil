@@ -456,18 +456,18 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
   return (
     <div className="min-h-screen bg-noir">
       <header className="bg-ink-800/50 border-b border-line sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
                 onClick={onVoltar}
-                className="p-2 text-parchment/40 hover:text-parchment hover:bg-ink-700 rounded-lg transition-all"
+                className="shrink-0 p-2 text-parchment/40 hover:text-parchment hover:bg-ink-700 rounded-lg transition-all"
               >
                 <ArrowLeft size={20} />
               </button>
-              <div>
-                <h1 className="text-xl font-bold text-parchment">Resultado da Análise</h1>
-                <p className="text-sm text-parchment/50">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold text-parchment truncate">Resultado da Análise</h1>
+                <p className="text-sm text-parchment/50 truncate">
                   {resultado.metadata.processo !== 'Não identificado'
                     ? `Processo ${resultado.metadata.processo} • `
                     : ''}
@@ -476,7 +476,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button
                 onClick={() => window.print()}
                 className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
@@ -487,17 +487,19 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               <button
                 onClick={handleDownloadParecer}
                 disabled={baixando}
-                className="cursor-gavel flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
+                className="cursor-gavel flex items-center gap-2 px-3 sm:px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
               >
                 {baixando ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Gerando PDF...
+                    <div className="w-4 h-4 border-2 border-ink/30 border-t-ink rounded-full animate-spin" />
+                    <span className="hidden sm:inline">Gerando PDF...</span>
+                    <span className="sm:hidden">Gerando...</span>
                   </>
                 ) : (
                   <>
                     <Download size={16} />
-                    Download do Parecer Completo
+                    <span className="hidden sm:inline">Download do Parecer Completo</span>
+                    <span className="sm:hidden">Baixar parecer</span>
                   </>
                 )}
               </button>
@@ -507,7 +509,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
       </header>
 
       <div className="bg-ink-800/50 border-b border-line">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Parte Autora</p>
@@ -531,9 +533,9 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <div className="bg-ink-800/50 border-b border-line sticky top-[73px] z-30">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex gap-1 -mb-px">
+      <div className="bg-ink-800/50 border-b border-line sm:sticky sm:top-[73px] z-30">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex gap-1 -mb-px overflow-x-auto no-scrollbar">
             {abas.map((aba) => {
               const Icon = aba.icon;
               const ativa = abaAtiva === aba.id;
@@ -542,7 +544,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
                   key={aba.id}
                   onClick={() => setAbaAtiva(aba.id)}
                   className={`
-                    flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all
+                    flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-all
                     ${ativa
                       ? 'border-gold text-gold bg-gold/[0.06]'
                       : 'border-transparent text-parchment/50 hover:text-parchment hover:bg-white/5'
@@ -564,10 +566,10 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {abaAtiva === 'conclusoes' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <h2 className="text-lg font-bold text-parchment">Conclusões da IA</h2>
               <div className="flex items-center gap-2 text-sm text-parchment/50">
                 <CheckCircle2 size={16} className="text-gold" />
@@ -642,8 +644,8 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         )}
       </main>
 
-      <div className="max-w-6xl mx-auto px-6 pb-12">
-        <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-8 text-center text-ink shadow-xl">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">
           <h3 className="text-xl font-bold mb-2">Precisa de uma nova análise?</h3>
           <p className="text-ink/70 mb-6">Processe novos documentos e obtenha insights tributários em segundos.</p>
           <button

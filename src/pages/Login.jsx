@@ -91,7 +91,7 @@ export default function Login({ onLoginSuccess }) {
       </aside>
 
       {/* ===================== COLUNA FORMULÁRIO ===================== */}
-      <main className="flex items-center justify-center px-6 py-16">
+      <main className="flex items-center justify-center px-5 py-10 sm:px-6 sm:py-16">
         <div className="w-full max-w-sm">
           {/* Marca compacta no mobile */}
           <div className="mb-9 flex flex-col items-center text-center lg:hidden">

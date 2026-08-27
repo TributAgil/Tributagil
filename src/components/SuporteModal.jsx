@@ -93,7 +93,7 @@ function AnexoScreenshot({ screenshot, onSelecionar, onRemover, erro }) {
       />
 
       {erro && (
-        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600">
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-300">
           <AlertCircle size={13} /> {erro}
         </p>
       )}
@@ -205,7 +205,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fecharComReset} />
 
-      <div className="relative bg-ink-800/95 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-ink-800/95 shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-line flex items-center justify-between bg-ink-900">
           <div className="flex items-center gap-2">
@@ -224,28 +224,28 @@ const SuporteModal = ({ aberto, onFechar }) => {
         <div className="flex border-b border-line">
           <button
             onClick={() => { setAbaAtiva('feedback'); setErro(null); }}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 text-xs sm:text-sm font-medium transition-all ${
               abaAtiva === 'feedback'
                 ? 'text-gold border-b-2 border-gold bg-gold/[0.06]'
                 : 'text-parchment/50 hover:text-parchment/80 hover:bg-white/5'
             }`}
           >
-            <MessageSquare size={16} /> Feedback da Análise
+            <MessageSquare size={16} className="shrink-0" /> Feedback da Análise
           </button>
           <button
             onClick={() => { setAbaAtiva('bug'); setErro(null); }}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-3 text-xs sm:text-sm font-medium transition-all ${
               abaAtiva === 'bug'
                 ? 'text-gold border-b-2 border-gold bg-gold/[0.06]'
                 : 'text-parchment/50 hover:text-parchment/80 hover:bg-white/5'
             }`}
           >
-            <Bug size={16} /> Reportar Erro
+            <Bug size={16} className="shrink-0" /> Reportar Erro
           </button>
         </div>
 
         {/* Conteúdo */}
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
           {/* Honeypot: escondido de humanos, visível para bots */}
           <input
             type="text"
@@ -259,7 +259,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
           />
 
           {erro && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
               <span>{erro}</span>
             </div>
@@ -321,7 +321,7 @@ const SuporteModal = ({ aberto, onFechar }) => {
               <button
                 type="submit"
                 disabled={enviando || feedback.avaliacao === 0}
-                className="w-full py-3 bg-gold hover:bg-gold-soft text-white font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-3 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {enviando ? (
                   <><Loader2 size={16} className="animate-spin" /> Enviando...</>

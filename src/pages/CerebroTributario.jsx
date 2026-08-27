@@ -426,7 +426,7 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
       <div className="relative z-10 w-full max-w-2xl">
         <div className="bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-line shadow-2xl overflow-hidden">
 
-          <div className="relative px-8 pt-10 pb-6 text-center">
+          <div className="relative px-5 sm:px-8 pt-8 sm:pt-10 pb-6 text-center">
             <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full ${corAtual.bg} opacity-10 blur-3xl transition-all duration-1000`} />
             <div className="relative inline-block">
               <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-gold/15' : 'bg-ink-800'} border border-line transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
@@ -443,7 +443,7 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
             <p className="text-parchment/50 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
           </div>
 
-          <div className="px-8 pb-8 space-y-6">
+          <div className="px-5 sm:px-8 pb-8 space-y-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-parchment/70">{estagio.frase}</span>
@@ -462,20 +462,20 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
                 <Zap size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-lg font-bold text-parchment">{payload?.documentos?.length || 0}</p>
+                <p className="text-base sm:text-lg font-bold text-parchment">{payload?.documentos?.length || 0}</p>
                 <p className="text-[10px] text-parchment/40 uppercase">Documentos</p>
               </div>
               <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
                 <ShieldCheck size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-lg font-bold text-parchment">CTN/LEF</p>
+                <p className="text-base sm:text-lg font-bold text-parchment">CTN/LEF</p>
                 <p className="text-[10px] text-parchment/40 uppercase">Base Legal</p>
               </div>
               <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
                 <Brain size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-lg font-bold text-parchment">Backend</p>
+                <p className="text-base sm:text-lg font-bold text-parchment">Backend</p>
                 <p className="text-[10px] text-parchment/40 uppercase">API Segura</p>
               </div>
             </div>
