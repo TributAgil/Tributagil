@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, BrainCircuit, Loader2, CheckCircle2, FileText } from 'lucide-react';
 import CerebroTributario from './CerebroTributario';
 import { FormularioDadosPrincipais } from '../components/FormularioDadosPrincipais';
-import AreaUpload from '../components/AreaUpload';
+import { AreaUpload } from '../components/AreaUpload';
 import { BlocoResultado } from '../components/BlocoResultado';
 
 const AREA_CONFIG = {
