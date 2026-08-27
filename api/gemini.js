@@ -30,11 +30,10 @@ const MAX_BYTES_TOTAL = 50 * 1024 * 1024;
 const BUCKET = 'documentos';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
-export default async function handler(request) {
-  if (request.method !== 'POST') {
-    return json({ error: 'Método não permitido. Use POST.' }, 405);
-  }
-
+// IMPORTANTE: no runtime Node da Vercel, o `export default` só funciona com a
+// assinatura `(req, res)`. Para receber um `Request` e devolver um `Response`
+// (com streaming), é preciso exportar um método HTTP nomeado — `POST` aqui.
+export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
