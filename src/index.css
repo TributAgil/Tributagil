@@ -150,3 +150,39 @@ body {
   .gavel-wrap.is-striking .gavel-strike-btn::before,
   .gavel-wrap.is-striking .gavel-strike-btn::after { animation: none; }
 }
+
+/* ============================================================
+   LOGIN — "pilares" dourados finos + fio de luz que desliza
+   ============================================================ */
+.login-pillars {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 94px,
+    rgba(212, 175, 55, 0.055) 94px 95px
+  );
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 72%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 14%, #000 72%, transparent);
+  pointer-events: none;
+}
+
+.login-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 32%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(212, 175, 55, 0.55), transparent);
+  animation: line-sheen 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes line-sheen {
+  0%, 100% { opacity: 0.2; transform: translateX(0); }
+  50% { opacity: 0.75; transform: translateX(130px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-sheen { animation: none; opacity: 0.35; }
+}

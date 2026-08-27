@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LogOut, Scale, Clock, ArrowUpRight, Sparkles } from 'lucide-react';
 import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
+import Logo from '../components/Logo';
 import { listarAnalises } from '../lib/analises';
 
 // ============================================================
@@ -37,19 +38,7 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
       {/* ---- Cabeçalho ---- */}
       <header className="border-b border-line/60">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-ink-800">
-              <Scale size={18} className="text-gold" />
-            </span>
-            <div className="leading-tight">
-              <p className="font-display text-lg font-semibold tracking-wide text-parchment">
-                Tribut<span className="text-gold">Ágil</span>
-              </p>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-parchment/40">
-                Cérebro Tributário
-              </p>
-            </div>
-          </div>
+          <Logo size="md" />
 
           <div className="flex items-center gap-4">
             <span className="hidden text-sm text-parchment/50 sm:block">{user?.email}</span>
