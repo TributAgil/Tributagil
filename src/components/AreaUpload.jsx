@@ -1,20 +1,18 @@
 import React, { useRef, useState } from 'react';
 import { UploadCloud, FileText, X, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
-import { formatarBytes } from '../lib/prepararDocumentos';
+import { formatarBytes, MAX_PDF_BYTES, MAX_IMAGEM_BYTES } from '../lib/prepararDocumentos';
 
 // ============================================
 // COMPONENTE: ÁREA DE UPLOAD (drag & drop + seleção)
 // ============================================
 // Só faz: escolher arquivos, validar tipo/tamanho e exibir a lista.
-// A conversão para base64 (e a compressão de imagens) acontece em `NovaAnalise`,
-// que é a dona do estado. O status de cada arquivo:
-//   'processando' → sendo convertido    'pronto' → pronto p/ enviar    'erro'
+// O upload para o Supabase Storage (e a compressão de imagens) acontece em
+// `NovaAnalise`, que é a dona do estado. Status de cada arquivo:
+//   'processando' → subindo p/ o Storage    'pronto'    'erro'
 //
 // O objeto entregue por `onAdicionarArquivos` traz o File original em `_file`.
 
 const TIPOS_ACEITOS = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
-const MAX_IMAGEM_BYTES = 25 * 1024 * 1024; // será comprimida
-const MAX_PDF_BYTES = 5 * 1024 * 1024; // PDF não comprime no browser
 
 const CORES = {
   emerald: { base: 'border-emerald-200', ativo: 'border-emerald-500 bg-emerald-50', icone: 'text-emerald-600' },
@@ -107,7 +105,7 @@ export function AreaUpload({
           Arraste arquivos aqui ou clique para selecionar
         </span>
         <span className="text-[11px] text-slate-400">
-          PDF (até {formatarBytes(MAX_PDF_BYTES)}) ou imagens JPG/PNG/WEBP
+          PDF (até {formatarBytes(MAX_PDF_BYTES)}) ou imagens JPG/PNG/WEBP — vários arquivos
         </span>
         <input
           ref={inputRef}
@@ -146,7 +144,7 @@ export function AreaUpload({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-slate-700">{arquivo.nome}</p>
                 <p className="text-[11px] text-slate-400">
-                  {arquivo.status === 'processando' && 'preparando...'}
+                  {arquivo.status === 'processando' && 'enviando ao servidor seguro...'}
                   {arquivo.status === 'pronto' &&
                     formatarBytes(arquivo.tamanhoFinal ?? arquivo.tamanho)}
                   {arquivo.status === 'erro' && arquivo.motivoErro}

@@ -1,5 +1,6 @@
 // src/pages/CerebroTributario.jsx
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import {
   Brain,
   FileSearch,
@@ -251,15 +252,27 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
         const documentos = (payload?.documentos ?? []).map((d) => ({
           nome: d.nome,
           mime_type: d.mime_type,
-          data_base64: d.data_base64,
+          storage_path: d.storage_path,
         }));
 
-        addLog(`Enviando ${documentos.length} documento(s) para /api/gemini...`, 'info');
+        // Token do usuário: o backend usa para ler os arquivos no Storage
+        // respeitando a RLS (só a pasta do próprio usuário).
+        const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+        const userToken = sess?.session?.access_token;
+        if (!userToken) throw new Error('Sessão expirada. Faça login novamente.');
+
+        addLog(`Enviando ${documentos.length} documento(s) para análise...`, 'info');
 
         const resposta = await fetch('/api/gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptEngenharia, documentos }),
+          body: JSON.stringify({
+            prompt: promptEngenharia,
+            documentos,
+            supabaseUrl,
+            supabaseAnonKey,
+            userToken,
+          }),
           signal: abortController.signal,
         });
 

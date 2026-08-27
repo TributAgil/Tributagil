@@ -1,36 +1,27 @@
 // src/lib/prepararDocumentos.js
 //
-// Prepara os arquivos do usuário para envio à IA:
-//   - Imagens grandes são reduzidas no browser (canvas) e re-exportadas como JPEG.
-//     Uma foto de documento de 4 MB costuma cair para 200–400 KB sem perder
-//     legibilidade do texto.
+// Prepara os arquivos do usuário ANTES de subir para o Supabase Storage:
+//   - Imagens grandes são reduzidas no browser (canvas → JPEG). Uma foto de
+//     documento de 6 MB costuma cair para 300–600 KB mantendo o texto legível.
 //   - PDFs passam sem alteração (não dá para recomprimir no browser sem libs
-//     pesadas).
-//   - Tudo vira base64 puro (sem o prefixo "data:...;base64,").
-//
-// LIMITE: a request para /api/gemini roda em Edge Function (teto de ~4 MB de
-// corpo). Por isso o total de base64 é limitado no formulário. Para processos
-// grandes, o caminho é subir os arquivos para o Supabase Storage e o backend
-// lê de lá — fica como evolução.
+//     pesadas — e a Files API do Gemini aceita PDF grande de qualquer forma).
 
-// Limite do TOTAL de documentos por análise, medido em bytes decodificados.
-// ~2,7 MB decodificado ≈ ~3,6 MB em base64 ≈ ~3,8 MB de corpo HTTP — abaixo do
-// teto de ~4 MB da Edge Function.
-export const LIMITE_TOTAL_DOCS = 2.7 * 1024 * 1024;
-const MAX_DIMENSAO_PX = 2000; // lado maior da imagem após redução
-const QUALIDADE_JPEG = 0.72;
+// Limite do TOTAL de documentos por análise. Agora o arquivo vai direto para o
+// Supabase Storage (não passa mais pelo corpo de uma Function), então o teto é
+// bem maior — limitado pela Files API do Gemini e por bom senso de custo/latência.
+export const LIMITE_TOTAL_DOCS = 45 * 1024 * 1024; // 45 MB
+export const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB por PDF
+export const MAX_IMAGEM_BYTES = 40 * 1024 * 1024; // 40 MB por imagem (antes de comprimir)
+
+const MAX_DIMENSAO_PX = 2600; // lado maior da imagem após a redução
+const QUALIDADE_JPEG = 0.75;
 
 /**
+ * Comprime a imagem (se for imagem). PDFs e outros formatos passam direto.
  * @param {File} file
- * @returns {Promise<{ mime: string, base64: string, bytes: number }>}
+ * @returns {Promise<{ blob: Blob, mime: string }>}
  */
-export async function prepararArquivo(file) {
-  const { blob, mime } = await comprimirSeImagem(file);
-  const base64 = await blobParaBase64(blob);
-  return { mime, base64, bytes: Math.floor((base64.length * 3) / 4) };
-}
-
-async function comprimirSeImagem(file) {
+export async function comprimirImagem(file) {
   if (file.type === 'application/pdf') {
     return { blob: file, mime: 'application/pdf' };
   }
@@ -55,7 +46,6 @@ async function comprimirSeImagem(file) {
       canvas.toBlob(resolve, 'image/jpeg', QUALIDADE_JPEG),
     );
 
-    // Se a "compressão" não ajudou (imagem já minúscula), mantém o original.
     if (blob && blob.size < file.size) {
       return { blob, mime: 'image/jpeg' };
     }
@@ -64,19 +54,6 @@ async function comprimirSeImagem(file) {
   }
 
   return { blob: file, mime: file.type };
-}
-
-function blobParaBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const s = String(reader.result);
-      const virgula = s.indexOf(',');
-      resolve(virgula >= 0 ? s.slice(virgula + 1) : s); // remove "data:...;base64,"
-    };
-    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
-    reader.readAsDataURL(blob);
-  });
 }
 
 export function formatarBytes(bytes) {

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, BrainCircuit, Loader2, AlertTriangle } from 'lucide-react';
 import { AreaUpload } from '../components/AreaUpload';
 import { BlocoResultado } from '../components/BlocoResultado';
-import { prepararArquivo, formatarBytes, LIMITE_TOTAL_DOCS } from '../lib/prepararDocumentos';
+import { formatarBytes, LIMITE_TOTAL_DOCS } from '../lib/prepararDocumentos';
+import { uploadDocumento, removerDocumentos } from '../lib/storageDocumentos';
 
 const AREA_CONFIG = {
   principal: {
@@ -21,10 +22,15 @@ const AREA_CONFIG = {
   },
 };
 
+const novoId = () =>
+  (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
   const [arquivos, setArquivos] = useState([]);
   const [isDraggingGlobal, setIsDraggingGlobal] = useState(false);
   const [analisando, setAnalisando] = useState(false);
+  // Uma pasta no Storage por sessão de "Nova Análise".
+  const analiseIdRef = useRef(novoId());
 
   useEffect(() => {
     const on = () => setIsDraggingGlobal(true);
@@ -39,25 +45,30 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
     };
   }, []);
 
-  // Converte (e comprime imagens) cada novo arquivo para base64, em segundo plano.
-  const converter = async (novos) => {
+  // Sobe cada novo arquivo para o Supabase Storage, em segundo plano.
+  const enviarParaStorage = async (novos) => {
     for (const item of novos) {
       if (item.status !== 'processando' || !item._file) continue;
       try {
-        const { mime, base64, bytes } = await prepararArquivo(item._file);
+        const { storagePath, mime, tamanho } = await uploadDocumento({
+          userId: user?.id,
+          analiseId: analiseIdRef.current,
+          fileId: item.id,
+          file: item._file,
+        });
         setArquivos((prev) =>
           prev.map((a) =>
             a.id === item.id
-              ? { ...a, status: 'pronto', mimeFinal: mime, dataBase64: base64, tamanhoFinal: bytes, _file: undefined }
+              ? { ...a, status: 'pronto', mimeFinal: mime, storagePath, tamanhoFinal: tamanho, _file: undefined }
               : a,
           ),
         );
       } catch (err) {
-        console.error('[NovaAnalise] Falha ao preparar arquivo:', err);
+        console.error('[NovaAnalise] Falha ao enviar arquivo:', err);
         setArquivos((prev) =>
           prev.map((a) =>
             a.id === item.id
-              ? { ...a, status: 'erro', motivoErro: 'Falha ao preparar o arquivo.', _file: undefined }
+              ? { ...a, status: 'erro', motivoErro: err?.message || 'Falha ao enviar o arquivo.', _file: undefined }
               : a,
           ),
         );
@@ -67,18 +78,22 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
 
   const handleAdicionarArquivos = (_areaId, novosArquivos) => {
     setArquivos((prev) => [...prev, ...novosArquivos]);
-    converter(novosArquivos);
+    enviarParaStorage(novosArquivos);
   };
 
   const handleRemoverArquivo = (arquivoId) => {
-    setArquivos((prev) => prev.filter((a) => a.id !== arquivoId));
+    setArquivos((prev) => {
+      const alvo = prev.find((a) => a.id === arquivoId);
+      if (alvo?.storagePath) removerDocumentos([alvo.storagePath]);
+      return prev.filter((a) => a.id !== arquivoId);
+    });
   };
 
-  const prontos = arquivos.filter((a) => a.status === 'pronto' && a.dataBase64);
+  const prontos = arquivos.filter((a) => a.status === 'pronto' && a.storagePath);
   const principaisProntos = prontos.filter((a) => a.area === 'principal');
   const processando = arquivos.some((a) => a.status === 'processando');
-  const totalBase64 = prontos.reduce((s, a) => s + (a.tamanhoFinal || 0), 0);
-  const acimaDoLimite = totalBase64 > LIMITE_TOTAL_DOCS;
+  const totalBytes = prontos.reduce((s, a) => s + (a.tamanhoFinal || 0), 0);
+  const acimaDoLimite = totalBytes > LIMITE_TOTAL_DOCS;
 
   const podeAnalisar =
     principaisProntos.length > 0 && !processando && !acimaDoLimite && !analisando;
@@ -89,6 +104,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
     const payload = {
       metadata: {
         usuario_id: user?.id || null,
+        analise_id: analiseIdRef.current,
         timestamp: new Date().toISOString(),
         total_arquivos: prontos.length,
         origem: 'tributagil_web',
@@ -98,7 +114,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
         nome: a.nome,
         mime_type: a.mimeFinal || a.tipo,
         categoria: a.area,
-        data_base64: a.dataBase64,
+        storage_path: a.storagePath,
       })),
     };
 
@@ -106,7 +122,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
     onIniciarAnalise(payload);
   };
 
-  const pctLimite = Math.min(100, Math.round((totalBase64 / LIMITE_TOTAL_DOCS) * 100));
+  const pctLimite = Math.min(100, Math.round((totalBytes / LIMITE_TOTAL_DOCS) * 100));
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -146,13 +162,13 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
           />
         </div>
 
-        {/* Medidor do limite de envio */}
+        {/* Medidor do limite */}
         {prontos.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
               <span>Tamanho total dos documentos</span>
               <span className={acimaDoLimite ? 'text-red-600 font-semibold' : ''}>
-                {formatarBytes(totalBase64)} / {formatarBytes(LIMITE_TOTAL_DOCS)}
+                {formatarBytes(totalBytes)} / {formatarBytes(LIMITE_TOTAL_DOCS)}
               </span>
             </div>
             <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -164,7 +180,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
             {acimaDoLimite && (
               <p className="mt-2 flex items-start gap-1.5 text-xs text-red-600">
                 <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
-                Limite excedido. Remova arquivos ou reduza o tamanho (fotografe as páginas em vez de escanear PDFs pesados).
+                Limite excedido. Remova alguns arquivos desta análise.
               </p>
             )}
           </div>
@@ -183,7 +199,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar }) => {
             {analisando || processando ? (
               <>
                 <Loader2 size={22} className="animate-spin" />
-                {analisando ? 'Enviando documentos...' : 'Preparando arquivos...'}
+                {analisando ? 'Enviando para análise...' : 'Enviando arquivos...'}
               </>
             ) : (
               <>

@@ -40,33 +40,42 @@ Preview e Development).
 
 ## Estrutura
 
-### Envio de documentos à IA
+### Envio de documentos à IA (Storage + Files API)
 
-Os arquivos são convertidos para base64 no browser (imagens são comprimidas via
-`canvas`) e vão como `inline_data` na chamada ao Gemini, que faz o OCR nativo.
+Fluxo:
+
+1. O navegador comprime imagens (`canvas`) e **sobe cada arquivo direto para o
+   Supabase Storage** (bucket `documentos`, pasta `<user_id>/<analise_id>/`).
+   Os arquivos **não passam** pelo corpo de nenhuma Function → sem o teto de 4 MB.
+2. `/api/gemini` (Node, `maxDuration` 300s) recebe só os *caminhos* + o token do
+   usuário. Baixa cada arquivo do Storage **respeitando a RLS**, sobe para a
+   **Files API do Gemini** e chama `streamGenerateContent` com os `file_uri`.
+3. A resposta volta em streaming para a tela do Cérebro.
+
 O `system instruction` "Motor TributÁgil" mora em `api/_motor-tributagil.js`.
+A IA responde **somente** com base nos anexos; faltando dado essencial devolve
+`{"alerta_dados_insuficientes": "..."}` e a tela mostra o aviso em vez de inventar.
 
-**Limite:** ~3,6 MB no total de documentos por análise — a request roda em Edge
-Function (teto de ~4 MB de corpo). Para processos grandes, o próximo passo é
-subir os arquivos para o **Supabase Storage** e o backend ler de lá (ou usar a
-**Files API do Gemini**). Hoje: fotografe as páginas em vez de escanear PDFs pesados.
+**Limites:** 20 documentos, 30 MB por arquivo, 50 MB no total por análise
+(PDF até 25 MB / imagem até 40 MB antes de comprimir). Sem novas variáveis de
+ambiente — a URL e a anon key do Supabase (públicas) viajam no corpo da request;
+o token do usuário garante o isolamento via RLS.
 
-A IA responde **somente** com base nos anexos. Faltando dado essencial, ela
-devolve `{"alerta_dados_insuficientes": "..."}` e a tela do Cérebro mostra o
-aviso em vez de inventar.
+> Os arquivos ficam no Storage. Uma limpeza automática (cron) pode ser adicionada
+> depois; hoje dá para apagá-los pelo painel do Supabase.
 
 ```
 api/
-  gemini.js             Proxy Edge + streaming; injeta o system instruction e os documentos
+  gemini.js             Node + streaming; Storage → Files API → Gemini
   _motor-tributagil.js  Texto do system instruction "Motor TributÁgil"
-  contato.js     Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
+  contato.js            Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
 src/
-  lib/supabase.js          Cliente único do Supabase
+  lib/supabase.js          Cliente único do Supabase (+ exporta url/anonKey/bucket)
+  lib/prepararDocumentos.js Compressão de imagens no browser
+  lib/storageDocumentos.js  Upload/remoção no Supabase Storage
   lib/analises.js          Camada de dados do histórico (listar/salvar/excluir)
   components/ErrorBoundary  Impede que um erro de render derrube o app inteiro
   pages/                    Telas (Login, Histórico, NovaAnalise, Cérebro, Resultado)
-  components/               UI reutilizável (upload, modal de suporte, etc.)
-  vite-env.d.ts             Tipagem de import.meta.env
 ```
 
 ## Banco de dados — tabela `analises`
@@ -91,6 +100,31 @@ create policy "analises: leitura própria"  on public.analises for select using 
 create policy "analises: inserção própria" on public.analises for insert with check (auth.uid() = user_id);
 create policy "analises: exclusão própria" on public.analises for delete using  (auth.uid() = user_id);
 ```
+
+## Storage — bucket `documentos`
+
+Onde os arquivos das análises são guardados. No painel do Supabase:
+
+1. **Storage → New bucket** → nome `documentos`, **Private**.
+2. **SQL Editor** → rode as policies (isolam cada usuário à própria pasta, cujo
+   primeiro segmento do caminho é o `auth.uid()`):
+
+```sql
+create policy "docs: acesso à própria pasta"
+on storage.objects for all
+to authenticated
+using (
+  bucket_id = 'documentos'
+  and (storage.foldername(name))[1] = auth.uid()::text
+)
+with check (
+  bucket_id = 'documentos'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+```
+
+> Sem o bucket, o upload na tela "Nova Análise" mostra o erro
+> `O bucket "documentos" não existe no Supabase`.
 
 > Enquanto a tabela não existir, a tela de Histórico simplesmente mostra o estado
 > "nenhuma análise ainda" — nada quebra.

@@ -1,29 +1,37 @@
 // api/gemini.js
 //
-// Proxy seguro para a API do Google Gemini.
+// Proxy seguro para o Google Gemini — arquitetura "Storage + Files API":
 //
-// - Edge Runtime + streaming (SSE): a resposta chega em pedaços, mantendo a
-//   conexão viva; evita o 504 da Vercel em respostas longas de IA.
-// - A API key só existe aqui, no servidor (header x-goog-api-key).
-// - System instruction "Motor TributÁgil" injetada em toda requisição.
-// - Documentos do usuário entram como `inline_data` (o Gemini faz OCR nativo).
-// - Sem `tools`: o modelo NÃO tem Google Search nem acesso externo — fica
-//   restrito ao conteúdo dos anexos.
+//   navegador ──(upload direto)──> Supabase Storage
+//   navegador ──(paths + token)──> ESTA FUNÇÃO
+//   ESTA FUNÇÃO ──(baixa via RLS)──> Storage
+//   ESTA FUNÇÃO ──(sobe)──> Gemini Files API ──> file_uri
+//   ESTA FUNÇÃO ──(stream SSE)──> navegador
+//
+// Assim os documentos (que podem ter dezenas de MB / centenas de páginas)
+// nunca passam pelo corpo de uma request de Function.
+//
+// Runtime: Node (não Edge) — precisa de mais tempo/memória para a cadeia
+// download → upload → geração. maxDuration configurado em vercel.json.
+//
+// Segredo: apenas GEMINI_API_KEY (server-side). A URL e a anon key do Supabase
+// são públicas (já estão no bundle) e chegam no corpo da request; o token do
+// usuário garante, via RLS, que só a pasta dele é lida.
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 
-export const config = { runtime: 'edge' };
-
-// Modelo padrão: pinado num ID que sabemos existir. Para "sempre o Flash mais
-// barato do momento", defina GEMINI_MODEL=gemini-flash-lite-latest na Vercel.
+const GEMINI = 'https://generativelanguage.googleapis.com';
 const MODELO_PADRAO = 'gemini-2.5-flash-lite';
-const THINKING_BUDGET_PADRAO = 512; // "pouco espaço para delírio"; 0 desliga
-const TIMEOUT_MS = 55_000;
-const MAX_DOCS = 12;
-const MAX_BYTES_INLINE_TOTAL = 14 * 1024 * 1024; // teto prático do inline_data
+const THINKING_BUDGET_PADRAO = 512;
+const TIMEOUT_GERACAO_MS = 280_000;
+const MAX_DOCS = 20;
+const MAX_BYTES_POR_DOC = 30 * 1024 * 1024;
+const MAX_BYTES_TOTAL = 50 * 1024 * 1024;
+const BUCKET = 'documentos';
+const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
-export default async function handler(req) {
-  if (req.method !== 'POST') {
+export default async function handler(request) {
+  if (request.method !== 'POST') {
     return json({ error: 'Método não permitido. Use POST.' }, 405);
   }
 
@@ -32,70 +40,99 @@ export default async function handler(req) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
 
-  // ---- 1. Validação de entrada ---------------------------------------------
-  let prompt;
-  let documentos;
+  // ---- 1. Entrada -------------------------------------------------------------
+  let body;
   try {
-    const body = await req.json();
-    prompt = body?.prompt;
-    documentos = Array.isArray(body?.documentos) ? body.documentos : [];
+    body = await request.json();
   } catch {
     return json({ error: 'Corpo da requisição inválido — envie um JSON.' }, 400);
   }
+
+  const { prompt, supabaseUrl, supabaseAnonKey, userToken } = body || {};
+  const documentos = Array.isArray(body?.documentos) ? body.documentos : [];
+
   if (typeof prompt !== 'string' || prompt.trim().length === 0) {
     return json({ error: 'O campo "prompt" é obrigatório.' }, 400);
+  }
+  if (!SUPABASE_URL_RE.test(String(supabaseUrl || ''))) {
+    return json({ error: 'supabaseUrl inválida.' }, 400);
+  }
+  if (!supabaseAnonKey || !userToken) {
+    return json({ error: 'Credenciais de acesso ao Storage ausentes.' }, 400);
   }
   if (documentos.length > MAX_DOCS) {
     return json({ error: `Máximo de ${MAX_DOCS} documentos por análise.` }, 413);
   }
 
-  // ---- 2. Monta as "parts": texto + cada documento como inline_data -------
+  // ---- 2. Baixa cada doc do Storage e sobe para a Files API do Gemini -------
   const parts = [{ text: prompt }];
-  let bytesInline = 0;
-  for (const d of documentos) {
-    const b64 = typeof d?.data_base64 === 'string' ? d.data_base64.trim() : '';
-    const mime = typeof d?.mime_type === 'string' ? d.mime_type : '';
-    if (!b64 || !mime) continue;
+  let bytesTotal = 0;
 
-    bytesInline += Math.floor((b64.length * 3) / 4);
-    if (bytesInline > MAX_BYTES_INLINE_TOTAL) {
-      return json({ error: 'Documentos excedem o limite total. Reduza a quantidade ou o tamanho.' }, 413);
+  try {
+    for (const d of documentos) {
+      const storagePath = String(d?.storage_path || '').replace(/^\/+/, '');
+      if (!storagePath) continue;
+
+      const objetoUrl =
+        `${supabaseUrl}/storage/v1/object/${BUCKET}/` +
+        storagePath.split('/').map(encodeURIComponent).join('/');
+
+      const arqResp = await fetch(objetoUrl, {
+        headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
+      });
+      if (!arqResp.ok) {
+        return json(
+          { error: `Não foi possível ler um documento no Storage (HTTP ${arqResp.status}).` },
+          502,
+        );
+      }
+
+      const buffer = await arqResp.arrayBuffer();
+      if (buffer.byteLength > MAX_BYTES_POR_DOC) {
+        return json({ error: `Um documento excede ${mb(MAX_BYTES_POR_DOC)} MB.` }, 413);
+      }
+      bytesTotal += buffer.byteLength;
+      if (bytesTotal > MAX_BYTES_TOTAL) {
+        return json({ error: `Total de documentos excede ${mb(MAX_BYTES_TOTAL)} MB.` }, 413);
+      }
+
+      const mime = d?.mime_type || arqResp.headers.get('content-type') || 'application/octet-stream';
+      const fileUri = await subirParaGeminiFiles(apiKey, buffer, mime, d?.nome);
+
+      if (d?.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
+      parts.push({ file_data: { mime_type: mime, file_uri: fileUri } });
     }
-
-    if (d.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
-    parts.push({ inline_data: { mime_type: mime, data: b64 } });
+  } catch (err) {
+    console.error('[api/gemini] Preparação de documentos falhou:', err);
+    return json({ error: err.message || 'Falha ao preparar os documentos para a IA.' }, 502);
   }
 
+  // ---- 3. Geração (streaming) ----------------------------------------------
   const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
   const thinkingBudget = Number.parseInt(
     process.env.GEMINI_THINKING_BUDGET ?? String(THINKING_BUDGET_PADRAO),
     10,
   );
 
-  // ---- 3. Chamada ao Gemini com timeout controlado -----------------------
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_GERACAO_MS);
 
   try {
     const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
+      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
           contents: [{ role: 'user', parts }],
           generationConfig: {
-            temperature: 0.1, // máxima aderência às instruções
-            responseMimeType: 'application/json', // força JSON válido na saída
-            ...(Number.isFinite(thinkingBudget)
-              ? { thinkingConfig: { thinkingBudget } }
-              : {}),
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+            ...(Number.isFinite(thinkingBudget) ? { thinkingConfig: { thinkingBudget } } : {}),
           },
+          // Sem `tools`: nada de Google Search / acesso externo.
         }),
       },
     );
@@ -108,18 +145,16 @@ export default async function handler(req) {
       );
     }
 
-    // ---- 4. Repassa o stream SSE do Google direto ao cliente -------------
     return new Response(upstream.body, {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
       },
     });
   } catch (err) {
     const abortado = err?.name === 'AbortError';
-    console.error('[api/gemini] Erro:', err);
+    console.error('[api/gemini] Erro na geração:', err);
     return json(
       { error: abortado ? 'Tempo limite excedido ao aguardar a IA.' : 'Erro ao conectar com a IA.' },
       abortado ? 504 : 502,
@@ -129,6 +164,54 @@ export default async function handler(req) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Files API do Gemini: sobe os bytes e devolve o file_uri já ATIVO.
+// ---------------------------------------------------------------------------
+async function subirParaGeminiFiles(apiKey, arrayBuffer, mimeType, displayName) {
+  const resp = await fetch(`${GEMINI}/upload/v1beta/files?uploadType=media`, {
+    method: 'POST',
+    headers: {
+      'x-goog-api-key': apiKey,
+      'Content-Type': mimeType,
+      ...(displayName ? { 'X-Goog-Upload-Header-Display-Name': asciiSafe(displayName) } : {}),
+    },
+    body: arrayBuffer,
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`Upload para a Files API falhou (HTTP ${resp.status}). ${txt.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  let file = data.file || data;
+
+  // PDFs/imagens costumam já vir ACTIVE; se estiver PROCESSING, aguarda.
+  let tentativas = 0;
+  while (file?.state === 'PROCESSING' && tentativas < 12) {
+    await sleep(1500);
+    const chk = await fetch(`${GEMINI}/v1beta/${file.name}`, {
+      headers: { 'x-goog-api-key': apiKey },
+    });
+    file = await chk.json();
+    tentativas += 1;
+  }
+
+  if (!file?.uri || (file.state && file.state !== 'ACTIVE')) {
+    throw new Error(`Documento não ficou pronto na Files API (state=${file?.state || 'desconhecido'}).`);
+  }
+  return file.uri;
+}
+
+function asciiSafe(s) {
+  return String(s).replace(/[^\x20-\x7E]/g, '_').slice(0, 120);
+}
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function mb(bytes) {
+  return Math.round(bytes / (1024 * 1024));
+}
 function json(data, status) {
   return new Response(JSON.stringify(data), {
     status,

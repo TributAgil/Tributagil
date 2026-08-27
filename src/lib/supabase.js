@@ -8,8 +8,8 @@ import { createClient } from '@supabase/supabase-js';
  * browser — por isso a chave `anon` (pública, protegida por RLS) fica aqui, mas
  * qualquer segredo real (service_role, chaves de IA, etc.) NUNCA deve usar esse prefixo.
  */
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Falha explícita e imediata: um deploy sem estas variáveis não deve "passar
 // silenciosamente" e quebrar só quando o usuário tentar logar.
@@ -28,3 +28,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true,
   },
 });
+
+/** Nome do bucket privado onde os documentos das análises são guardados. */
+export const BUCKET_DOCUMENTOS = 'documentos';

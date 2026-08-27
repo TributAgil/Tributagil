@@ -3,6 +3,12 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "fluid": true,
+  "functions": {
+    "api/gemini.js": {
+      "maxDuration": 300
+    }
+  },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
