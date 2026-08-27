@@ -115,11 +115,15 @@ function normalizarRegistro(row) {
   };
 }
 
+const AUSENTE = new Set(['', '—', 'não identificado', 'nao identificado', 'n/a', 'null', 'undefined']);
+const valido = (v) => typeof v === 'string' && !AUSENTE.has(v.trim().toLowerCase());
+
 function derivarTitulo(payload, resultado) {
-  const partes = payload?.partes;
-  if (partes?.sujeitoPassivo) return partes.sujeitoPassivo;
-  const primeira = resultado?.conclusoes?.[0]?.titulo;
-  return primeira || `Análise de ${payload?.documentos?.length ?? 0} documento(s)`;
+  const m = resultado?.metadata ?? {};
+  if (valido(m.parte_reu)) return m.parte_reu;           // contribuinte / executado
+  if (valido(m.parte_autora)) return m.parte_autora;     // fisco / exequente
+  if (valido(resultado?.conclusoes?.[0]?.titulo)) return resultado.conclusoes[0].titulo;
+  return `Análise de ${payload?.documentos?.length ?? 0} documento(s)`;
 }
 
 function derivarResumo(resultado) {

@@ -27,17 +27,13 @@ import {
 // ============================================
 const RESULTADO_MOCK = {
   metadata: {
-    id_analise: 'TRB-2026-0847',
+    id_analise: '—',
     data_analise: '26/08/2026',
-    hora_analise: '14:32:18',
-    advogado: 'Dr. Roberto Mendes',
-    oab: 'SP-123.456',
-    escritorio: 'Mendes & Advogados Associados',
     processo: '1002345-78.2024.8.26.0100',
     parte_autora: 'Fazenda Nacional',
     parte_reu: 'Indústria Alpha Ltda.',
     valor_causa: 'R$ 847.320,00',
-    modelo_ia: 'Cérebro Tributário v2.1 (Gemini Backend)',
+    local: '2ª Vara de Execuções Fiscais — Comarca de São Paulo/SP',
   },
   conclusoes: [
     {
@@ -369,30 +365,43 @@ const CardRaciocinio = ({ raciocinio, index }) => {
 // inteira e a tela "piscava e sumia". Aqui garantimos um formato seguro.
 const garantirArray = (v) => (Array.isArray(v) ? v : []);
 
-// Placeholders neutros para os campos de metadata que a IA pode não devolver —
-// evita exibir nomes/números fictícios do mock num parecer real.
+// Placeholders neutros. Campos essenciais caem para "Não identificado" quando a
+// IA não consegue extrair o dado dos documentos — nunca quebram a tela.
+const NAO_IDENT = 'Não identificado';
 const METADATA_NEUTRA = {
   id_analise: '—',
   data_analise: new Date().toLocaleDateString('pt-BR'),
-  hora_analise: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-  advogado: '—',
-  oab: '—',
-  escritorio: '—',
-  processo: '—',
-  parte_autora: '—',
-  parte_reu: '—',
-  valor_causa: '—',
-  modelo_ia: 'Gemini (Backend)',
+  processo: NAO_IDENT,
+  parte_autora: NAO_IDENT,
+  parte_reu: NAO_IDENT,
+  valor_causa: NAO_IDENT,
+  local: NAO_IDENT, // Comarca / Vara / Tribunal
 };
+
+// Substitui valores vazios/placeholder da IA por "Não identificado".
+const AUSENTE = new Set(['', '-', '—', 'n/a', 'na', 'null', 'undefined', 'nao informado', 'não informado']);
+function limparCampo(v) {
+  if (v == null) return NAO_IDENT;
+  const s = String(v).trim();
+  return s === '' || AUSENTE.has(s.toLowerCase()) ? NAO_IDENT : s;
+}
 
 function normalizarResultado(analise) {
   if (!analise || typeof analise !== 'object') return RESULTADO_MOCK;
 
+  const metaBruto = { ...METADATA_NEUTRA, ...(analise.metadata || {}) };
+
   return {
     ...RESULTADO_MOCK,
     ...analise,
-    // merge PROFUNDO do metadata a partir de uma base neutra (não do mock).
-    metadata: { ...METADATA_NEUTRA, ...(analise.metadata || {}) },
+    metadata: {
+      ...metaBruto,
+      parte_autora: limparCampo(metaBruto.parte_autora),
+      parte_reu: limparCampo(metaBruto.parte_reu),
+      valor_causa: limparCampo(metaBruto.valor_causa),
+      local: limparCampo(metaBruto.local),
+      processo: limparCampo(metaBruto.processo),
+    },
     conclusoes: garantirArray(analise.conclusoes),
     fatos_importantes: garantirArray(analise.fatos_importantes),
     raciocinio: garantirArray(analise.raciocinio),
@@ -424,7 +433,10 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Parecer_Tributario_${resultado.metadata.id_analise}.txt`;
+    const rotulo = (resultado.metadata.parte_reu || 'analise')
+      .replace(/[^\w]+/g, '_')
+      .slice(0, 40);
+    link.download = `Parecer_${rotulo}_${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -453,14 +465,12 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold text-slate-800">Resultado da Análise</h1>
-                  <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                    {resultado.metadata.id_analise}
-                  </span>
-                </div>
+                <h1 className="text-xl font-bold text-slate-800">Resultado da Análise</h1>
                 <p className="text-sm text-slate-500">
-                  Processo {resultado.metadata.processo} • {resultado.metadata.data_analise}
+                  {resultado.metadata.processo !== 'Não identificado'
+                    ? `Processo ${resultado.metadata.processo} • `
+                    : ''}
+                  {resultado.metadata.data_analise}
                 </p>
               </div>
             </div>
@@ -497,7 +507,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
 
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parte Autora</p>
               <p className="text-sm font-medium text-slate-700 truncate">{resultado.metadata.parte_autora}</p>
@@ -511,16 +521,10 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               <p className="text-sm font-medium text-emerald-700">{resultado.metadata.valor_causa}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Advogado</p>
-              <p className="text-sm font-medium text-slate-700">{resultado.metadata.advogado}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">OAB</p>
-              <p className="text-sm font-medium text-slate-700">{resultado.metadata.oab}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Modelo IA</p>
-              <p className="text-sm font-medium text-slate-700">{resultado.metadata.modelo_ia}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Local</p>
+              <p className="text-sm font-medium text-slate-700 truncate" title={resultado.metadata.local}>
+                {resultado.metadata.local}
+              </p>
             </div>
           </div>
         </div>
@@ -663,10 +667,7 @@ function gerarConteudoParecer(resultado) {
 IDENTIFICAÇÃO DO PARECER
 ────────────────────────────────────────────────────────────────────────────────
 Número da Análise:    ${metadata.id_analise}
-Data/Hora:            ${metadata.data_analise} às ${metadata.hora_analise}
-Modelo IA:            ${metadata.modelo_ia}
-Advogado Responsável: ${metadata.advogado} — OAB ${metadata.oab}
-Escritório:           ${metadata.escritorio}
+Data:                 ${metadata.data_analise}
 
 IDENTIFICAÇÃO DO PROCESSO
 ────────────────────────────────────────────────────────────────────────────────
@@ -674,6 +675,7 @@ Número:               ${metadata.processo}
 Parte Autora:         ${metadata.parte_autora}
 Parte Ré:             ${metadata.parte_reu}
 Valor da Causa:       ${metadata.valor_causa}
+Local:                ${metadata.local}
 
 ================================================================================
                         I. CONCLUSÕES DA ANÁLISE

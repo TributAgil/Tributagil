@@ -73,17 +73,28 @@ export default function App() {
     setTelaAtual('processando');
   };
 
-  // Recebe o resultado real devolvido pela IA e avança para a tela de resultado.
-  const handleConcluirProcessamento = (resultadoRealDaIA) => {
+  // Recebe o resultado real devolvido pela IA, salva no histórico e avança.
+  const handleConcluirProcessamento = async (resultadoRealDaIA) => {
+    // 1. Mostra o resultado imediatamente — não depende do save.
     setAnaliseSelecionada(resultadoRealDaIA);
     setTelaAtual('resultado');
 
-    // Persiste no histórico em segundo plano (best-effort — não bloqueia a UI).
-    salvarAnalise({
-      userId: user?.id,
-      payload: payloadAnalise,
-      resultado: resultadoRealDaIA,
-    }).catch((err) => console.error('[App] Falha ao salvar no histórico:', err));
+    // 2. Persiste no histórico. Aguardamos para garantir que a linha exista
+    //    antes de o usuário navegar para o Histórico/Painel.
+    try {
+      const salvo = await salvarAnalise({
+        userId: user?.id,
+        payload: payloadAnalise,
+        resultado: resultadoRealDaIA,
+      });
+      if (salvo) {
+        console.info('[App] Análise salva no histórico:', salvo.id);
+      } else {
+        console.warn('[App] Análise NÃO foi salva no histórico (ver logs de [analises]).');
+      }
+    } catch (err) {
+      console.error('[App] Erro ao salvar no histórico:', err);
+    }
   };
 
   const handleNovaAnalise = () => {

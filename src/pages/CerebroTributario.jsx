@@ -235,7 +235,13 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
 
 Retorne APENAS um objeto JSON com esta estrutura:
 {
-  "metadata": { "modelo_ia": "Gemini" },
+  "metadata": {
+    "processo": "número do processo, se houver",
+    "parte_autora": "exequente / Fisco / credor",
+    "parte_reu": "executado / contribuinte / devedor",
+    "valor_causa": "valor da execução/causa, com R$ e separadores",
+    "local": "comarca, vara e/ou tribunal (ex.: '2ª Vara de Execuções Fiscais — Comarca de São Paulo/SP')"
+  },
   "conclusoes": [
     { "id": 1, "tipo": "prescricao|decadencia|prescricao_intercorrente|cautela|procedimental", "severidade": "favoravel|atencao|neutro|desfavoravel", "titulo": "...", "resumo": "...", "fundamento_legal": "...", "confianca": 0 a 100 }
   ],
@@ -248,6 +254,7 @@ Retorne APENAS um objeto JSON com esta estrutura:
   "recomendacoes": ["ação estratégica 1", "ação estratégica 2"]
 }
 
+Em "metadata", extraia cada campo EXATAMENTE dos documentos anexados. Se algum não constar nos documentos, escreva exatamente "Não identificado" (nunca invente).
 Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
 Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, responda APENAS: {"alerta_dados_insuficientes": "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir."}
 
