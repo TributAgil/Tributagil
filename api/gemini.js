@@ -47,10 +47,15 @@ export default async function handler(req) {
 
   try {
     const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:streamGenerateContent?alt=sse`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // A chave vai no header (recomendação atual do Google e obrigatório na
+          // prática para as novas keys `AQ.…`). Nunca na URL — evita vazamento em log.
+          'x-goog-api-key': apiKey,
+        },
         signal: controller.signal,
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
