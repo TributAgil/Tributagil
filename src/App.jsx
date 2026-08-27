@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabase.ts';
+import { supabase } from './lib/supabase.ts';  // <-- CORREÇÃO: adicionado .ts
 import Login from './pages/Login';
 import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
