@@ -42,32 +42,17 @@ export default function BotaoComecarAnalise({
 
   return (
     <span className={`gavel-wrap ${striking ? 'is-striking' : ''}`}>
-      {/* Martelo — inline p/ herdar a cor (currentColor = dourado). aria-hidden. */}
+      {/* Martelo de juiz — cabeça cilíndrica + faixas nas pontas + cabo do centro.
+          currentColor = dourado. aria-hidden. O balanço fica no CSS (.gavel). */}
       <svg className="gavel" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <g fill="currentColor">
-          {/* cabeça do martelo */}
-          <rect x="3.5" y="14" width="24" height="13" rx="4" transform="rotate(-40 15.5 20.5)" />
-          {/* aros das pontas (tom mais escuro) */}
-          <rect
-            x="5.5"
-            y="12.5"
-            width="4.5"
-            height="16"
-            rx="2.25"
-            transform="rotate(-40 7.75 20.5)"
-            fill="var(--color-gold-dim, #8a7130)"
-          />
-          <rect
-            x="21"
-            y="12.5"
-            width="4.5"
-            height="16"
-            rx="2.25"
-            transform="rotate(-40 23.25 20.5)"
-            fill="var(--color-gold-dim, #8a7130)"
-          />
-          {/* cabo */}
-          <rect x="21" y="18" width="6.5" height="26" rx="3.25" transform="rotate(-40 24.25 31)" />
+        <g transform="rotate(-42 24 24)">
+          {/* cabeça (cilindro) */}
+          <rect x="8" y="10" width="32" height="13" rx="6.5" fill="currentColor" />
+          {/* cabo, saindo do CENTRO da cabeça */}
+          <rect x="20.5" y="21" width="7" height="24" rx="3.5" fill="currentColor" />
+          {/* faixas próximas às pontas (tom mais escuro) */}
+          <rect x="13" y="11" width="3.4" height="11" rx="1.7" fill="var(--color-gold-dim, #8a7130)" />
+          <rect x="31.6" y="11" width="3.4" height="11" rx="1.7" fill="var(--color-gold-dim, #8a7130)" />
         </g>
       </svg>
 

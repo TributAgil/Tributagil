@@ -85,7 +85,7 @@ body {
   width: 56px;
   height: 56px;
   color: var(--color-gold);
-  transform-origin: 78% 88%; /* ponta do cabo = "a mão" */
+  transform-origin: 79% 82%; /* ponta do cabo = "a mão" que segura o martelo */
   transform: rotate(-58deg) scale(0.9);
   opacity: 0;
   pointer-events: none;
@@ -98,7 +98,7 @@ body {
    Hotspot 16 16 = centro da cabeça do martelo = ponto exato do clique.
    Fallback `pointer` caso o navegador ignore SVG-cursor (ex.: Safari antigo). */
 :root {
-  --cur-gavel: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%20viewBox='0%200%2032%2032'%3E%3Cg%20fill='%23000'%20stroke='%23fff'%20stroke-width='2.6'%20stroke-linejoin='round'%3E%3Crect%20x='6.5'%20y='7.5'%20width='17'%20height='8'%20rx='2.6'%20transform='rotate(38%2015%2011.5)'/%3E%3Crect%20x='12.8'%20y='11.5'%20width='4.6'%20height='16.5'%20rx='2'%20transform='rotate(38%2015%2019.7)'/%3E%3C/g%3E%3C/svg%3E") 16 16, pointer;
+  --cur-gavel: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%20viewBox='0%200%2032%2032'%3E%3Cg%20transform='rotate(-40%2016%2016)'%3E%3Crect%20x='3'%20y='10.5'%20width='26'%20height='10'%20rx='5'%20fill='%23000'%20stroke='%23fff'%20stroke-width='2.4'/%3E%3Cpath%20d='M9.5%2010.5v10M22.5%2010.5v10'%20stroke='%23fff'%20stroke-width='1.5'/%3E%3Crect%20x='13.4'%20y='19'%20width='5.2'%20height='11.5'%20rx='2.4'%20fill='%23000'%20stroke='%23fff'%20stroke-width='2.4'/%3E%3C/g%3E%3C/svg%3E") 16 16, pointer;
 }
 .gavel-strike-btn,
 .cursor-gavel {
