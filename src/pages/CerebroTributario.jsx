@@ -383,8 +383,7 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
           <h1 className="text-xl font-bold text-white">Não foi possível concluir a análise</h1>
           <p className="text-sm text-slate-400 mt-2">{erroFatal}</p>
           <p className="text-xs text-slate-600 mt-3">
-            Verifique se a chave <code className="text-slate-400">GEMINI_API_KEY</code> está
-            configurada na Vercel e tente novamente.
+            Tente novamente. Se persistir, reduza a quantidade/tamanho dos documentos.
           </p>
           <button
             onClick={() => onErro?.(new Error(erroFatal))}
