@@ -30,6 +30,18 @@ const MAX_BYTES_TOTAL = 50 * 1024 * 1024;
 const BUCKET = 'documentos';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
+// A credencial do Gemini pode chegar em dois formatos:
+//   - API key clássica "AIzaSy..."  -> vai em ?key= na URL
+//   - Token novo / OAuth "AQ..." / "ya29..." -> vai em Authorization: Bearer
+// (os endpoints do generativelanguage não aceitam os dois de forma intercambiável.)
+function gAuth(apiKey) {
+  if (/^AIza/.test(apiKey)) {
+    return { qs: `key=${encodeURIComponent(apiKey)}`, headers: {} };
+  }
+  return { qs: '', headers: { Authorization: `Bearer ${apiKey}` } };
+}
+const withQs = (url, qs) => (qs ? `${url}${url.includes('?') ? '&' : '?'}${qs}` : url);
+
 // IMPORTANTE: no runtime Node da Vercel, o `export default` só funciona com a
 // assinatura `(req, res)`. Para receber um `Request` e devolver um `Response`
 // (com streaming), é preciso exportar um método HTTP nomeado — `POST` aqui.
@@ -38,6 +50,7 @@ export async function POST(request) {
   if (!apiKey) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
+  const auth = gAuth(apiKey);
 
   // ---- 1. Entrada -------------------------------------------------------------
   let body;
@@ -96,7 +109,7 @@ export async function POST(request) {
       }
 
       const mime = d?.mime_type || arqResp.headers.get('content-type') || 'application/octet-stream';
-      const fileUri = await subirParaGeminiFiles(apiKey, buffer, mime, d?.nome);
+      const fileUri = await subirParaGeminiFiles(auth, buffer, mime, d?.nome);
 
       if (d?.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
       parts.push({ file_data: { mime_type: mime, file_uri: fileUri } });
@@ -118,10 +131,10 @@ export async function POST(request) {
 
   try {
     const upstream = await fetch(
-      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
+      withQs(`${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse`, auth.qs),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...auth.headers },
         signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -167,14 +180,14 @@ export async function POST(request) {
 // Files API do Gemini — protocolo "resumable" (2 passos), com a chave em ?key=
 // (o endpoint /upload NÃO aceita o header x-goog-api-key → responde 401).
 // ---------------------------------------------------------------------------
-async function subirParaGeminiFiles(apiKey, arrayBuffer, mimeType, displayName) {
+async function subirParaGeminiFiles(auth, arrayBuffer, mimeType, displayName) {
   const numBytes = arrayBuffer.byteLength;
-  const key = encodeURIComponent(apiKey);
 
   // Passo 1 — inicia o upload e recebe a URL de destino.
-  const start = await fetch(`${GEMINI}/upload/v1beta/files?key=${key}`, {
+  const start = await fetch(withQs(`${GEMINI}/upload/v1beta/files`, auth.qs), {
     method: 'POST',
     headers: {
+      ...auth.headers,
       'X-Goog-Upload-Protocol': 'resumable',
       'X-Goog-Upload-Command': 'start',
       'X-Goog-Upload-Header-Content-Length': String(numBytes),
@@ -211,7 +224,9 @@ async function subirParaGeminiFiles(apiKey, arrayBuffer, mimeType, displayName) 
   let tentativas = 0;
   while (file?.state === 'PROCESSING' && file?.name && tentativas < 12) {
     await sleep(1500);
-    const chk = await fetch(`${GEMINI}/v1beta/${file.name}?key=${key}`);
+    const chk = await fetch(withQs(`${GEMINI}/v1beta/${file.name}`, auth.qs), {
+      headers: { ...auth.headers },
+    });
     file = await chk.json().catch(() => file);
     tentativas += 1;
   }
