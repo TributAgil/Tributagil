@@ -21,29 +21,8 @@
          widget é montado pelo React em Login.jsx, não por auto-scan. -->
     <script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
 
-    <!-- Sentry (rastreamento de erros) — carrega SÓ se VITE_SENTRY_LOADER_SRC
-         estiver definido no build. Sem a env var, o trecho abaixo não faz nada.
-         Pegue a URL do "Loader Script" no seu projeto Sentry (grátis):
-         https://<org>.sentry.io -> Settings -> Client Keys -> Loader Script. -->
-    <script>
-      (function () {
-        var src = '%VITE_SENTRY_LOADER_SRC%';
-        if (src.slice(0, 4) === 'http') {
-          var s = document.createElement('script');
-          s.src = src;
-          s.crossOrigin = 'anonymous';
-          document.head.appendChild(s);
-          window.sentryOnLoad = function () {
-            try {
-              window.Sentry.init({
-                environment: location.hostname === 'tributagil.online' ? 'production' : 'preview',
-                tracesSampleRate: 0,
-              });
-            } catch (e) {}
-          };
-        }
-      })();
-    </script>
+    <!-- Sentry (rastreamento de erros): o loader é injetado por src/main.jsx
+         quando VITE_SENTRY_LOADER_SRC está definida — evita <script> inline. -->
   </head>
   <body>
     <div id="root"></div>
