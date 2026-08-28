@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import CreditoAutor from '../components/CreditoAutor';
+
+// Sitekey da hCaptcha (valor PÚBLICO — pode ficar no código). O secret key vive
+// SÓ no painel do Supabase (Authentication → Attack Protection).
+const HCAPTCHA_SITEKEY =
+  import.meta.env.VITE_HCAPTCHA_SITEKEY || 'ac76753c-80fe-42c4-abe4-bd3a6fb236f2';
 
 // Slogan da marca (com "TributÁgil" em destaque dourado).
 const Slogan = ({ className = '' }) => (
@@ -26,8 +31,62 @@ export default function Login({ onLoginSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // hCaptcha: o widget é montado via API explícita (window.hcaptcha.render)
+  // porque o auto-scan não funciona bem com o ciclo de vida do React.
+  const [captchaToken, setCaptchaToken] = useState('');
+  const captchaRef = useRef(null);
+  const widgetId = useRef(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    let intervalo = null;
+
+    const montar = () => {
+      if (cancelado || widgetId.current !== null) return;
+      if (!window.hcaptcha?.render || !captchaRef.current) return;
+      widgetId.current = window.hcaptcha.render(captchaRef.current, {
+        sitekey: HCAPTCHA_SITEKEY,
+        theme: 'dark',
+        callback: (token) => setCaptchaToken(token),
+        'expired-callback': () => setCaptchaToken(''),
+        'error-callback': () => setCaptchaToken(''),
+      });
+    };
+
+    if (window.hcaptcha?.render) montar();
+    else intervalo = setInterval(montar, 200); // aguarda o script async carregar
+
+    return () => {
+      cancelado = true;
+      if (intervalo) clearInterval(intervalo);
+      if (window.hcaptcha?.remove && widgetId.current !== null) {
+        try {
+          window.hcaptcha.remove(widgetId.current);
+        } catch {
+          /* widget já removido */
+        }
+      }
+      widgetId.current = null;
+    };
+  }, []);
+
+  const resetarCaptcha = () => {
+    setCaptchaToken('');
+    if (window.hcaptcha?.reset && widgetId.current !== null) {
+      try {
+        window.hcaptcha.reset(widgetId.current);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!captchaToken) {
+      setError('Confirme o "Não sou um robô" antes de entrar.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -35,15 +94,18 @@ export default function Login({ onLoginSuccess }) {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
+        options: { captchaToken },
       });
       if (authError) {
         setError(traduzErroAuth(authError.message));
+        resetarCaptcha(); // token da hCaptcha é de uso único
         return;
       }
       onLoginSuccess(data.user);
     } catch (err) {
       console.error('[Login] Erro inesperado:', err);
       setError('Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.');
+      resetarCaptcha();
     } finally {
       setLoading(false);
     }
@@ -140,9 +202,11 @@ export default function Login({ onLoginSuccess }) {
                 />
               </div>
 
+              <div ref={captchaRef} className="flex min-h-[78px] justify-center pt-1" />
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !captchaToken}
                 className="cursor-gavel mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gold px-4 py-3
                            text-sm font-semibold text-ink shadow-[0_12px_34px_-12px_rgba(212,175,55,0.55)]
                            transition-all duration-300 hover:bg-gold-soft active:scale-[0.985]
