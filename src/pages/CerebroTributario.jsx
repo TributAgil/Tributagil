@@ -263,7 +263,8 @@ Retorne APENAS um objeto JSON com esta estrutura:
 }
 
 Em "metadata", extraia cada campo EXATAMENTE dos documentos anexados. Se algum não constar nos documentos, escreva exatamente "Não identificado" (nunca invente).
-Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
+Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima, seguindo o mapeamento das [REGRAS DE SAÍDA — JSON] do Motor TributÁgil. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
+Neutralidade de resultado: rode os Módulos 2, 3 e 4 até o fim. Se NENHUM prazo foi ultrapassado, ainda assim retorne "conclusoes" com "severidade":"desfavoravel", a frase "Não foi identificada causa de extinção do crédito tributário por decadência ou prescrição até a presente data. O crédito permanece exigível." e o tempo restante até o próximo prazo. Se algum prazo foi ultrapassado, use "severidade":"favoravel" e a frase "O crédito tributário encontra-se inexigível, impondo-se seu imediato cancelamento / extinção da execução fiscal.".
 Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, responda APENAS: {"alerta_dados_insuficientes": "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir."}
 
 Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
