@@ -1,8 +1,9 @@
 // src/pages/ResultadoAnalise.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   Download,
+  FileType2,
   Scale,
   AlertTriangle,
   CheckCircle2,
@@ -14,14 +15,16 @@ import {
   Gavel,
   ArrowLeft,
   Printer,
-  Share2,
   Copy,
   Check,
   Brain,
   Calendar,
-  Hash
+  Hash,
+  Pencil,
+  Loader2,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
+import { salvarObservacoes } from '../lib/analises';
 
 // ============================================
 // DADOS MOCK DE SEGURANÇA (FALLBACK)
@@ -418,39 +421,69 @@ function normalizarResultado(analise) {
 const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
-  const [baixando, setBaixando] = useState(false);
 
   // Usa o resultado real da IA (normalizado) ou o mock, se não houver análise.
   const resultado = analise ? normalizarResultado(analise) : RESULTADO_MOCK;
+  const analiseId = analise?.id || resultado?.id || null;
 
-  const handleDownloadParecer = async () => {
-    setBaixando(true);
+  // ---- Anotações do advogado -------------------------------------------------
+  const [obs, setObs] = useState(analise?.observacoes || '');
+  const [salvandoObs, setSalvandoObs] = useState(false);
+  const [obsSalvoEm, setObsSalvoEm] = useState(analise?.observacoes_em || null);
+  const [obsSujo, setObsSujo] = useState(false);
 
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+  useEffect(() => {
+    // Ao abrir outra análise, sincroniza o campo.
+    setObs(analise?.observacoes || '');
+    setObsSalvoEm(analise?.observacoes_em || null);
+    setObsSujo(false);
+  }, [analiseId, analise?.observacoes]);
 
-    const conteudoParecer = gerarConteudoParecer(resultado);
+  const handleSalvarObs = async () => {
+    if (!analiseId) return;
+    setSalvandoObs(true);
+    const { ok, em } = await salvarObservacoes(analiseId, obs);
+    setSalvandoObs(false);
+    if (ok) {
+      setObsSalvoEm(em);
+      setObsSujo(false);
+    }
+  };
 
-    const blob = new Blob([conteudoParecer], { type: 'text/plain;charset=utf-8' });
+  // ---- Downloads ------------------------------------------------------------
+  const nomeArquivo = (ext) =>
+    `Parecer_${(resultado.metadata.parte_reu || 'analise')
+      .replace(/[^\w]+/g, '_')
+      .slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.${ext}`;
+
+  const baixarBlob = (conteudo, mime, ext) => {
+    const blob = new Blob([conteudo], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const rotulo = (resultado.metadata.parte_reu || 'analise')
-      .replace(/[^\w]+/g, '_')
-      .slice(0, 40);
-    link.download = `Parecer_${rotulo}_${new Date().toISOString().slice(0, 10)}.txt`;
+    link.download = nomeArquivo(ext);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
-    setBaixando(false);
   };
+
+  const baixarTxt = () =>
+    baixarBlob(gerarConteudoParecer(resultado, obs), 'text/plain;charset=utf-8', 'txt');
+
+  const baixarDoc = () =>
+    baixarBlob(
+      '﻿' + gerarHtmlParecer(resultado, obs),
+      'application/msword;charset=utf-8',
+      'doc',
+    );
 
   const abas = [
     { id: 'conclusoes', label: 'Conclusões', icon: CheckCircle2, count: resultado.conclusoes?.length || 0 },
     { id: 'fatos', label: 'Fatos Importantes', icon: FileText, count: resultado.fatos_importantes?.length || 0 },
     { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio?.length || 0 },
     { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes?.length || 0 },
+    { id: 'anotacoes', label: 'Anotações', icon: Pencil, count: obs.trim() ? 1 : 0 },
   ];
 
   return (
@@ -476,32 +509,30 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="no-print flex items-center gap-2 sm:gap-3 shrink-0">
               <button
                 onClick={() => window.print()}
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
+                title="Imprimir ou salvar em PDF"
+                className="hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
               >
                 <Printer size={16} />
-                Imprimir
+                PDF
               </button>
               <button
-                onClick={handleDownloadParecer}
-                disabled={baixando}
-                className="cursor-gavel flex items-center gap-2 px-3 sm:px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all disabled:opacity-60"
+                onClick={baixarTxt}
+                title="Baixar em texto puro (.txt)"
+                className="hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
               >
-                {baixando ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-ink/30 border-t-ink rounded-full animate-spin" />
-                    <span className="hidden sm:inline">Gerando PDF...</span>
-                    <span className="sm:hidden">Gerando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download size={16} />
-                    <span className="hidden sm:inline">Download do Parecer Completo</span>
-                    <span className="sm:hidden">Baixar parecer</span>
-                  </>
-                )}
+                <FileText size={16} />
+                .txt
+              </button>
+              <button
+                onClick={baixarDoc}
+                className="cursor-gavel flex items-center gap-2 px-3 sm:px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all"
+              >
+                <FileType2 size={16} />
+                <span className="hidden sm:inline">Baixar em Word</span>
+                <span className="sm:hidden">Word</span>
               </button>
             </div>
           </div>
@@ -545,7 +576,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <div className="bg-ink-800/50 border-b border-line sm:sticky sm:top-[73px] z-30">
+      <div className="no-print bg-ink-800/50 border-b border-line sm:sticky sm:top-[73px] z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex gap-1 -mb-px overflow-x-auto no-scrollbar">
             {abas.map((aba) => {
@@ -654,9 +685,66 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
             </div>
           </div>
         )}
+
+        {abaAtiva === 'anotacoes' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+              <h2 className="text-lg font-bold text-parchment">Anotações do advogado</h2>
+              <span className="text-sm text-parchment/50">Correções e observações sobre o parecer</span>
+            </div>
+            <div className="bg-ink-800/50 rounded-xl border border-line p-5 sm:p-6">
+              {analiseId ? (
+                <>
+                  <p className="mb-3 text-xs text-parchment/45">
+                    Registre aqui o que a IA errou ou o que precisa ser ajustado — por exemplo:
+                    <span className="text-parchment/65"> "A CDCT correta é 01/01/2027, não a apurada pela IA."</span>
+                    {' '}As anotações ficam salvas com a análise e entram nos downloads (.txt / Word).
+                  </p>
+                  <textarea
+                    value={obs}
+                    onChange={(e) => {
+                      setObs(e.target.value);
+                      setObsSujo(true);
+                    }}
+                    rows={8}
+                    placeholder="Suas observações, correções e ressalvas..."
+                    className="w-full resize-y rounded-lg border border-line bg-ink-900 px-4 py-3 text-sm text-parchment
+                               placeholder:text-parchment/25 outline-none transition-all
+                               focus:border-gold/50 focus:ring-2 focus:ring-gold/15"
+                  />
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-xs text-parchment/40">
+                      {salvandoObs
+                        ? 'Salvando...'
+                        : obsSujo
+                          ? 'Alterações não salvas'
+                          : obsSalvoEm
+                            ? `Salvo em ${new Date(obsSalvoEm).toLocaleString('pt-BR')}`
+                            : 'Nada salvo ainda'}
+                    </span>
+                    <button
+                      onClick={handleSalvarObs}
+                      disabled={salvandoObs || !obsSujo}
+                      className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-ink
+                                 transition-all hover:bg-gold-soft disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {salvandoObs ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                      Salvar anotações
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-parchment/50">
+                  As anotações ficam disponíveis assim que a análise é salva no histórico.
+                  Aguarde alguns segundos ou reabra a análise pelo Histórico.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+      <div className="no-print max-w-6xl mx-auto px-4 sm:px-6 pb-12">
         <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">
           <h3 className="text-xl font-bold mb-2">Precisa de uma nova análise?</h3>
           <p className="text-ink/70 mb-6">Processe novos documentos e obtenha insights tributários em segundos.</p>
@@ -669,13 +757,25 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <RodapeLegal />
+      <div className="no-print">
+        <RodapeLegal />
+      </div>
     </div>
   );
 };
 
-function gerarConteudoParecer(resultado) {
+function gerarConteudoParecer(resultado, observacoes = '') {
   const { metadata, conclusoes = [], fatos_importantes = [], raciocinio = [], recomendacoes = [] } = resultado;
+
+  const blocoAnotacoes = observacoes && observacoes.trim()
+    ? `
+================================================================================
+                 ANOTAÇÕES E CORREÇÕES DO ADVOGADO
+================================================================================
+
+${observacoes.trim()}
+`
+    : '';
 
   return `================================================================================
                     PARECER TRIBUTÁRIO — TRIBUTÁGIL
@@ -738,7 +838,7 @@ Referência: ${r.referencia}
 ================================================================================
 
 ${recomendacoes.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-
+${blocoAnotacoes}
 ================================================================================
                              V. DISCLAIMER
 ================================================================================
@@ -753,6 +853,103 @@ por decisões judiciais baseadas unicamente neste documento.
 "Da decadência à prescrição, o TributÁgil é a sua solução."
 ================================================================================
 `;
+}
+
+// Escapa texto para inserção segura em HTML.
+function esc(v) {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Gera um documento HTML compatível com Word (.doc). O Word abre HTML com este
+// MIME nativamente e preserva títulos, negrito, listas e tabelas — sem
+// nenhuma biblioteca de terceiros.
+function gerarHtmlParecer(resultado, observacoes = '') {
+  const { metadata, conclusoes = [], fatos_importantes = [], raciocinio = [], recomendacoes = [] } = resultado;
+
+  const secAnotacoes =
+    observacoes && observacoes.trim()
+      ? `<h2>Anotações e correções do advogado</h2>
+         <p style="white-space:pre-wrap">${esc(observacoes.trim())}</p>`
+      : '';
+
+  return `<!doctype html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8" />
+<title>Parecer Tributário — TributÁgil</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; font-size: 12pt; color: #1a1a1a; line-height: 1.5; }
+  h1 { font-size: 18pt; text-align: center; margin: 0 0 4pt; }
+  .sub { text-align: center; color: #555; font-size: 10pt; margin: 0 0 18pt; }
+  h2 { font-size: 13pt; border-bottom: 1px solid #999; padding-bottom: 2pt; margin: 22pt 0 8pt; }
+  h3 { font-size: 12pt; margin: 12pt 0 4pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 11pt; }
+  td, th { border: 1px solid #bbb; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  .rotulo { color: #555; font-size: 10pt; }
+  .disc { font-size: 10pt; color: #555; border-top: 1px solid #ccc; margin-top: 22pt; padding-top: 8pt; }
+</style>
+</head>
+<body>
+  <h1>Parecer Tributário</h1>
+  <p class="sub">Gerado por TributÁgil (IA) &middot; ${esc(metadata.data_analise)}</p>
+
+  <h2>Identificação</h2>
+  <table>
+    <tr><td class="rotulo">Nº da análise</td><td>${esc(metadata.id_analise)}</td></tr>
+    <tr><td class="rotulo">Processo</td><td>${esc(metadata.processo)}</td></tr>
+    <tr><td class="rotulo">Parte autora</td><td>${esc(metadata.parte_autora)}</td></tr>
+    <tr><td class="rotulo">Parte ré</td><td>${esc(metadata.parte_reu)}</td></tr>
+    <tr><td class="rotulo">Valor da causa</td><td>${esc(metadata.valor_causa)}</td></tr>
+    <tr><td class="rotulo">Local</td><td>${esc(metadata.local)}</td></tr>
+  </table>
+
+  <h2>I. Conclusões</h2>
+  ${conclusoes
+    .map(
+      (c, i) => `<h3>${i + 1}. ${esc(c.titulo)}</h3>
+      <p class="rotulo">Severidade: ${esc(c.severidade)} &middot; Confiança da IA: ${esc(c.confianca)}%</p>
+      <p>${esc(c.resumo)}</p>
+      <p><strong>Fundamento legal:</strong> ${esc(c.fundamento_legal)}</p>`,
+    )
+    .join('\n')}
+
+  <h2>II. Fatos relevantes extraídos</h2>
+  <table>
+    <tr><th>Data</th><th>Descrição</th><th>Fonte</th></tr>
+    ${fatos_importantes
+      .map(
+        (f) =>
+          `<tr><td>${esc(f.data)}</td><td>${esc(f.descricao)}</td><td>${esc(f.fonte)}</td></tr>`,
+      )
+      .join('\n')}
+  </table>
+
+  <h2>III. Raciocínio lógico aplicado</h2>
+  ${raciocinio
+    .map(
+      (r, i) => `<h3>Silogismo ${i + 1}</h3>
+      <p><strong>Premissa:</strong> ${esc(r.premissa)}</p>
+      <p><strong>Aplicação:</strong> ${esc(r.aplicacao)}</p>
+      <p><strong>Conclusão:</strong> ${esc(r.conclusao_logica)}</p>
+      <p class="rotulo">Referência: ${esc(r.referencia)}</p>`,
+    )
+    .join('\n')}
+
+  <h2>IV. Recomendações estratégicas</h2>
+  <ol>${recomendacoes.map((r) => `<li>${esc(r)}</li>`).join('')}</ol>
+
+  ${secAnotacoes}
+
+  <p class="disc">
+    Documento gerado por inteligência artificial (TributÁgil) a partir exclusivamente
+    dos documentos fornecidos. Não constitui aconselhamento jurídico e deve ser
+    revisado e validado por advogado(a) habilitado(a) antes de qualquer uso.
+  </p>
+</body>
+</html>`;
 }
 
 export default ResultadoAnalise;

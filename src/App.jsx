@@ -107,6 +107,8 @@ export default function App() {
       });
       if (salvo) {
         console.info('[App] Análise salva no histórico:', salvo.id);
+        // Anexa o id ao resultado em tela para habilitar as anotações do advogado.
+        setAnaliseSelecionada((atual) => ({ ...(atual || resultadoRealDaIA), id: salvo.id }));
       } else {
         console.warn('[App] Análise NÃO foi salva no histórico (ver logs de [analises]).');
       }
@@ -150,7 +152,13 @@ export default function App() {
 
   const handleReabrirAnalise = (analise) => {
     // Aceita tanto o objeto de resultado direto quanto o registro do histórico.
-    setAnaliseSelecionada(analise?.resultado ?? analise);
+    const base = analise?.resultado ?? analise ?? {};
+    setAnaliseSelecionada({
+      ...base,
+      id: analise?.id ?? base?.id ?? null,
+      observacoes: analise?.observacoes ?? base?.observacoes ?? '',
+      observacoes_em: analise?.observacoes_em ?? base?.observacoes_em ?? null,
+    });
     setTelaAtual('resultado');
   };
 

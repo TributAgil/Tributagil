@@ -35,7 +35,7 @@ export async function listarAnalises(userId) {
   try {
     const { data, error } = await supabase
       .from('analises')
-      .select('id, created_at, titulo, resumo, payload, resultado')
+      .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -70,7 +70,7 @@ export async function salvarAnalise({ userId, payload, resultado }) {
     const { data, error } = await supabase
       .from('analises')
       .insert(registro)
-      .select('id, created_at, titulo, resumo, payload, resultado')
+      .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
       .single();
 
     if (error) {
@@ -112,6 +112,50 @@ export async function excluirAnalise(id, storagePaths = []) {
   }
 }
 
+/**
+ * Salva as anotações do advogado sobre um parecer.
+ * @returns {Promise<{ok: boolean, em: string|null}>}
+ */
+export async function salvarObservacoes(id, texto) {
+  if (!id) return { ok: false, em: null };
+  const em = new Date().toISOString();
+  try {
+    const { error } = await supabase
+      .from('analises')
+      .update({ observacoes: texto ?? '', observacoes_em: em })
+      .eq('id', id);
+    if (error) {
+      console.warn('[analises] Falha ao salvar anotações:', error.message);
+      return { ok: false, em: null };
+    }
+    return { ok: true, em };
+  } catch (err) {
+    console.error('[analises] Erro inesperado ao salvar anotações:', err);
+    return { ok: false, em: null };
+  }
+}
+
+/** Exporta TODAS as análises do usuário como um objeto JSON (portabilidade LGPD, art. 18). */
+export async function exportarHistorico(userId) {
+  const lista = await listarAnalises(userId);
+  return {
+    exportado_em: new Date().toISOString(),
+    origem: 'tributagil',
+    formato: 'v1',
+    total: lista.length,
+    analises: lista.map((a) => ({
+      id: a.id,
+      criado_em: a.created_at,
+      titulo: a.titulo,
+      resumo: a.resumo,
+      observacoes: a.observacoes || null,
+      observacoes_em: a.observacoes_em,
+      resultado: a.resultado,
+      documentos: a.payload?.documentos ?? [],
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers internos
 // ---------------------------------------------------------------------------
@@ -130,6 +174,8 @@ function normalizarRegistro(row) {
     confianca_media: mediaConfianca(conclusoes),
     payload: row?.payload ?? null,
     resultado,
+    observacoes: row?.observacoes ?? '',
+    observacoes_em: row?.observacoes_em ?? null,
   };
 }
 

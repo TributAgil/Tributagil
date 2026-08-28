@@ -103,6 +103,31 @@ body {
 }
 
 /* ============================================================
+   IMPRESSÃO / SALVAR EM PDF
+   Para o parecer COMPLETO e formatado, use "Baixar em Word".
+   Aqui só limpamos a interface para o que estiver em tela.
+   ============================================================ */
+@media print {
+  .no-print,
+  [data-no-print] {
+    display: none !important;
+  }
+  .bg-noir,
+  body {
+    background: #fff !important;
+  }
+  .bg-noir *,
+  body * {
+    color: #111 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  .sticky {
+    position: static !important;
+  }
+}
+
+/* ============================================================
    ANIMAÇÃO DO MARTELO (gavel)
    ============================================================ */
 

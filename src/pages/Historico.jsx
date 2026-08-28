@@ -18,7 +18,12 @@ import {
   RefreshCw,
   LogOut,
 } from 'lucide-react';
-import { listarAnalises, excluirAnalise, caminhosDocumentos } from '../lib/analises';
+import {
+  listarAnalises,
+  excluirAnalise,
+  caminhosDocumentos,
+  exportarHistorico,
+} from '../lib/analises';
 import RodapeLegal from '../components/RodapeLegal';
 
 // ============================================
@@ -234,6 +239,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
   const [filtroResultado, setFiltroResultado] = useState('todos');
   const [modalLGPD, setModalLGPD] = useState(null);
   const [toast, setToast] = useState(null);
+  const [exportando, setExportando] = useState(false);
 
   const mostrarToast = (mensagem, tipo = 'sucesso') => {
     setToast({ mensagem, tipo });
@@ -266,6 +272,31 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
   }, [analises, busca, filtroResultado]);
 
   const handleReabrir = (item) => onReabrirAnalise?.(item);
+
+  // Portabilidade LGPD (art. 18, V): baixa TODAS as análises num único JSON.
+  const handleExportarTudo = async () => {
+    setExportando(true);
+    try {
+      const dados = await exportarHistorico(user?.id);
+      const blob = new Blob([JSON.stringify(dados, null, 2)], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `tributagil_historico_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      mostrarToast(`Histórico exportado (${dados.total} análise${dados.total !== 1 ? 's' : ''}).`);
+    } catch (err) {
+      console.error('[Historico] Falha ao exportar:', err);
+      mostrarToast('Não foi possível exportar agora.', 'info');
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const handleBaixar = (item) => {
     const conteudo = `PARECER TRIBUTÁRIO — ${item.titulo}\n\nData: ${formatarDataHora(
@@ -375,19 +406,30 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
             </select>
           </div>
 
-          <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap mt-3">
             <p className="text-xs text-parchment/40">
               {carregando
                 ? 'Carregando...'
                 : `${itensFiltrados.length} análise${itensFiltrados.length !== 1 ? 's' : ''}`}
             </p>
             {analises.length > 0 && (
-              <button
-                onClick={() => setModalLGPD({ tipo: 'excluir_tudo' })}
-                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
-              >
-                <Trash2 size={12} /> Excluir meus dados/histórico
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleExportarTudo}
+                  disabled={exportando}
+                  className="flex items-center gap-1.5 text-xs text-parchment/50 hover:text-gold font-medium transition-colors disabled:opacity-50"
+                  title="Baixar todas as análises em um arquivo JSON (portabilidade LGPD)"
+                >
+                  {exportando ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                  Baixar todo o histórico
+                </button>
+                <button
+                  onClick={() => setModalLGPD({ tipo: 'excluir_tudo' })}
+                  className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
+                >
+                  <Trash2 size={12} /> Excluir meus dados/histórico
+                </button>
+              </div>
             )}
           </div>
         </div>
