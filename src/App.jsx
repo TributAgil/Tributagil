@@ -122,9 +122,17 @@ export default function App() {
     if (salvo) {
       const caminhos = caminhosDocumentos(payloadAnalise);
       if (caminhos.length > 0) {
-        removerDocumentos(caminhos).catch((err) =>
-          console.warn('[App] Falha ao limpar documentos do Storage:', err),
-        );
+        const r = await removerDocumentos(caminhos);
+        if (!r.ok) {
+          console.error('[App] Documentos NÃO foram apagados do Storage:', r.error);
+          try {
+            window.Sentry?.captureMessage?.('handleConcluir: falha ao limpar documentos do Storage', {
+              level: 'error',
+            });
+          } catch {
+            /* Sentry ausente */
+          }
+        }
       }
     }
   };
@@ -141,9 +149,9 @@ export default function App() {
   const handleErroProcessamento = () => {
     const caminhos = caminhosDocumentos(payloadAnalise);
     if (caminhos.length > 0) {
-      removerDocumentos(caminhos).catch((err) =>
-        console.warn('[App] Falha ao limpar documentos órfãos:', err),
-      );
+      removerDocumentos(caminhos).then((r) => {
+        if (!r.ok) console.error('[App] Documentos órfãos NÃO removidos:', r.error);
+      });
     }
     setTelaAtual('analise');
   };

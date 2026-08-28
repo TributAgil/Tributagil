@@ -66,22 +66,23 @@ export async function salvarAnalise({ userId, payload, resultado }) {
     resultado: resultado ?? null,
   };
 
-  try {
-    const { data, error } = await supabase
-      .from('analises')
-      .insert(registro)
-      .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
-      .single();
+  // 1 retry: um hiccup de rede não deve fazer o usuário perder o parecer.
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const { data, error } = await supabase
+        .from('analises')
+        .insert(registro)
+        .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
+        .single();
 
-    if (error) {
-      console.warn('[analises] Não foi possível salvar (tabela ausente?):', error.message);
-      return null;
+      if (!error) return normalizarRegistro(data);
+      console.warn(`[analises] Falha ao salvar (tentativa ${tentativa + 1}):`, error.message);
+    } catch (err) {
+      console.error(`[analises] Erro inesperado ao salvar (tentativa ${tentativa + 1}):`, err);
     }
-    return normalizarRegistro(data);
-  } catch (err) {
-    console.error('[analises] Erro inesperado ao salvar:', err);
-    return null;
+    if (tentativa === 0) await new Promise((r) => setTimeout(r, 1500));
   }
+  return null;
 }
 
 /**
@@ -95,7 +96,17 @@ export async function excluirAnalise(id, storagePaths = []) {
 
   // 1. Storage primeiro (best-effort — não bloqueia a exclusão do registro).
   if (Array.isArray(storagePaths) && storagePaths.length > 0) {
-    await removerDocumentos(storagePaths);
+    const r = await removerDocumentos(storagePaths);
+    if (!r.ok) {
+      console.error('[analises] Documentos NÃO removidos do Storage ao excluir:', r.error);
+      try {
+        window.Sentry?.captureMessage?.('excluirAnalise: falha ao remover documentos do Storage', {
+          level: 'error',
+        });
+      } catch {
+        /* Sentry ausente */
+      }
+    }
   }
 
   // 2. Linha do banco (RLS garante que só o dono exclui).

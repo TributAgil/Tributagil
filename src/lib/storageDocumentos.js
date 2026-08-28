@@ -44,13 +44,32 @@ export async function uploadDocumento({ userId, analiseId, fileId, file }) {
   return { storagePath, mime, tamanho: blob.size };
 }
 
-/** Remove arquivos do Storage. Best-effort — não lança. */
+/**
+ * Remove arquivos do Storage. Não lança — devolve o resultado para o chamador
+ * decidir o que fazer. IMPORTANTE: `.remove()` do supabase-js NÃO lança em
+ * falha (RLS, gatilho protect_delete, etc.) — ele devolve `{ error }`. Antes
+ * isso era ignorado e uma falha virava "sucesso" silencioso.
+ * @returns {Promise<{ ok: boolean, removidos: number, error?: any }>}
+ */
 export async function removerDocumentos(paths) {
   const validos = (paths || []).filter(Boolean);
-  if (validos.length === 0) return;
+  if (validos.length === 0) return { ok: true, removidos: 0 };
+
   try {
-    await supabase.storage.from(BUCKET_DOCUMENTOS).remove(validos);
+    const { data, error } = await supabase.storage.from(BUCKET_DOCUMENTOS).remove(validos);
+    if (error) {
+      console.error('[storageDocumentos] Storage.remove rejeitou:', error.message || error);
+      return { ok: false, removidos: 0, error };
+    }
+    const removidos = Array.isArray(data) ? data.length : 0;
+    if (removidos < validos.length) {
+      console.warn(
+        `[storageDocumentos] Removeu ${removidos}/${validos.length} arquivos (alguns não existiam?)`,
+      );
+    }
+    return { ok: true, removidos };
   } catch (err) {
-    console.warn('[storageDocumentos] Falha ao remover do Storage:', err);
+    console.error('[storageDocumentos] Erro de rede ao remover do Storage:', err);
+    return { ok: false, removidos: 0, error: err };
   }
 }
