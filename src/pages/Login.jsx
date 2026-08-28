@@ -49,6 +49,9 @@ export default function Login({ onLoginSuccess }) {
       widgetId.current = window.hcaptcha.render(captchaRef.current, {
         sitekey: HCAPTCHA_SITEKEY,
         theme: 'dark',
+        // O widget "normal" tem ~300px fixos e estoura em telas de 375px.
+        // "compact" (~164px) cabe em qualquer celular.
+        size: window.innerWidth < 480 ? 'compact' : 'normal',
         callback: (token) => setCaptchaToken(token),
         'expired-callback': () => setCaptchaToken(''),
         'error-callback': () => setCaptchaToken(''),
@@ -198,7 +201,9 @@ export default function Login({ onLoginSuccess }) {
       </aside>
 
       {/* ===================== COLUNA FORMULÁRIO ===================== */}
-      <main className="flex items-center justify-center px-5 py-10 sm:px-6 sm:py-16">
+      {/* min-w-0: impede o "blowout" do grid quando um filho rígido (o widget
+          da hCaptcha) tenta forçar a coluna a ficar maior que a tela. */}
+      <main className="flex min-w-0 items-center justify-center px-5 py-10 sm:px-6 sm:py-16">
         <div className="w-full max-w-sm">
           {/* Marca compacta no mobile */}
           <div className="mb-9 flex flex-col items-center text-center lg:hidden">
