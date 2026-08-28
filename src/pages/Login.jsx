@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight, MailCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import CreditoAutor from '../components/CreditoAutor';
@@ -26,6 +26,8 @@ function traduzErroAuth(mensagem = '') {
 }
 
 export default function Login({ onLoginSuccess }) {
+  // 'entrar' | 'recuperar' | 'enviado'
+  const [modo, setModo] = useState('entrar');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -111,6 +113,49 @@ export default function Login({ onLoginSuccess }) {
     }
   };
 
+  const handleRecuperar = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError('Informe o e-mail da sua conta.');
+      return;
+    }
+    if (!captchaToken) {
+      setError('Confirme o "Não sou um robô" antes de continuar.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        captchaToken,
+        redirectTo: window.location.origin,
+      });
+      resetarCaptcha(); // token de uso único
+      if (err) {
+        // Não revelamos se o e-mail existe — mensagem neutra em quase todo caso.
+        if (/too many requests/i.test(err.message)) {
+          setError('Muitas tentativas. Aguarde alguns minutos.');
+          return;
+        }
+        console.warn('[Login] resetPasswordForEmail:', err.message);
+      }
+      setModo('enviado');
+    } catch (err) {
+      console.error('[Login] Erro ao pedir recuperação:', err);
+      setError('Não foi possível enviar o link agora. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const irPara = (novoModo) => {
+    setModo(novoModo);
+    setError(null);
+    setPassword('');
+    resetarCaptcha();
+  };
+
   const inputCls =
     'w-full rounded-xl border border-line bg-ink-800/60 px-4 py-3 text-sm text-parchment ' +
     'placeholder:text-parchment/25 outline-none transition-all ' +
@@ -162,77 +207,135 @@ export default function Login({ onLoginSuccess }) {
           </div>
 
           <div className="rounded-[var(--radius-xl2)] border border-line bg-white/[0.035] p-8 shadow-[var(--shadow-gold)] backdrop-blur-xl">
-            <h2 className="font-display text-2xl text-parchment">Entrar</h2>
-            <p className="mt-1 text-sm text-parchment/45">Acesse seu ecossistema jurídico.</p>
-
-            {error && (
-              <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                {error}
+            {modo === 'enviado' ? (
+              <div className="py-4 text-center">
+                <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full bg-gold/15">
+                  <MailCheck size={26} className="text-gold" />
+                </div>
+                <h2 className="font-display text-xl text-parchment">Verifique seu e-mail</h2>
+                <p className="mt-2 text-sm text-parchment/50">
+                  Se houver uma conta para <span className="text-parchment/80">{email.trim()}</span>,
+                  enviamos um link para redefinir a senha. O link expira em 1 hora.
+                </p>
               </div>
+            ) : (
+              <>
+                <h2 className="font-display text-2xl text-parchment">
+                  {modo === 'recuperar' ? 'Recuperar acesso' : 'Entrar'}
+                </h2>
+                <p className="mt-1 text-sm text-parchment/45">
+                  {modo === 'recuperar'
+                    ? 'Enviaremos um link de redefinição para o seu e-mail.'
+                    : 'Acesse seu ecossistema jurídico.'}
+                </p>
+
+                {error && (
+                  <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                    {error}
+                  </div>
+                )}
+
+                <form
+                  onSubmit={modo === 'recuperar' ? handleRecuperar : handleLogin}
+                  className="mt-6 space-y-4"
+                >
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-parchment/40">
+                      E-mail
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      placeholder="voce@escritorio.com"
+                      className={inputCls}
+                    />
+                  </div>
+
+                  {modo === 'entrar' && (
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-parchment/40">
+                        Senha
+                      </label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                        className={inputCls}
+                      />
+                    </div>
+                  )}
+
+                  <div ref={captchaRef} className="flex min-h-[78px] justify-center pt-1" />
+
+                  <button
+                    type="submit"
+                    disabled={loading || !captchaToken}
+                    className="cursor-gavel mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gold px-4 py-3
+                               text-sm font-semibold text-ink shadow-[0_12px_34px_-12px_rgba(212,175,55,0.55)]
+                               transition-all duration-300 hover:bg-gold-soft active:scale-[0.985]
+                               disabled:cursor-not-allowed disabled:opacity-60
+                               focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        {modo === 'recuperar' ? 'Enviando...' : 'Entrando...'}
+                      </>
+                    ) : modo === 'recuperar' ? (
+                      'Enviar link de recuperação'
+                    ) : (
+                      <>
+                        Entrar
+                        <ArrowRight size={16} />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
             )}
 
-            <form onSubmit={handleLogin} className="mt-6 space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-parchment/40">
-                  E-mail
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  placeholder="voce@escritorio.com"
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-parchment/40">
-                  Senha
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  className={inputCls}
-                />
-              </div>
-
-              <div ref={captchaRef} className="flex min-h-[78px] justify-center pt-1" />
-
-              <button
-                type="submit"
-                disabled={loading || !captchaToken}
-                className="cursor-gavel mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gold px-4 py-3
-                           text-sm font-semibold text-ink shadow-[0_12px_34px_-12px_rgba(212,175,55,0.55)]
-                           transition-all duration-300 hover:bg-gold-soft active:scale-[0.985]
-                           disabled:cursor-not-allowed disabled:opacity-60
-                           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Entrando...
-                  </>
-                ) : (
-                  <>
-                    Entrar
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </form>
+            <div className="mt-5 text-center text-xs">
+              {modo === 'entrar' ? (
+                <button
+                  type="button"
+                  onClick={() => irPara('recuperar')}
+                  className="text-parchment/45 transition-colors hover:text-gold"
+                >
+                  Esqueci minha senha
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => irPara('entrar')}
+                  className="text-parchment/45 transition-colors hover:text-gold"
+                >
+                  ← Voltar para o login
+                </button>
+              )}
+            </div>
           </div>
 
           <p className="mt-6 text-center text-xs text-parchment/30">
             Problemas de acesso? Fale com a administração do escritório.
           </p>
 
-          <CreditoAutor className="mt-6" />
+          <nav className="mt-4 flex items-center justify-center gap-4 text-xs text-parchment/35">
+            <a href="/privacidade.html" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-gold">
+              Privacidade
+            </a>
+            <span aria-hidden="true">·</span>
+            <a href="/termos.html" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-gold">
+              Termos de Uso
+            </a>
+          </nav>
+
+          <CreditoAutor className="mt-4" />
         </div>
       </main>
     </div>

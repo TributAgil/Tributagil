@@ -8,18 +8,27 @@ import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
 import ResultadoAnalise from './pages/ResultadoAnalise';
 import Historico from './pages/Historico';
+import RedefinirSenha from './pages/RedefinirSenha';
 import BotaoSuporteFlutuante from './components/BotaoSuporteFlutuante';
 import ErrorBoundary from './components/ErrorBoundary';
+
+// O link de recuperação de senha do Supabase chega como
+// https://app/#access_token=...&type=recovery&...
+const chegouPorRecuperacao = () =>
+  typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [telaAtual, setTelaAtual] = useState('login');
+  const [telaAtual, setTelaAtual] = useState(
+    chegouPorRecuperacao() ? 'redefinir-senha' : 'login',
+  );
   const [payloadAnalise, setPayloadAnalise] = useState(null);
   const [analiseSelecionada, setAnaliseSelecionada] = useState(null);
 
   useEffect(() => {
     let subscription;
+    const emRecuperacao = chegouPorRecuperacao();
 
     // 1. Recupera a sessão atual (se houver) de forma resiliente a falha de rede.
     supabase.auth
@@ -27,7 +36,9 @@ export default function App() {
       .then(({ data: { session } }) => {
         if (session?.user) {
           setUser(session.user);
-          setTelaAtual('painel');
+          // Se o usuário chegou pelo link de recuperação, NÃO manda para o painel:
+          // ele precisa definir a nova senha primeiro.
+          if (!emRecuperacao) setTelaAtual('painel');
         }
       })
       .catch((err) => {
@@ -42,6 +53,11 @@ export default function App() {
     //    era uma das causas da "tela que pisca e some".
     try {
       const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setUser(session?.user ?? null);
+          setTelaAtual('redefinir-senha');
+          return;
+        }
         if (session?.user) {
           setUser(session.user);
         } else if (event === 'SIGNED_OUT') {
@@ -152,6 +168,22 @@ export default function App() {
     }
   };
 
+  // Após redefinir a senha: limpa o hash da URL, encerra a sessão de
+  // recuperação e volta ao login para o usuário entrar com a nova senha.
+  const handleRedefinicaoConcluida = async () => {
+    try {
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('[Auth] Falha ao encerrar sessão de recuperação:', err);
+    } finally {
+      setUser(null);
+      setTelaAtual('login');
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-noir min-h-screen flex items-center justify-center">
@@ -162,6 +194,10 @@ export default function App() {
 
   return (
     <ErrorBoundary resetKey={telaAtual} onReset={() => setTelaAtual(user ? 'painel' : 'login')}>
+      {telaAtual === 'redefinir-senha' && (
+        <RedefinirSenha onConcluido={handleRedefinicaoConcluida} />
+      )}
+
       {telaAtual === 'login' && <Login onLoginSuccess={handleLoginSuccess} />}
 
       {telaAtual === 'painel' && (
@@ -207,7 +243,7 @@ export default function App() {
         />
       )}
 
-      {telaAtual !== 'login' && <BotaoSuporteFlutuante />}
+      {telaAtual !== 'login' && telaAtual !== 'redefinir-senha' && <BotaoSuporteFlutuante />}
     </ErrorBoundary>
   );
 }

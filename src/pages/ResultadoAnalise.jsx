@@ -21,7 +21,7 @@ import {
   Calendar,
   Hash
 } from 'lucide-react';
-import CreditoAutor from '../components/CreditoAutor';
+import RodapeLegal from '../components/RodapeLegal';
 
 // ============================================
 // DADOS MOCK DE SEGURANÇA (FALLBACK)
@@ -533,6 +533,18 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-4">
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-400" />
+          <p className="text-xs leading-relaxed text-amber-200/90">
+            Parecer gerado por <strong>inteligência artificial</strong> a partir
+            exclusivamente dos documentos enviados. <strong>Não constitui aconselhamento
+            jurídico.</strong> Revise os cálculos, datas e fundamentos antes de qualquer
+            uso profissional — a responsabilidade pela validação é do(a) advogado(a).
+          </p>
+        </div>
+      </div>
+
       <div className="bg-ink-800/50 border-b border-line sm:sticky sm:top-[73px] z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex gap-1 -mb-px overflow-x-auto no-scrollbar">
@@ -657,12 +669,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         </div>
       </div>
 
-      <footer className="border-t border-line/60 py-8">
-        <p className="text-center text-xs text-parchment/30">
-          "Da decadência à prescrição, o TributÁgil é a sua solução."
-        </p>
-        <CreditoAutor className="mt-3" />
-      </footer>
+      <RodapeLegal />
     </div>
   );
 };

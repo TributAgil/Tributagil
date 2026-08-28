@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   ArrowLeft,
 } from 'lucide-react';
-import CreditoAutor from '../components/CreditoAutor';
+import RodapeLegal from '../components/RodapeLegal';
 
 // Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
 // muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
@@ -490,8 +490,7 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
             </div>
           </div>
         </div>
-        <p className="text-center text-parchment/30 text-xs mt-6">"Da decadência à prescrição, o TributÁgil é a sua solução."</p>
-        <CreditoAutor className="mt-3" />
+        <RodapeLegal comBorda={false} className="mt-4" />
       </div>
 
       <style>{`
