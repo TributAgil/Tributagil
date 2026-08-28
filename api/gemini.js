@@ -179,31 +179,48 @@ export async function POST(request) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_GERACAO_MS);
 
+  const corpoGemini = JSON.stringify({
+    systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      temperature: Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO,
+      responseMimeType: 'application/json',
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    },
+    // Sem `tools`: nada de Google Search / acesso externo.
+  });
+
+  const urlGemini = `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+
   try {
-    const upstream = await fetch(
-      `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`,
-      {
+    // Retry só para erros transitórios ANTES do stream começar:
+    // 429 (rate limit do free tier), 503 ("high demand"), 500.
+    // Backoff: 2s, 5s. Depois disso, devolve o erro.
+    let upstream;
+    const ESPERAS_MS = [2000, 5000];
+    for (let tentativa = 0; ; tentativa++) {
+      upstream = await fetch(urlGemini, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
-          contents: [{ role: 'user', parts }],
-          generationConfig: {
-            temperature: Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO,
-            responseMimeType: 'application/json',
-            ...(thinkingConfig ? { thinkingConfig } : {}),
-          },
-          // Sem `tools`: nada de Google Search / acesso externo.
-        }),
-      },
-    );
+        body: corpoGemini,
+      });
 
-    if (!upstream.ok || !upstream.body) {
-      // Detalhe do upstream vai só para o log do servidor — nunca para o cliente.
-      const detalhe = await upstream.text().catch(() => '');
-      console.error('[api/gemini] Gemini respondeu erro', upstream.status, detalhe.slice(0, 600));
-      return json({ error: `Falha na API do Gemini (HTTP ${upstream.status}).` }, 502);
+      if (upstream.ok && upstream.body) break;
+
+      const transitorio = [429, 500, 503].includes(upstream.status);
+      if (!transitorio || tentativa >= ESPERAS_MS.length) {
+        const detalhe = await upstream.text().catch(() => '');
+        console.error('[api/gemini] Gemini respondeu erro', upstream.status, detalhe.slice(0, 600));
+        const msg =
+          upstream.status === 429
+            ? 'A IA está temporariamente sobrecarregada (limite de uso). Aguarde cerca de 1 minuto e tente de novo.'
+            : `Falha na API do Gemini (HTTP ${upstream.status}).`;
+        return json({ error: msg }, upstream.status === 429 ? 429 : 502);
+      }
+
+      console.warn(`[api/gemini] HTTP ${upstream.status} — retry ${tentativa + 1}/${ESPERAS_MS.length}`);
+      await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
     }
 
     return new Response(upstream.body, {
