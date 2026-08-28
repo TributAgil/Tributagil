@@ -31,6 +31,7 @@ Varra os documentos fornecidos buscando as seguintes variáveis:
 - Documentos Principais: CDA, Auto de Infração/Notificação de Lançamento, Petição Inicial, Despacho "Cite-se", Certidão do Oficial de Justiça, Bloqueios SISBAJUD.
 - Documentos Secundários: Extratos (e-CAC/REGULARIZE/SEFAZ), Declarações (DCTF, PGDAS-D, GFIP, DIRPF), Comprovantes (DARF, DAS, GARE), Acórdãos (DRJ/CARF).
 - Variáveis-Chave: Hipótese de Incidência (HIT), Fato Gerador (data do ato), Data de Notificação (ciência do contribuinte), Inscrição em Dívida Ativa.
+- Parcelamento/REFIS: verifique em extratos de débito (e-CAC/REGULARIZE/SEFAZ) e demais documentos se houve adesão a parcelamento. Se encontrado, extraia a data exata de ADESÃO e, se aplicável, a data exata de RESCISÃO. Nunca ignore ou deixe de reportar essas datas se estiverem presentes no extrato.
 
 [MÓDULO 1: CONSTITUIÇÃO DEFINITIVA DO CRÉDITO TRIBUTÁRIO (CDCT)]
 Primeiro, classifique o tipo de lançamento com base nos documentos encontrados, usando esta regra de decisão:
@@ -38,6 +39,8 @@ Primeiro, classifique o tipo de lançamento com base nos documentos encontrados,
 - Se houver Declaração do contribuinte que confessa e antecipa (ou deveria antecipar) o pagamento (ex: DCTF, PGDAS-D, GFIP) e não houver Auto de Infração associado => TIPO B.
 - Se houver Auto de Infração / Notificação de Lançamento emitido pelo Fisco sem declaração prévia do contribuinte, ou corrigindo uma declaração por erro/fraude => TIPO C.
 - Se os documentos não permitirem identificar o tipo com segurança, acione o Protocolo de Alerta (Regra 4) especificando "Tipo de Lançamento" como o dado insuficiente.
+
+ATENÇÃO — ERRO COMUM A EVITAR: a data de Inscrição em Dívida Ativa NÃO é a CDCT em nenhuma hipótese. Ela é apenas o marco que formaliza o débito para fins de execução fiscal e serve de referência para o cálculo do Módulo 3 (Prescrição Ordinária), nunca para definir o início da contagem do próprio Módulo 1 ou 2. A CDCT é sempre derivada do Tipo A, B ou C definido acima.
 
 Defina a data da CDCT conforme o tipo:
 - TIPO A (Declaração): CDCT é a data da notificação da decisão final do último recurso administrativo OU o 31º dia após notificação da guia (se não houve recurso).
@@ -53,7 +56,10 @@ Classifique o caso em uma das quatro situações abaixo, na ordem em que aparece
 
 [MÓDULO 3: MOTOR DE PRESCRIÇÃO ORDINÁRIA (PRAZO: 5 ANOS)]
 Inicia após a CDCT definida no Módulo 1 (ou, se aplicável, após a Situação 3 do Módulo 2).
-1. Check de Suspensão (Art. 151, CTN): Procure liminar, depósito integral, recurso administrativo ou parcelamento. Se achou: congele a contagem neste período e informe as datas de início/fim da suspensão.
+1. Check de Suspensão (Art. 151, CTN): Procure liminar, depósito integral, recurso administrativo ou parcelamento.
+   - Se houver PARCELAMENTO: trate a data de ADESÃO como início de suspensão (o prazo para de correr) e a data de RESCISÃO como fim da suspensão. A rescisão do parcelamento também funciona como marco INTERRUPTIVO — ou seja, a contagem do prazo prescricional recomeça DO ZERO a partir da data de rescisão (não soma apenas o período suspenso).
+   - Para as demais causas de suspensão (liminar, depósito integral, recurso administrativo): congele a contagem apenas durante o período ativo e retome de onde parou ao final da suspensão (sem zerar).
+   - Informe sempre as datas de início/fim de cada período de suspensão identificado, e explicite no cálculo qual delas gerou apenas suspensão e qual gerou reinício da contagem.
 2. Check de Interrupção (Art. 174, CTN): Verifique se há despacho que ordena a citação (se após 09/06/2005), protesto ou parcelamento. Se achou: a contagem zera e recomeça desta data. (Atenção: execuções anteriores a 08/06/2005 só interrompem com a citação pessoal).
 3. Check de Súmula 106 STJ: Analise a inércia do Fisco x Morosidade da Justiça. Se o Fisco foi zeloso, alerte sobre a Súmula 106.
 4. Resultado: Some os períodos de suspensão ao prazo base de 5 anos. Se Data Atual > (CDCT + 5 anos + períodos suspensos) => "Prescrição ordinária reconhecida". Caso contrário => "Prescrição ordinária não configurada — restam [X] dias/meses/anos para o prazo prescricional".
