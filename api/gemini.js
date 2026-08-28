@@ -19,8 +19,13 @@
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
-const MODELO_PADRAO = 'gemini-3.5-flash-lite';
-const THINKING_BUDGET_PADRAO = 512; // 0 é inválido no 3.5-flash-lite; <=0 => omite
+
+// Padrões — todos sobrescrevíveis por Environment Variable na Vercel, SEM novo deploy.
+// Para ligar o Pro depois de ativar o billing no Google Cloud:
+//   GEMINI_MODEL = gemini-3.1-pro-preview
+const MODELO_PADRAO = 'gemini-3.5-flash';   // GEMINI_MODEL
+const TEMPERATURA_PADRAO = 0.3;             // GEMINI_TEMPERATURE
+const THINKING_LEVEL_PADRAO = 'high';       // GEMINI_THINKING_LEVEL: 'high' | 'low' | 'off'
 const TIMEOUT_GERACAO_MS = 280_000;
 const MAX_DOCS = 20;
 const MAX_BYTES_POR_DOC = 12 * 1024 * 1024;
@@ -108,10 +113,26 @@ export async function POST(request) {
 
   // ---- 3. Geração (streaming) ----------------------------------------------
   const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
-  const thinkingBudget = Number.parseInt(
-    process.env.GEMINI_THINKING_BUDGET ?? String(THINKING_BUDGET_PADRAO),
-    10,
+
+  const temperatura = Number.parseFloat(
+    process.env.GEMINI_TEMPERATURE ?? String(TEMPERATURA_PADRAO),
   );
+
+  // "Thinking": os modelos Gemini 3.x usam `thinkingLevel` ('high' | 'low');
+  // os 2.5 usam `thinkingBudget` (número). Padrão = nível 'high'.
+  //   GEMINI_THINKING_LEVEL = off        -> desliga o thinking
+  //   GEMINI_THINKING_LEVEL = budget     + GEMINI_THINKING_BUDGET = 512 -> forma numérica (modelos 2.5)
+  const nivelThinking = (process.env.GEMINI_THINKING_LEVEL || THINKING_LEVEL_PADRAO).toLowerCase();
+  const budgetNumerico = Number.parseInt(process.env.GEMINI_THINKING_BUDGET ?? '', 10);
+
+  let thinkingConfig;
+  if (['off', 'none', 'disabled', 'false'].includes(nivelThinking)) {
+    thinkingConfig = undefined;
+  } else if (nivelThinking === 'budget' && Number.isFinite(budgetNumerico)) {
+    thinkingConfig = budgetNumerico > 0 ? { thinkingBudget: budgetNumerico } : undefined;
+  } else {
+    thinkingConfig = { thinkingLevel: nivelThinking };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_GERACAO_MS);
@@ -127,12 +148,9 @@ export async function POST(request) {
           systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
           contents: [{ role: 'user', parts }],
           generationConfig: {
-            temperature: 0.1,
+            temperature: Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO,
             responseMimeType: 'application/json',
-            // thinkingBudget <= 0 é inválido em alguns modelos → só envia se > 0.
-            ...(Number.isFinite(thinkingBudget) && thinkingBudget > 0
-              ? { thinkingConfig: { thinkingBudget } }
-              : {}),
+            ...(thinkingConfig ? { thinkingConfig } : {}),
           },
           // Sem `tools`: nada de Google Search / acesso externo.
         }),

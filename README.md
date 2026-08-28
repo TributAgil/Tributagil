@@ -29,8 +29,10 @@ yarn dev
 | `VITE_SUPABASE_URL` | browser | ✅ | URL do projeto Supabase |
 | `VITE_SUPABASE_ANON_KEY` | browser | ✅ | Chave `anon` (pública, protegida por RLS) |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
-| `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash-lite`; `gemini-3.5-flash` para casos difíceis |
-| `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento de *thinking* (padrão `512`; `0` desliga) |
+| `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash`. Use `gemini-3.1-pro-preview` **após ativar o billing** no Google Cloud (o Pro dá HTTP 429 no free tier) |
+| `GEMINI_TEMPERATURE` | servidor | — | Temperatura da geração (padrão `0.3`) |
+| `GEMINI_THINKING_LEVEL` | servidor | — | Nível de *thinking* dos modelos 3.x: `high` (padrão), `low` ou `off`. Para a forma numérica dos modelos 2.5: `budget` + `GEMINI_THINKING_BUDGET` |
+| `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento numérico de *thinking* (só vale com `GEMINI_THINKING_LEVEL=budget`) |
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
