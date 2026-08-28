@@ -11,14 +11,28 @@
 // limite de ~4 MB de uma Function. Eles são embutidos como `inline_data` na
 // chamada ao Gemini — o limite passa a ser o da própria API (~20 MB de request).
 //
-// Autenticação: `?key=` na URL (funciona tanto para chaves `AIzaSy...` quanto
-// para as novas `AQ...` — o header `X-goog-api-key` NÃO funciona com as `AQ.`).
+// Autenticação Gemini: `?key=` na URL (funciona tanto para chaves `AIzaSy...`
+// quanto para as novas `AQ...` — o header `X-goog-api-key` NÃO funciona com as `AQ.`).
+//
+// Autenticação DO CHAMADOR: o endpoint valida o JWT do usuário (userToken)
+// contra o Supabase Auth ANTES de gastar qualquer chamada ao Gemini. Sem isso o
+// endpoint seria um proxy de IA aberto (abuso de custo).
 //
 // Runtime: Node. `maxDuration` configurado em vercel.json.
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
+import { rateLimit, ipDoRequest } from './_ratelimit.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
+
+// URL/anon key do Supabase: preferimos o ambiente do servidor; o corpo da
+// request é só fallback (são valores públicos, mas não devem ser a fonte da verdade).
+const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+// Rate limit: 12 análises por minuto por IP (a análise é cara).
+const RL_LIMITE = 12;
+const RL_JANELA_MS = 60_000;
 
 // Padrões — todos sobrescrevíveis por Environment Variable na Vercel, SEM novo deploy.
 // Para ligar o Pro depois de ativar o billing no Google Cloud:
@@ -41,6 +55,16 @@ export async function POST(request) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
 
+  // ---- 0. Rate limit por IP -------------------------------------------------
+  const rl = rateLimit(`gemini:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
+  if (!rl.ok) {
+    return json(
+      { error: 'Muitas análises em sequência. Aguarde um minuto e tente de novo.' },
+      429,
+      { 'Retry-After': String(Math.ceil((rl.retryMs || RL_JANELA_MS) / 1000)) },
+    );
+  }
+
   // ---- 1. Entrada -------------------------------------------------------------
   let body;
   try {
@@ -49,20 +73,38 @@ export async function POST(request) {
     return json({ error: 'Corpo da requisição inválido — envie um JSON.' }, 400);
   }
 
-  const { prompt, supabaseUrl, supabaseAnonKey, userToken } = body || {};
+  const { prompt, userToken } = body || {};
   const documentos = Array.isArray(body?.documentos) ? body.documentos : [];
+
+  // URL/anon key: ambiente do servidor tem prioridade; corpo é só fallback.
+  const supabaseUrl = SUPABASE_URL_ENV || String(body?.supabaseUrl || '');
+  const supabaseAnonKey = SUPABASE_ANON_ENV || String(body?.supabaseAnonKey || '');
 
   if (typeof prompt !== 'string' || prompt.trim().length === 0) {
     return json({ error: 'O campo "prompt" é obrigatório.' }, 400);
   }
-  if (!SUPABASE_URL_RE.test(String(supabaseUrl || ''))) {
-    return json({ error: 'supabaseUrl inválida.' }, 400);
+  if (!SUPABASE_URL_RE.test(supabaseUrl)) {
+    return json({ error: 'Configuração do Supabase ausente ou inválida.' }, 500);
   }
   if (!supabaseAnonKey || !userToken) {
-    return json({ error: 'Credenciais de acesso ao Storage ausentes.' }, 400);
+    return json({ error: 'Sessão ausente. Faça login novamente.' }, 401);
   }
   if (documentos.length > MAX_DOCS) {
     return json({ error: `Máximo de ${MAX_DOCS} documentos por análise.` }, 413);
+  }
+
+  // ---- 1b. AUTENTICAÇÃO: valida o JWT do usuário no Supabase Auth ----------
+  // Impede que o endpoint seja usado como proxy de IA anônimo.
+  try {
+    const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
+    });
+    if (!authResp.ok) {
+      return json({ error: 'Sessão inválida ou expirada. Faça login novamente.' }, 401);
+    }
+  } catch (err) {
+    console.error('[api/gemini] Falha ao validar sessão:', err);
+    return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
@@ -158,11 +200,10 @@ export async function POST(request) {
     );
 
     if (!upstream.ok || !upstream.body) {
+      // Detalhe do upstream vai só para o log do servidor — nunca para o cliente.
       const detalhe = await upstream.text().catch(() => '');
-      return json(
-        { error: `Falha na API do Gemini (HTTP ${upstream.status}).`, detalhe: detalhe.slice(0, 600) },
-        502,
-      );
+      console.error('[api/gemini] Gemini respondeu erro', upstream.status, detalhe.slice(0, 600));
+      return json({ error: `Falha na API do Gemini (HTTP ${upstream.status}).` }, 502);
     }
 
     return new Response(upstream.body, {
@@ -187,9 +228,9 @@ export async function POST(request) {
 function mb(bytes) {
   return Math.round(bytes / (1024 * 1024));
 }
-function json(data, status) {
+function json(data, status, extraHeaders) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...(extraHeaders || {}) },
   });
 }

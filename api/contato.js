@@ -13,6 +13,8 @@
 //   - Sem RESEND_API_KEY o endpoint apenas registra a mensagem (útil em dev/preview)
 //     e responde 202, sem quebrar o fluxo do formulário.
 
+import { rateLimit, ipDoRequest } from './_ratelimit.js';
+
 export const config = { runtime: 'edge' };
 
 const DESTINATARIO = process.env.CONTATO_EMAIL_TO || 'contato@tributagil.online';
@@ -28,6 +30,12 @@ const SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024; // ~4 MB já decodificado
 export default async function handler(req) {
   if (req.method !== 'POST') {
     return json({ error: 'Método não permitido. Use POST.' }, 405);
+  }
+
+  // Rate limit: 5 mensagens por minuto por IP.
+  const rl = rateLimit(`contato:${ipDoRequest(req)}`, 5, 60_000);
+  if (!rl.ok) {
+    return json({ error: 'Muitas mensagens em sequência. Aguarde um minuto.' }, 429);
   }
 
   let body;
@@ -105,9 +113,9 @@ export default async function handler(req) {
   // ---- Envio -----------------------------------------------------------
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_API_KEY) {
-    console.warn('[api/contato] RESEND_API_KEY ausente — mensagem apenas registrada:', {
-      assunto,
-      emailUsuario,
+    // Sem PII no log: não registramos o e-mail do usuário.
+    console.warn('[api/contato] RESEND_API_KEY ausente — mensagem descartada:', {
+      tipo,
       temAnexo: !!anexo,
     });
     return json({ ok: true, delivered: false }, 202);

@@ -18,7 +18,7 @@ import {
   RefreshCw,
   LogOut,
 } from 'lucide-react';
-import { listarAnalises, excluirAnalise } from '../lib/analises';
+import { listarAnalises, excluirAnalise, caminhosDocumentos } from '../lib/analises';
 import CreditoAutor from '../components/CreditoAutor';
 
 // ============================================
@@ -286,18 +286,18 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
     setModalLGPD(null);
 
     if (alvo?.tipo === 'excluir_item' && alvo.item) {
-      const ok = await excluirAnalise(alvo.item.id);
+      const ok = await excluirAnalise(alvo.item.id, caminhosDocumentos(alvo.item));
       if (ok) {
         setAnalises((prev) => prev.filter((a) => a.id !== alvo.item.id));
-        mostrarToast('Análise excluída com sucesso.');
+        mostrarToast('Análise e documentos excluídos.');
       } else {
         mostrarToast('Não foi possível excluir agora.', 'info');
       }
     } else {
-      // Exclusão total: remove uma a uma (best-effort).
-      await Promise.all(analises.map((a) => excluirAnalise(a.id)));
+      // Exclusão total: remove documentos + registro, uma a uma (best-effort).
+      await Promise.all(analises.map((a) => excluirAnalise(a.id, caminhosDocumentos(a))));
       setAnalises([]);
-      mostrarToast('Todos os seus dados foram excluídos.', 'info');
+      mostrarToast('Todos os seus dados e documentos foram excluídos.', 'info');
     }
   };
 

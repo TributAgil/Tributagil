@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import { salvarAnalise } from './lib/analises';
+import { salvarAnalise, caminhosDocumentos } from './lib/analises';
+import { removerDocumentos } from './lib/storageDocumentos';
 import Login from './pages/Login';
 import Painel from './pages/Painel';
 import NovaAnalise from './pages/NovaAnalise';
@@ -81,8 +82,9 @@ export default function App() {
 
     // 2. Persiste no histórico. Aguardamos para garantir que a linha exista
     //    antes de o usuário navegar para o Histórico/Painel.
+    let salvo = null;
     try {
-      const salvo = await salvarAnalise({
+      salvo = await salvarAnalise({
         userId: user?.id,
         payload: payloadAnalise,
         resultado: resultadoRealDaIA,
@@ -95,11 +97,36 @@ export default function App() {
     } catch (err) {
       console.error('[App] Erro ao salvar no histórico:', err);
     }
+
+    // 3. LGPD / minimização: com o parecer já persistido, os documentos-fonte
+    //    não precisam mais ficar no Storage. Só apaga se o registro foi salvo
+    //    (senão perderíamos o único vestígio da análise).
+    if (salvo) {
+      const caminhos = caminhosDocumentos(payloadAnalise);
+      if (caminhos.length > 0) {
+        removerDocumentos(caminhos).catch((err) =>
+          console.warn('[App] Falha ao limpar documentos do Storage:', err),
+        );
+      }
+    }
   };
 
   const handleNovaAnalise = () => {
     setPayloadAnalise(null);
     setAnaliseSelecionada(null);
+    setTelaAtual('analise');
+  };
+
+  // A análise falhou/foi sinalizada como dados insuficientes: o usuário volta
+  // para uma tela de upload NOVA (outro analise_id), então os documentos já
+  // enviados ficam órfãos — apaga do Storage para não acumular PII.
+  const handleErroProcessamento = () => {
+    const caminhos = caminhosDocumentos(payloadAnalise);
+    if (caminhos.length > 0) {
+      removerDocumentos(caminhos).catch((err) =>
+        console.warn('[App] Falha ao limpar documentos órfãos:', err),
+      );
+    }
     setTelaAtual('analise');
   };
 
@@ -168,7 +195,7 @@ export default function App() {
         <CerebroTributario
           payload={payloadAnalise}
           onConcluido={handleConcluirProcessamento}
-          onErro={() => setTelaAtual('analise')}
+          onErro={handleErroProcessamento}
         />
       )}
 

@@ -1,4 +1,12 @@
 import { supabase } from './supabase';
+import { removerDocumentos } from './storageDocumentos';
+
+/** Extrai os storage_path dos documentos de um registro/payload de análise. */
+export function caminhosDocumentos(registroOuPayload) {
+  const payload = registroOuPayload?.payload ?? registroOuPayload ?? {};
+  const docs = Array.isArray(payload?.documentos) ? payload.documentos : [];
+  return docs.map((d) => d?.storage_path || d?.storagePath).filter(Boolean);
+}
 
 /**
  * Camada de acesso a dados das análises tributárias.
@@ -77,10 +85,20 @@ export async function salvarAnalise({ userId, payload, resultado }) {
 }
 
 /**
- * Exclui uma análise pelo id. Retorna true/false conforme sucesso.
+ * Exclui uma análise: remove os documentos do Storage E a linha do banco.
+ * (LGPD — o "excluir meus dados" precisa apagar os arquivos, não só o registro.)
+ * @param {string} id
+ * @param {string[]} storagePaths  caminhos dos documentos a remover do Storage
  */
-export async function excluirAnalise(id) {
+export async function excluirAnalise(id, storagePaths = []) {
   if (!id) return false;
+
+  // 1. Storage primeiro (best-effort — não bloqueia a exclusão do registro).
+  if (Array.isArray(storagePaths) && storagePaths.length > 0) {
+    await removerDocumentos(storagePaths);
+  }
+
+  // 2. Linha do banco (RLS garante que só o dono exclui).
   try {
     const { error } = await supabase.from('analises').delete().eq('id', id);
     if (error) {
