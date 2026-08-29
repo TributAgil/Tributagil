@@ -22,6 +22,8 @@ import {
   Hash,
   Pencil,
   Loader2,
+  FilePlus2,
+  History,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import { salvarObservacoes } from '../lib/analises';
@@ -418,13 +420,15 @@ function normalizarResultado(analise) {
 // ============================================
 // COMPONENTE PRINCIPAL: RESULTADO DA ANÁLISE
 // ============================================
-const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
+const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise, onReanalisar }) => {
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
 
   // Usa o resultado real da IA (normalizado) ou o mock, se não houver análise.
   const resultado = analise ? normalizarResultado(analise) : RESULTADO_MOCK;
   const analiseId = analise?.id || resultado?.id || null;
+  const casoId = analise?.caso_id || null;
+  const versao = analise?.versao || 1;
 
   // ---- Anotações do advogado -------------------------------------------------
   const [obs, setObs] = useState(analise?.observacoes || '');
@@ -499,7 +503,14 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
                 <ArrowLeft size={20} />
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-bold text-parchment truncate">Resultado da Análise</h1>
+                <h1 className="text-lg sm:text-xl font-bold text-parchment truncate flex items-center gap-2">
+                  Resultado da Análise
+                  {versao > 1 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 text-parchment/60 border border-line flex-shrink-0">
+                      <History size={10} /> versão {versao}
+                    </span>
+                  )}
+                </h1>
                 <p className="text-sm text-parchment/50 truncate">
                   {resultado.metadata.processo !== 'Não identificado'
                     ? `Processo ${resultado.metadata.processo} • `
@@ -748,12 +759,24 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise }) => {
         <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">
           <h3 className="text-xl font-bold mb-2">Precisa de uma nova análise?</h3>
           <p className="text-ink/70 mb-6">Processe novos documentos e obtenha insights tributários em segundos.</p>
-          <button
-            onClick={onNovaAnalise}
-            className="px-6 py-3 bg-ink-800/50 text-gold font-semibold rounded-xl hover:bg-gold/10 transition-all shadow-lg"
-          >
-            Iniciar Nova Análise
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {casoId && (
+              <button
+                onClick={() => onReanalisar?.({ caso_id: casoId, titulo: resultado.metadata.parte_reu })}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-ink-800/50 text-gold font-semibold rounded-xl hover:bg-gold/10 transition-all shadow-lg"
+                title="Adiciona um documento novo a este caso e gera uma nova versão do parecer, sem apagar o atual"
+              >
+                <FilePlus2 size={16} />
+                Adicionar documento a este caso
+              </button>
+            )}
+            <button
+              onClick={onNovaAnalise}
+              className="px-6 py-3 bg-ink-900/60 text-parchment/80 font-semibold rounded-xl hover:bg-ink-900 transition-all shadow-lg border border-line"
+            >
+              Iniciar Nova Análise
+            </button>
+          </div>
         </div>
       </div>
 

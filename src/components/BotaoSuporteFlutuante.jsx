@@ -1,5 +1,5 @@
 // src/components/BotaoSuporteFlutuante.jsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { HelpCircle, X } from 'lucide-react';
 import SuporteModal from './SuporteModal';
 
@@ -8,6 +8,15 @@ import SuporteModal from './SuporteModal';
 // ============================================
 const BotaoSuporteFlutuante = () => {
   const [modalAberto, setModalAberto] = useState(false);
+
+  // Outras telas (barra de créditos zerada, "sem créditos" no Cérebro
+  // Tributário) pedem a abertura do suporte via evento global, sem precisar
+  // de prop drilling até aqui.
+  useEffect(() => {
+    const abrir = () => setModalAberto(true);
+    window.addEventListener('tributagil:abrir-suporte', abrir);
+    return () => window.removeEventListener('tributagil:abrir-suporte', abrir);
+  }, []);
 
   return (
     <>

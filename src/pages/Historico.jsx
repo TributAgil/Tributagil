@@ -17,6 +17,8 @@ import {
   Loader2,
   RefreshCw,
   LogOut,
+  History,
+  FilePlus2,
 } from 'lucide-react';
 import {
   listarAnalises,
@@ -42,7 +44,7 @@ function formatarDataHora(iso) {
 // ============================================
 // COMPONENTE: CARD DE ANÁLISE (histórico real)
 // ============================================
-const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
+const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir, onReanalisar }) => {
   const [menuAberto, setMenuAberto] = useState(false);
 
   return (
@@ -59,6 +61,11 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
                 <CheckCircle2 size={10} />
                 Concluída
               </span>
+              {item.versao > 1 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 text-parchment/60 border border-line flex-shrink-0">
+                  <History size={10} /> v{item.versao}
+                </span>
+              )}
             </div>
             <p className="text-xs text-parchment/40 mt-0.5 font-mono truncate">#{String(item.id).slice(0, 8)}</p>
           </div>
@@ -74,13 +81,22 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir }) => {
           {menuAberto && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 bg-ink-800/50 rounded-xl border border-line shadow-xl z-20 py-1 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1 w-52 bg-ink-800/50 rounded-xl border border-line shadow-xl z-20 py-1 overflow-hidden">
                 <button
                   onClick={() => { onReabrir(item); setMenuAberto(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
                 >
                   <Eye size={14} /> Reabrir análise
                 </button>
+                {item.caso_id && (
+                  <button
+                    onClick={() => { onReanalisar(item); setMenuAberto(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
+                    title="Adiciona um documento novo e gera uma nova versão do parecer, sem apagar a anterior"
+                  >
+                    <FilePlus2 size={14} /> Adicionar documento / Reanalisar
+                  </button>
+                )}
                 <button
                   onClick={() => { onBaixar(item); setMenuAberto(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
@@ -232,7 +248,7 @@ const ModalLGPD = ({ aberto, onFechar, onConfirmar, tipo }) => {
 // ============================================
 // COMPONENTE PRINCIPAL: HISTÓRICO DE RESULTADOS
 // ============================================
-const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
+const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogout }) => {
   const [analises, setAnalises] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
@@ -317,10 +333,16 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
     setModalLGPD(null);
 
     if (alvo?.tipo === 'excluir_item' && alvo.item) {
-      const ok = await excluirAnalise(alvo.item.id, caminhosDocumentos(alvo.item));
+      // Um caso versionado (com `caso_id`) pode ter documentos compartilhados
+      // entre várias versões (payload de uma reanálise inclui os antigos +
+      // os novos) — apagar UMA versão não pode apagar arquivos que outras
+      // versões do mesmo caso ainda referenciam. Só remove do Storage quando
+      // o item não pertence a um caso versionado.
+      const caminhos = alvo.item.caso_id ? [] : caminhosDocumentos(alvo.item);
+      const ok = await excluirAnalise(alvo.item.id, caminhos);
       if (ok) {
         setAnalises((prev) => prev.filter((a) => a.id !== alvo.item.id));
-        mostrarToast('Análise e documentos excluídos.');
+        mostrarToast('Análise excluída.');
       } else {
         mostrarToast('Não foi possível excluir agora.', 'info');
       }
@@ -482,6 +504,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onLogout }) => {
                 item={item}
                 onReabrir={handleReabrir}
                 onBaixar={handleBaixar}
+                onReanalisar={onReanalisar}
                 onExcluir={(it) => setModalLGPD({ tipo: 'excluir_item', item: it })}
               />
             ))}

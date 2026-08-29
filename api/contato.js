@@ -50,7 +50,7 @@ export default async function handler(req) {
     return json({ ok: true }, 200);
   }
 
-  const tipo = body.tipo === 'bug' ? 'bug' : 'feedback';
+  const tipo = body.tipo === 'bug' ? 'bug' : body.tipo === 'erro_sistema' ? 'erro_sistema' : 'feedback';
   const emailUsuario = sanitize(body.email, 160);
   const mensagem = sanitize(body.comentario ?? body.descricao, 5000);
   const passos = sanitize(body.passos, 3000);
@@ -64,7 +64,7 @@ export default async function handler(req) {
   if (emailUsuario && !EMAIL_RE.test(emailUsuario)) {
     return json({ error: 'O e-mail informado é inválido.' }, 400);
   }
-  if (tipo === 'bug' && !emailUsuario) {
+  if ((tipo === 'bug' || tipo === 'erro_sistema') && !emailUsuario) {
     return json({ error: 'Informe um e-mail para retorno do suporte.' }, 400);
   }
 
@@ -89,9 +89,11 @@ export default async function handler(req) {
 
   // ---- Montagem do e-mail ------------------------------------------------
   const assunto =
-    tipo === 'bug'
-      ? `[BUG] ${tipoBug || 'Não especificado'}`
-      : `[Feedback] TributÁgil${avaliacao ? ` — ${avaliacao}/5` : ''}`;
+    tipo === 'erro_sistema'
+      ? `[ERRO SISTEMA] Solicitação de estorno de crédito`
+      : tipo === 'bug'
+        ? `[BUG] ${tipoBug || 'Não especificado'}`
+        : `[Feedback] TributÁgil${avaliacao ? ` — ${avaliacao}/5` : ''}`;
 
   const corpo = [
     `Tipo .............: ${tipo}`,
@@ -100,10 +102,11 @@ export default async function handler(req) {
     tipo === 'feedback' && avaliacao ? `Avaliação ........: ${avaliacao}/5` : null,
     tipo === 'bug' && tipoBug ? `Categoria ........: ${tipoBug}` : null,
     `Screenshot .......: ${anexo ? anexo.filename : 'nenhum'}`,
+    tipo === 'erro_sistema' ? 'Ação solicitada ..: avaliação técnica + estorno do crédito como bônus na conta' : null,
     '',
     'Mensagem:',
     mensagem,
-    tipo === 'bug' && passos ? `\nPassos para reproduzir:\n${passos}` : null,
+    (tipo === 'bug' || tipo === 'erro_sistema') && passos ? `\nDetalhes / logs:\n${passos}` : null,
     '',
     '— Enviado via TributÁgil / Central de Suporte',
   ]

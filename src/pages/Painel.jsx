@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LogOut, Scale, Clock, ArrowUpRight, Sparkles } from 'lucide-react';
 import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
+import BarraCreditos from '../components/BarraCreditos';
 import Logo from '../components/Logo';
 import RodapeLegal from '../components/RodapeLegal';
 import { listarAnalises } from '../lib/analises';
@@ -73,7 +74,11 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
             fundamentos e recomendação de via, com rigor pericial.
           </p>
 
-          <div className="mt-12">
+          <div className="mt-8 w-full max-w-md">
+            <BarraCreditos userId={user?.id} />
+          </div>
+
+          <div className="mt-8">
             <BotaoComecarAnalise onComecar={onNovaAnalise} />
           </div>
 

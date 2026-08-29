@@ -84,7 +84,12 @@ src/
   lib/supabase.js          Cliente único do Supabase (+ exporta url/anonKey/bucket)
   lib/prepararDocumentos.js Compressão de imagens no browser
   lib/storageDocumentos.js  Upload/remoção no Supabase Storage
-  lib/analises.js          Camada de dados do histórico (listar/salvar/excluir)
+  lib/analises.js          Camada de dados do histórico (listar/salvar/excluir), com versionamento (caso_id/versao)
+  lib/creditos.js          Leitura do saldo de créditos (tabela `perfis`)
+  lib/casos.js             Agrupamento de versões (casos) e documentos acumulados (documentos_caso)
+  components/BarraCreditos.jsx      Créditos restantes + bloqueio quando zerado
+  components/ModalConfirmarUpload.jsx  Confirmação obrigatória ao anexar doc complementar a um caso
+  components/BotaoSinalizarErro.jsx    "Sinalização Automática de Erro" -> e-mail de suporte c/ logs (estorno)
   components/ErrorBoundary  Impede que um erro de render derrube o app inteiro
   pages/                    Telas (Login, Histórico, NovaAnalise, Cérebro, Resultado)
 ```
@@ -111,6 +116,160 @@ create policy "analises: leitura própria"  on public.analises for select using 
 create policy "analises: inserção própria" on public.analises for insert with check (auth.uid() = user_id);
 create policy "analises: exclusão própria" on public.analises for delete using  (auth.uid() = user_id);
 ```
+
+## Créditos de análise, versionamento de casos e antifraude
+
+Três funcionalidades novas, todas dependentes de tabelas/funções adicionais no
+Supabase. Rode os blocos abaixo no **SQL Editor**, depois do bloco da tabela
+`analises` acima (a ordem importa: `analises` precisa existir antes do `alter
+table` que adiciona `caso_id`/`versao`).
+
+### 1. Créditos (plano + saldo)
+
+```sql
+create table if not exists public.perfis (
+  id                    uuid primary key references auth.users (id) on delete cascade,
+  plano                 text not null default 'gratuito',
+  creditos_disponiveis  integer not null default 3,
+  creditos_bonus        integer not null default 0,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+alter table public.perfis enable row level security;
+
+-- Só leitura pelo próprio usuário: o saldo só muda via RPC consumir_credito()
+-- (chamada pelo backend) ou manualmente pelo suporte — nunca por UPDATE
+-- direto do cliente. É a barreira antifraude do saldo de créditos.
+create policy "perfis: leitura própria" on public.perfis for select using (auth.uid() = id);
+
+-- Cria o perfil (3 créditos gratuitos) automaticamente no cadastro.
+create or replace function public.criar_perfil_novo_usuario()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.perfis (id) values (new.id) on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created_perfil on auth.users;
+create trigger on_auth_user_created_perfil
+  after insert on auth.users
+  for each row execute function public.criar_perfil_novo_usuario();
+
+-- Backfill para usuários já cadastrados antes desta migração.
+insert into public.perfis (id) select id from auth.users on conflict (id) do nothing;
+
+-- Consome 1 crédito de forma atômica (bônus primeiro, depois o plano).
+-- SECURITY DEFINER: roda com privilégio elevado, mas só enxerga/altera a
+-- própria linha do usuário chamador (auth.uid() vem do JWT). Chamada pelo
+-- backend (/api/gemini) autenticado com o token do usuário — nunca pelo
+-- cliente diretamente.
+create or replace function public.consumir_credito()
+returns table (creditos_restantes integer, plano text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_perfil  public.perfis%rowtype;
+begin
+  if v_user_id is null then
+    raise exception 'NAO_AUTENTICADO';
+  end if;
+
+  select * into v_perfil from public.perfis where id = v_user_id for update;
+  if not found then
+    raise exception 'PERFIL_NAO_ENCONTRADO';
+  end if;
+
+  if (v_perfil.creditos_bonus + v_perfil.creditos_disponiveis) <= 0 then
+    raise exception 'SEM_CREDITOS';
+  end if;
+
+  if v_perfil.creditos_bonus > 0 then
+    update public.perfis set creditos_bonus = creditos_bonus - 1, updated_at = now() where id = v_user_id;
+  else
+    update public.perfis set creditos_disponiveis = creditos_disponiveis - 1, updated_at = now() where id = v_user_id;
+  end if;
+
+  select * into v_perfil from public.perfis where id = v_user_id;
+  return query select (v_perfil.creditos_disponiveis + v_perfil.creditos_bonus), v_perfil.plano;
+end;
+$$;
+
+grant execute on function public.consumir_credito() to authenticated;
+```
+
+**Estorno (crédito perdido por falha do sistema):** é sempre uma ação manual
+do suporte, após avaliar o e-mail recebido pelo botão "Sinalização Automática
+de Erro" — nunca automática:
+
+```sql
+update public.perfis
+   set creditos_bonus = creditos_bonus + 1, updated_at = now()
+ where id = '<user_id do e-mail recebido>';
+```
+
+### 2. Histórico versionado + antifraude (casos)
+
+```sql
+create table if not exists public.casos (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  titulo      text,
+  criado_em   timestamptz not null default now()
+);
+
+alter table public.casos enable row level security;
+create policy "casos: leitura própria"  on public.casos for select using (auth.uid() = user_id);
+create policy "casos: inserção própria" on public.casos for insert with check (auth.uid() = user_id);
+
+-- Cada análise passa a pertencer a um "caso" (agrupador de versões) e carrega
+-- seu próprio número de versão. O parecer de uma versão anterior NUNCA é
+-- sobrescrito — reanalisar sempre insere uma linha nova em `analises`.
+alter table public.analises
+  add column if not exists caso_id uuid references public.casos (id) on delete set null,
+  add column if not exists versao integer not null default 1;
+
+-- Documentos acumulados de um caso (todas as versões). IMPORTANTE: só há
+-- policies de SELECT e INSERT — nenhuma de UPDATE nem DELETE para o usuário
+-- autenticado. Isso impede, a nível de banco, que um documento já anexado
+-- seja removido ou substituído para forçar reprocessamento gratuito: o
+-- usuário só consegue ADICIONAR arquivos a um caso existente.
+create table if not exists public.documentos_caso (
+  id             uuid primary key default gen_random_uuid(),
+  caso_id        uuid not null references public.casos (id) on delete cascade,
+  user_id        uuid not null references auth.users (id) on delete cascade,
+  nome           text,
+  mime_type      text,
+  categoria      text,
+  storage_path   text not null,
+  tamanho_bytes  bigint,
+  adicionado_em  timestamptz not null default now()
+);
+
+alter table public.documentos_caso enable row level security;
+create policy "documentos_caso: leitura própria"  on public.documentos_caso for select using (auth.uid() = user_id);
+create policy "documentos_caso: inserção própria" on public.documentos_caso for insert with check (auth.uid() = user_id);
+```
+
+> **Nota sobre o Storage:** como os documentos de um caso precisam continuar
+> disponíveis para uma futura reanálise, a limpeza automática "LGPD /
+> minimização" (que antes apagava os arquivos do Storage logo após cada
+> análise) só roda para análises **sem** `caso_id` (fallback enquanto esta
+> migração não for aplicada). Uma vez migrado, os documentos de um caso só
+> saem do Storage pela exclusão total do histórico ("Excluir meus
+> dados/histórico", no Histórico).
+
+Sem essas tabelas, o app **não quebra**: a barra de créditos simplesmente não
+aparece, `/api/gemini` segue sem bloquear por créditos, e cada análise nova é
+salva sem versionamento (como antes desta funcionalidade).
 
 ## Storage — bucket `documentos`
 

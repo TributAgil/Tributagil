@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { salvarAnalise, caminhosDocumentos } from './lib/analises';
 import { removerDocumentos } from './lib/storageDocumentos';
+import { registrarDocumentosIniciais } from './lib/casos';
 import Login from './pages/Login';
 import Painel from './pages/Painel';
 import NovaAnalise from './pages/NovaAnalise';
@@ -25,6 +26,9 @@ export default function App() {
   );
   const [payloadAnalise, setPayloadAnalise] = useState(null);
   const [analiseSelecionada, setAnaliseSelecionada] = useState(null);
+  // Caso em reanálise (adicionar documento novo a um caso já existente).
+  // null = análise nova (sem versionamento prévio).
+  const [casoParaReanalise, setCasoParaReanalise] = useState(null);
 
   useEffect(() => {
     let subscription;
@@ -98,17 +102,36 @@ export default function App() {
 
     // 2. Persiste no histórico. Aguardamos para garantir que a linha exista
     //    antes de o usuário navegar para o Histórico/Painel.
+    //    `caso_id` presente no payload = reanálise (nova versão de um caso já
+    //    existente); ausente = caso novo (criado dentro de salvarAnalise).
+    const casoIdOrigem = payloadAnalise?.metadata?.caso_id || null;
     let salvo = null;
     try {
       salvo = await salvarAnalise({
         userId: user?.id,
         payload: payloadAnalise,
         resultado: resultadoRealDaIA,
+        casoId: casoIdOrigem,
       });
       if (salvo) {
         console.info('[App] Análise salva no histórico:', salvo.id);
-        // Anexa o id ao resultado em tela para habilitar as anotações do advogado.
-        setAnaliseSelecionada((atual) => ({ ...(atual || resultadoRealDaIA), id: salvo.id }));
+        // Anexa id/caso/versão ao resultado em tela (anotações + reanálise).
+        setAnaliseSelecionada((atual) => ({
+          ...(atual || resultadoRealDaIA),
+          id: salvo.id,
+          caso_id: salvo.caso_id,
+          versao: salvo.versao,
+        }));
+
+        // Caso novo: registra os documentos desta primeira versão no caso,
+        // para que futuras reanálises os exibam como já anexados (travados).
+        if (!casoIdOrigem && salvo.caso_id) {
+          registrarDocumentosIniciais({
+            casoId: salvo.caso_id,
+            userId: user?.id,
+            documentos: payloadAnalise?.documentos || [],
+          });
+        }
       } else {
         console.warn('[App] Análise NÃO foi salva no histórico (ver logs de [analises]).');
       }
@@ -116,10 +139,15 @@ export default function App() {
       console.error('[App] Erro ao salvar no histórico:', err);
     }
 
-    // 3. LGPD / minimização: com o parecer já persistido, os documentos-fonte
-    //    não precisam mais ficar no Storage. Só apaga se o registro foi salvo
-    //    (senão perderíamos o único vestígio da análise).
-    if (salvo) {
+    // 3. LGPD / minimização — SOMENTE para análises sem versionamento (fallback
+    //    de migração pendente, sem `caso_id`). Análises com `caso_id` fazem
+    //    parte de um caso versionável: os documentos precisam permanecer no
+    //    Storage para que uma futura reanálise (novo documento) consiga
+    //    reprocessar o conjunto completo, e `documentos_caso` é um registro
+    //    insert-only (nunca removido) — apagar o arquivo agora quebraria essa
+    //    garantia antifraude. A exclusão completa continua disponível pelo
+    //    Histórico ("Excluir meus dados/histórico").
+    if (salvo && !salvo.caso_id) {
       const caminhos = caminhosDocumentos(payloadAnalise);
       if (caminhos.length > 0) {
         const r = await removerDocumentos(caminhos);
@@ -138,6 +166,19 @@ export default function App() {
   };
 
   const handleNovaAnalise = () => {
+    setCasoParaReanalise(null);
+    setPayloadAnalise(null);
+    setAnaliseSelecionada(null);
+    setTelaAtual('analise');
+  };
+
+  // Abre a tela de Nova Análise em modo de REANÁLISE: os documentos já
+  // anexados ao caso ficam travados (não removíveis) e o novo parecer vira
+  // uma versão nova, sem apagar a anterior do histórico.
+  const handleReanalisar = (item) => {
+    const casoId = item?.caso_id;
+    if (!casoId) return; // item ainda sem versionamento (migração pendente)
+    setCasoParaReanalise({ id: casoId, titulo: item?.titulo || null });
     setPayloadAnalise(null);
     setAnaliseSelecionada(null);
     setTelaAtual('analise');
@@ -147,6 +188,17 @@ export default function App() {
   // para uma tela de upload NOVA (outro analise_id), então os documentos já
   // enviados ficam órfãos — apaga do Storage para não acumular PII.
   const handleErroProcessamento = () => {
+    // Reanálise: os documentos (os já travados do caso + o complementar que
+    // acabou de ser confirmado) já estão permanentemente registrados em
+    // `documentos_caso` (insert-only) ANTES mesmo desta tentativa de análise
+    // rodar — nunca são removidos do Storage, mesmo que a tentativa falhe.
+    if (payloadAnalise?.metadata?.caso_id) {
+      setTelaAtual('analise');
+      return;
+    }
+
+    // Análise nova: nada foi persistido em `documentos_caso` ainda, então os
+    // arquivos desta sessão são órfãos de fato — seguro limpar do Storage.
     const caminhos = caminhosDocumentos(payloadAnalise);
     if (caminhos.length > 0) {
       removerDocumentos(caminhos).then((r) => {
@@ -166,6 +218,8 @@ export default function App() {
       id: analise?.id ?? base?.id ?? null,
       observacoes: analise?.observacoes ?? base?.observacoes ?? '',
       observacoes_em: analise?.observacoes_em ?? base?.observacoes_em ?? null,
+      caso_id: analise?.caso_id ?? base?.caso_id ?? null,
+      versao: analise?.versao ?? base?.versao ?? 1,
     });
     setTelaAtual('resultado');
   };
@@ -231,6 +285,7 @@ export default function App() {
           user={user}
           onNovaAnalise={handleNovaAnalise}
           onReabrirAnalise={handleReabrirAnalise}
+          onReanalisar={handleReanalisar}
           onLogout={handleLogout}
         />
       )}
@@ -240,12 +295,14 @@ export default function App() {
           user={user}
           onIniciarAnalise={handleIniciarAnalise}
           onVoltar={handleVerHistorico}
+          casoExistente={casoParaReanalise}
         />
       )}
 
       {telaAtual === 'processando' && (
         <CerebroTributario
           payload={payloadAnalise}
+          user={user}
           onConcluido={handleConcluirProcessamento}
           onErro={handleErroProcessamento}
         />
@@ -256,6 +313,7 @@ export default function App() {
           analise={analiseSelecionada}
           onVoltar={handleVerHistorico}
           onNovaAnalise={handleNovaAnalise}
+          onReanalisar={handleReanalisar}
         />
       )}
 

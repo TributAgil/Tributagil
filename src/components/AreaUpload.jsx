@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, FileText, X, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, FileText, X, AlertCircle, Loader2, CheckCircle2, Lock } from 'lucide-react';
 import { formatarBytes, MAX_PDF_BYTES, MAX_IMAGEM_BYTES } from '../lib/prepararDocumentos';
 
 // ============================================================
@@ -130,6 +130,8 @@ export function AreaUpload({
                 <Loader2 size={16} className="flex-shrink-0 animate-spin text-parchment/40" />
               ) : arquivo.status === 'erro' ? (
                 <AlertCircle size={16} className="flex-shrink-0 text-red-400" />
+              ) : arquivo.bloqueado ? (
+                <Lock size={16} className="flex-shrink-0 text-parchment/35" />
               ) : (
                 <CheckCircle2 size={16} className="flex-shrink-0 text-gold" />
               )}
@@ -138,20 +140,30 @@ export function AreaUpload({
                 <p className="truncate text-parchment/85">{arquivo.nome}</p>
                 <p className="text-[11px] text-parchment/35">
                   {arquivo.status === 'processando' && 'enviando ao servidor seguro...'}
-                  {arquivo.status === 'pronto' &&
+                  {arquivo.status === 'pronto' && !arquivo.bloqueado &&
                     formatarBytes(arquivo.tamanhoFinal ?? arquivo.tamanho)}
+                  {arquivo.status === 'pronto' && arquivo.bloqueado && 'já anexado a este caso'}
                   {arquivo.status === 'erro' && arquivo.motivoErro}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => onRemoverArquivo(arquivo.id)}
-                className="rounded-md p-1 text-parchment/40 transition-colors hover:bg-white/5 hover:text-parchment/80"
-                aria-label={`Remover ${arquivo.nome}`}
-              >
-                <X size={14} />
-              </button>
+              {arquivo.bloqueado ? (
+                <span
+                  className="rounded-md p-1 text-parchment/25"
+                  title="Documento já registrado no caso — não pode ser removido ou substituído"
+                >
+                  <Lock size={14} />
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRemoverArquivo(arquivo.id)}
+                  className="rounded-md p-1 text-parchment/40 transition-colors hover:bg-white/5 hover:text-parchment/80"
+                  aria-label={`Remover ${arquivo.nome}`}
+                >
+                  <X size={14} />
+                </button>
+              )}
             </li>
           ))}
         </ul>

@@ -107,6 +107,49 @@ export async function POST(request) {
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
+  // ---- 1c. CRÉDITOS: consome 1 crédito de análise de forma atômica ---------
+  // RPC `consumir_credito` (SECURITY DEFINER, ver README) — decrementa o saldo
+  // do usuário chamador (auth.uid() vem do próprio userToken) e falha com
+  // "SEM_CREDITOS" se o saldo já estiver zerado. É a barreira REAL contra
+  // fraude: o cliente nunca decrementa o próprio saldo, só este backend.
+  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
+  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
+  try {
+    const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/consumir_credito`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: '{}',
+    });
+
+    if (!rpcResp.ok) {
+      if (rpcResp.status === 404) {
+        console.warn('[api/gemini] RPC consumir_credito ausente — sistema de créditos ainda não migrado, seguindo sem bloquear.');
+      } else {
+        const detalhe = await rpcResp.json().catch(() => ({}));
+        const msg = String(detalhe?.message || detalhe?.hint || '');
+        if (/SEM_CREDITOS/i.test(msg)) {
+          return json(
+            { error: 'Você não possui créditos disponíveis. Renove seu plano ou adquira créditos avulsos para continuar.' },
+            402,
+          );
+        }
+        if (/PERFIL_NAO_ENCONTRADO/i.test(msg)) {
+          return json({ error: 'Perfil de créditos não encontrado. Contate o suporte.' }, 402);
+        }
+        console.error('[api/gemini] Falha ao consumir crédito:', rpcResp.status, msg);
+        return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
+      }
+    }
+  } catch (err) {
+    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
+    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
+  }
+
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
   const parts = [{ text: prompt }];
   let bytesTotal = 0;

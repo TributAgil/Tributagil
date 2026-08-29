@@ -14,8 +14,10 @@ import {
   Clock,
   AlertTriangle,
   ArrowLeft,
+  Coins,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
+import BotaoSinalizarErro from '../components/BotaoSinalizarErro';
 
 // Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
 // muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
@@ -175,7 +177,7 @@ const LogProcessamento = ({ logs }) => (
 // ============================================
 // COMPONENTE PRINCIPAL: CÉREBRO TRIBUTÁRIO
 // ============================================
-const CerebroTributario = ({ payload, onConcluido, onErro }) => {
+const CerebroTributario = ({ payload, user, onConcluido, onErro }) => {
   const [progresso, setProgresso] = useState(0);
   const [estagioAtual, setEstagioAtual] = useState(0);
   const [logs, setLogs] = useState([]);
@@ -186,6 +188,9 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   const [erroFatal, setErroFatal] = useState(null);
   // Quando a IA responde que faltam dados (Protocolo de Alerta do Motor TributÁgil).
   const [alertaDados, setAlertaDados] = useState(null);
+  // Quando o backend recusa por falta de créditos (HTTP 402) — não é falha do
+  // sistema, então NÃO oferece o botão de sinalização/estorno.
+  const [semCreditos, setSemCreditos] = useState(null);
   const intervalRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -216,6 +221,7 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
 
     setErroFatal(null);
     setAlertaDados(null);
+    setSemCreditos(null);
     addLog('Inicializando conexão segura com backend...', 'info');
 
     // 1. Progresso "otimista" enquanto a IA trabalha (trava em 90% até a resposta).
@@ -298,7 +304,9 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
 
         if (!resposta.ok || !resposta.body) {
           const erroJson = await resposta.json().catch(() => ({}));
-          throw new Error(erroJson.error || `Falha na IA (HTTP ${resposta.status}).`);
+          const erroHttp = new Error(erroJson.error || `Falha na IA (HTTP ${resposta.status}).`);
+          erroHttp.status = resposta.status;
+          throw erroHttp;
         }
 
         addLog('Streaming da IA iniciado — recebendo parecer...', 'info');
@@ -340,6 +348,13 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
         if (typeof erro?.textoBruto === 'string' && erro.textoBruto.includes('[ALERTA DE DADOS INSUFICIENTES]')) {
           addLog('IA sinalizou dados insuficientes.', 'erro');
           setAlertaDados(erro.textoBruto.trim());
+          return;
+        }
+
+        // Sem créditos (HTTP 402): não é falha do sistema — não oferece estorno.
+        if (erro?.status === 402) {
+          addLog('Sem créditos disponíveis para esta análise.', 'erro');
+          setSemCreditos(erro.message || 'Você não possui créditos disponíveis.');
           return;
         }
 
@@ -392,6 +407,36 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
     );
   }
 
+  // ---- Sem créditos disponíveis (HTTP 402): bloqueio condicional do plano ----
+  if (semCreditos) {
+    return (
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-5">
+            <Coins size={32} className="text-amber-400" />
+          </div>
+          <h1 className="text-xl font-bold text-parchment">Sem créditos disponíveis</h1>
+          <p className="text-sm text-parchment/70 mt-3">{semCreditos}</p>
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              onClick={() => onErro?.(new Error('sem_creditos'))}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-line text-parchment/80 hover:border-gold/40 hover:text-gold text-sm font-semibold rounded-xl transition-colors"
+            >
+              <ArrowLeft size={16} />
+              Voltar
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('tributagil:abrir-suporte'))}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
+            >
+              Renovar plano / comprar créditos
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ---- Estado de ERRO: permanece na tela, sem "piscar" de volta ao upload ----
   if (erroFatal) {
     return (
@@ -412,6 +457,14 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
             <ArrowLeft size={16} />
             Voltar e revisar os documentos
           </button>
+
+          <BotaoSinalizarErro
+            user={user}
+            mensagemErro={erroFatal}
+            logs={logs}
+            casoId={payload?.metadata?.caso_id}
+            analiseId={payload?.metadata?.analise_id}
+          />
         </div>
       </div>
     );

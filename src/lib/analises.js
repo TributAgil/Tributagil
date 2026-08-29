@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { removerDocumentos } from './storageDocumentos';
+import { criarCaso } from './casos';
 
 /** Extrai os storage_path dos documentos de um registro/payload de análise. */
 export function caminhosDocumentos(registroOuPayload) {
@@ -35,7 +36,7 @@ export async function listarAnalises(userId) {
   try {
     const { data, error } = await supabase
       .from('analises')
-      .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
+      .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em, caso_id, versao')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -52,31 +53,81 @@ export async function listarAnalises(userId) {
 }
 
 /**
+ * Descobre o caso e a versão de uma análise:
+ *  - `casoId` informado (reanálise) -> próxima versão daquele caso.
+ *  - sem `casoId` (análise nova) -> cria um `caso` de agrupamento, versão 1.
+ * Best-effort: se `casos` ainda não existir, devolve `casoIdFinal: null` e a
+ * análise é salva sem versionamento (ver fallback em `salvarAnalise`).
+ */
+async function resolverCasoEVersao({ userId, payload, resultado, casoId }) {
+  if (casoId) {
+    let proximaVersao = 2;
+    try {
+      const { data, error } = await supabase
+        .from('analises')
+        .select('versao')
+        .eq('caso_id', casoId)
+        .order('versao', { ascending: false })
+        .limit(1);
+      if (!error && data?.[0]?.versao) proximaVersao = data[0].versao + 1;
+    } catch (err) {
+      console.warn('[analises] Falha ao calcular a próxima versão do caso:', err);
+    }
+    return { casoIdFinal: casoId, versao: proximaVersao };
+  }
+
+  const caso = await criarCaso({ userId, titulo: derivarTitulo(payload, resultado) });
+  return { casoIdFinal: caso?.id || null, versao: 1 };
+}
+
+/**
  * Persiste uma análise concluída. Não lança — apenas registra no console em caso de erro.
+ * @param {{ userId: string, payload: object, resultado: object, casoId?: string|null }} args
+ *   `casoId`: quando presente, é uma REANÁLISE (nova versão de um caso já
+ *   existente) — o parecer anterior permanece intacto no histórico, pois
+ *   cada versão é sempre uma linha nova (nunca um update/delete).
  * @returns {Promise<object|null>} o registro salvo, ou null se não foi possível
  */
-export async function salvarAnalise({ userId, payload, resultado }) {
+export async function salvarAnalise({ userId, payload, resultado, casoId }) {
   if (!userId) return null;
 
-  const registro = {
+  const { casoIdFinal, versao } = await resolverCasoEVersao({ userId, payload, resultado, casoId });
+
+  const registroBase = {
     user_id: userId,
     titulo: derivarTitulo(payload, resultado),
     resumo: derivarResumo(resultado),
     payload: payload ?? null,
     resultado: resultado ?? null,
   };
+  const registroVersionado = { ...registroBase, caso_id: casoIdFinal, versao };
+  const SELECT_COLUNAS = 'id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em, caso_id, versao';
 
   // 1 retry: um hiccup de rede não deve fazer o usuário perder o parecer.
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     try {
       const { data, error } = await supabase
         .from('analises')
-        .insert(registro)
-        .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
+        .insert(registroVersionado)
+        .select(SELECT_COLUNAS)
         .single();
 
       if (!error) return normalizarRegistro(data);
-      console.warn(`[analises] Falha ao salvar (tentativa ${tentativa + 1}):`, error.message);
+
+      // Colunas de versionamento ainda não existem (migração pendente) — salva
+      // sem elas para não perder o parecer do usuário.
+      if (/column .*(caso_id|versao)/i.test(error.message || '')) {
+        console.warn('[analises] Colunas de versionamento ausentes — salvando sem versionamento:', error.message);
+        const { data: data2, error: error2 } = await supabase
+          .from('analises')
+          .insert(registroBase)
+          .select('id, created_at, titulo, resumo, payload, resultado, observacoes, observacoes_em')
+          .single();
+        if (!error2) return normalizarRegistro(data2);
+        console.warn('[analises] Falha ao salvar sem versionamento:', error2.message);
+      } else {
+        console.warn(`[analises] Falha ao salvar (tentativa ${tentativa + 1}):`, error.message);
+      }
     } catch (err) {
       console.error(`[analises] Erro inesperado ao salvar (tentativa ${tentativa + 1}):`, err);
     }
@@ -187,6 +238,8 @@ function normalizarRegistro(row) {
     resultado,
     observacoes: row?.observacoes ?? '',
     observacoes_em: row?.observacoes_em ?? null,
+    caso_id: row?.caso_id ?? null,
+    versao: row?.versao ?? 1,
   };
 }
 
