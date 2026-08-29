@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import { salvarAnalise, caminhosDocumentos } from './lib/analises';
 import { removerDocumentos } from './lib/storageDocumentos';
 import { registrarDocumentosIniciais } from './lib/casos';
+import { indexarCaso } from './lib/lu';
 import Login from './pages/Login';
 import Painel from './pages/Painel';
 import NovaAnalise from './pages/NovaAnalise';
@@ -124,13 +125,18 @@ export default function App() {
         }));
 
         // Caso novo: registra os documentos desta primeira versão no caso,
-        // para que futuras reanálises os exibam como já anexados (travados).
+        // para que futuras reanálises os exibam como já anexados (travados),
+        // e dispara (best-effort) a indexação vetorial para o chatbot "Lu".
+        // Numa reanálise, o(s) documento(s) complementar(es) já são indexados
+        // no momento da confirmação do upload (ver NovaAnalise.jsx) — só os
+        // novos, para não reprocessar o que o caso já tem.
         if (!casoIdOrigem && salvo.caso_id) {
           registrarDocumentosIniciais({
             casoId: salvo.caso_id,
             userId: user?.id,
             documentos: payloadAnalise?.documentos || [],
           });
+          indexarCaso({ casoId: salvo.caso_id, documentos: payloadAnalise?.documentos || [] });
         }
       } else {
         console.warn('[App] Análise NÃO foi salva no histórico (ver logs de [analises]).');

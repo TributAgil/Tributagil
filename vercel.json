@@ -7,6 +7,12 @@
   "functions": {
     "api/gemini.js": {
       "maxDuration": 300
+    },
+    "api/indexar-caso.js": {
+      "maxDuration": 300
+    },
+    "api/lu.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [

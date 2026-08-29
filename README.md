@@ -8,6 +8,7 @@ CTN e da LEF.
 - **Auth:** Supabase
 - **IA:** Google Gemini, atrás de uma Serverless Function (Edge) da Vercel
 - **E-mail de suporte:** Serverless Function (Edge) + Resend
+- **Chatbot "Lu":** RAG restrito por caso (pgvector no Supabase + embeddings Gemini) — ver seção própria abaixo
 
 ---
 
@@ -40,6 +41,9 @@ yarn dev
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
+| `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `text-embedding-004`, 768 dimensões) |
+| `LU_LIMIAR_SIMILARIDADE` | servidor | — | Limiar de similaridade (0–1) do Lu antes de responder "não sei" (padrão `0.6`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | só local | — | Usada apenas por `scripts/seed-legislacao.mjs`. Nunca configurar na Vercel |
 
 Na Vercel: **Project Settings → Environment Variables** (defina para Production,
 Preview e Development).
@@ -77,9 +81,15 @@ do usuário garante o isolamento via RLS.
 
 ```
 api/
-  gemini.js             Node + streaming; Storage → Files API → Gemini
-  _motor-tributagil.js  Texto do system instruction "Motor TributÁgil"
-  contato.js            Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
+  gemini.js               Node + streaming; Storage → Files API → Gemini
+  _motor-tributagil.js    Texto do system instruction "Motor TributÁgil"
+  contato.js              Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
+  lu.js                   Chat do Lu: retrieval (documentos do caso + legislação) + geração
+  indexar-caso.js         Extrai texto, chunka e grava embeddings dos documentos de um caso
+  _embeddings.js          Helper de embedding (Gemini text-embedding-004), usado por lu.js e indexar-caso.js
+  _legislacao-tributagil.js  Corpus curado de legislação/jurisprudência (ver scripts/seed-legislacao.mjs)
+scripts/
+  seed-legislacao.mjs     Roda uma vez, localmente: embeda e grava o corpus de legislação no Supabase
 src/
   lib/supabase.js          Cliente único do Supabase (+ exporta url/anonKey/bucket)
   lib/prepararDocumentos.js Compressão de imagens no browser
@@ -87,9 +97,11 @@ src/
   lib/analises.js          Camada de dados do histórico (listar/salvar/excluir), com versionamento (caso_id/versao)
   lib/creditos.js          Leitura do saldo de créditos (tabela `perfis`)
   lib/casos.js             Agrupamento de versões (casos) e documentos acumulados (documentos_caso)
+  lib/lu.js                Cliente do chatbot Lu (/api/lu) e disparo de indexação (/api/indexar-caso)
   components/BarraCreditos.jsx      Créditos restantes + bloqueio quando zerado
   components/ModalConfirmarUpload.jsx  Confirmação obrigatória ao anexar doc complementar a um caso
   components/BotaoSinalizarErro.jsx    "Sinalização Automática de Erro" -> e-mail de suporte c/ logs (estorno)
+  components/ChatLu.jsx                Painel de chat do Lu (aba "Perguntar ao Lu" no Resultado da Análise)
   components/ErrorBoundary  Impede que um erro de render derrube o app inteiro
   pages/                    Telas (Login, Histórico, NovaAnalise, Cérebro, Resultado)
 ```
@@ -270,6 +282,146 @@ create policy "documentos_caso: inserção própria" on public.documentos_caso f
 Sem essas tabelas, o app **não quebra**: a barra de créditos simplesmente não
 aparece, `/api/gemini` segue sem bloquear por créditos, e cada análise nova é
 salva sem versionamento (como antes desta funcionalidade).
+
+## Chatbot "Lu" (RAG restrito por caso)
+
+Assistente jurídico que abre depois que o parecer de um caso é emitido.
+Responde **somente** com base em duas fontes, sempre escopadas por
+`caso_id` (nunca mistura casos de usuários diferentes):
+
+1. Os documentos daquele caso específico (chunks + embeddings gerados por
+   `/api/indexar-caso`, disparado em segundo plano assim que a primeira
+   versão do caso é salva, ou quando um documento complementar é
+   confirmado numa reanálise).
+2. Uma base de legislação/jurisprudência tributária curada (dispositivos do
+   CTN, CF/88, LEF, LC 118/2005, súmulas do STF/STJ e o REsp 1.340.553/RS),
+   indexada uma única vez pelo script `scripts/seed-legislacao.mjs`.
+
+Se a busca não retornar nada com boa correspondência em nenhuma das duas
+bases, o Lu responde um "não sei" explícito — **sem** chamar o modelo de
+geração, então essa regra não depende só do prompt.
+
+### 1. Extensão + tabelas + funções
+
+Rode no **SQL Editor** do Supabase (precisa da tabela `casos`, da seção
+"Créditos de análise..." acima, já criada):
+
+```sql
+create extension if not exists vector;
+
+-- Chunks dos documentos de cada caso.
+create table if not exists public.documento_chunks (
+  id             uuid primary key default gen_random_uuid(),
+  caso_id        uuid not null references public.casos (id) on delete cascade,
+  user_id        uuid not null references auth.users (id) on delete cascade,
+  documento_nome text,
+  storage_path   text,
+  pagina         integer,
+  conteudo       text not null,
+  embedding      vector(768),
+  criado_em      timestamptz not null default now()
+);
+
+alter table public.documento_chunks enable row level security;
+create policy "documento_chunks: leitura própria" on public.documento_chunks for select using (auth.uid() = user_id);
+-- Sem policy de INSERT para o client: só a função abaixo (SECURITY DEFINER,
+-- chamada por /api/indexar-caso) grava, e só no caso do PRÓPRIO usuário.
+
+create index if not exists documento_chunks_embedding_idx
+  on public.documento_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+
+create or replace function public.inserir_documento_chunk(
+  p_caso_id uuid, p_documento_nome text, p_storage_path text,
+  p_pagina integer, p_conteudo text, p_embedding vector(768)
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
+  if not exists (select 1 from public.casos where id = p_caso_id and user_id = v_user_id) then
+    raise exception 'CASO_NAO_ENCONTRADO';
+  end if;
+  insert into public.documento_chunks (caso_id, user_id, documento_nome, storage_path, pagina, conteudo, embedding)
+  values (p_caso_id, v_user_id, p_documento_nome, p_storage_path, p_pagina, p_conteudo, p_embedding);
+end;
+$$;
+grant execute on function public.inserir_documento_chunk to authenticated;
+
+create or replace function public.buscar_documento_chunks(
+  p_caso_id uuid, p_query_embedding vector(768), p_limite integer default 6
+) returns table (documento_nome text, storage_path text, pagina integer, conteudo text, similaridade float)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
+  return query
+    select dc.documento_nome, dc.storage_path, dc.pagina, dc.conteudo,
+           1 - (dc.embedding <=> p_query_embedding) as similaridade
+    from public.documento_chunks dc
+    where dc.caso_id = p_caso_id and dc.user_id = v_user_id
+    order by dc.embedding <=> p_query_embedding
+    limit p_limite;
+end;
+$$;
+grant execute on function public.buscar_documento_chunks to authenticated;
+
+-- Legislação: corpus curado, GLOBAL (não pertence a um usuário/caso) —
+-- leitura liberada a qualquer usuário autenticado; escrita só via
+-- service_role (scripts/seed-legislacao.mjs), nunca pelo cliente.
+create table if not exists public.legislacao_chunks (
+  id             uuid primary key default gen_random_uuid(),
+  norma          text not null,
+  identificador  text not null,
+  texto_integral text not null,
+  embedding      vector(768),
+  criado_em      timestamptz not null default now()
+);
+alter table public.legislacao_chunks enable row level security;
+create policy "legislacao_chunks: leitura autenticada" on public.legislacao_chunks for select to authenticated using (true);
+
+create index if not exists legislacao_chunks_embedding_idx
+  on public.legislacao_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 50);
+
+create or replace function public.buscar_legislacao_chunks(
+  p_query_embedding vector(768), p_limite integer default 6
+) returns table (norma text, identificador text, texto_integral text, similaridade float)
+language sql stable as $$
+  select lc.norma, lc.identificador, lc.texto_integral,
+         1 - (lc.embedding <=> p_query_embedding) as similaridade
+  from public.legislacao_chunks lc
+  order by lc.embedding <=> p_query_embedding
+  limit p_limite;
+$$;
+grant execute on function public.buscar_legislacao_chunks to authenticated;
+```
+
+### 2. Popular a base de legislação (uma vez)
+
+```bash
+SUPABASE_URL=https://xxxx.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=eyJ... \
+GEMINI_API_KEY=AQ.... \
+node scripts/seed-legislacao.mjs
+```
+
+A `SUPABASE_SERVICE_ROLE_KEY` só é usada localmente por este script (bypassa
+a RLS para popular a tabela) — **nunca** deve ir para a Vercel nem para
+nenhuma variável com prefixo `VITE_`. Rode de novo sempre que o corpus em
+`api/_legislacao-tributagil.js` mudar (o script limpa e recria tudo).
+
+### 3. Como funciona em produção
+
+- `/api/indexar-caso` roda em segundo plano (fire-and-forget, não bloqueia a
+  tela do parecer) logo após a primeira análise de um caso ser salva, e de
+  novo — só para o(s) arquivo(s) novo(s) — quando um documento complementar é
+  confirmado numa reanálise.
+- `/api/lu` recebe a pergunta, gera o embedding, busca nas duas bases (RPCs
+  acima), e só chama o Gemini se houver contexto com similaridade ≥
+  `LU_LIMIAR_SIMILARIDADE` (padrão 0.6) em pelo menos uma delas.
+- Sem as tabelas/funções acima (migração pendente), o Lu simplesmente sempre
+  responde "não sei" em vez de quebrar — nada no resto do app depende delas.
 
 ## Storage — bucket `documentos`
 

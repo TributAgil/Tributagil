@@ -7,6 +7,7 @@ import ModalConfirmarUpload from '../components/ModalConfirmarUpload';
 import { formatarBytes, LIMITE_TOTAL_DOCS } from '../lib/prepararDocumentos';
 import { uploadDocumento, removerDocumentos } from '../lib/storageDocumentos';
 import { listarDocumentosCaso, registrarDocumentoCaso } from '../lib/casos';
+import { indexarCaso } from '../lib/lu';
 import RodapeLegal from '../components/RodapeLegal';
 
 const AREA_CONFIG = {
@@ -121,6 +122,12 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar, casoExistente = null })
             categoria: item.area,
             storagePath,
             tamanhoBytes: tamanho,
+          });
+          // Best-effort: indexa só este documento novo na base vetorial do
+          // Lu — os antigos já foram indexados quando entraram no caso.
+          indexarCaso({
+            casoId: casoExistente.id,
+            documentos: [{ nome: item.nome, mime_type: mime, storage_path: storagePath }],
           });
         }
       } catch (err) {
