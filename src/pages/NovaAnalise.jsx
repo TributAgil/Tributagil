@@ -229,8 +229,8 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar, casoExistente = null })
 
   return (
     <div className="bg-noir min-h-screen font-sans text-parchment">
-      <header className="border-b border-line">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 sm:px-6 py-5">
+      <header className="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 sm:px-6 py-5 sm:py-6">
           <button
             onClick={onVoltar}
             disabled={analisando}
