@@ -134,6 +134,42 @@ export async function buscarPerguntasLuDisponiveis(casoId) {
   }
 }
 
+/**
+ * Status de indexação do caso — usado pelo Lu para bloquear o chat até que
+ * TODOS os documentos já registrados tenham sido processados (extração +
+ * embedding, ver api/indexar-caso.js).
+ *
+ * `documentos_caso` fica vazia por um instante logo após o parecer ser
+ * salvo (o registro em si é disparado sem `await`, ver App.jsx) — por isso
+ * "nenhum documento ainda" também conta como "não pronto": todo caso real
+ * tem pelo menos 1 documento principal, então uma lista vazia aqui é sinal
+ * de que o registro ainda está em trânsito, não de que não há nada a
+ * indexar.
+ *
+ * @returns {Promise<{ completo: boolean, total: number, indexados: number } | null>}
+ *   null = não deu para checar (ex.: coluna/migração ausente) — o chamador
+ *   decide como tratar (ChatLu.jsx trata como "não bloqueia", fail-open).
+ */
+export async function buscarStatusIndexacaoCaso(casoId) {
+  if (!casoId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('documentos_caso')
+      .select('indexado')
+      .eq('caso_id', casoId);
+    if (error) {
+      console.warn('[casos] Falha ao checar status de indexação:', error.message);
+      return null;
+    }
+    const total = data?.length ?? 0;
+    const indexados = (data ?? []).filter((d) => d.indexado === true).length;
+    return { completo: total > 0 && indexados === total, total, indexados };
+  } catch (err) {
+    console.error('[casos] Erro inesperado ao checar status de indexação:', err);
+    return null;
+  }
+}
+
 /** Lista as versões (análises) de um caso, mais recente primeiro. */
 export async function listarVersoesCaso(casoId) {
   if (!casoId) return [];

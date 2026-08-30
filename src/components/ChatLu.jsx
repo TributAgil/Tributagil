@@ -8,13 +8,23 @@
 // cabeçalho (decai a cada pergunta RESPONDIDA — "não sei" e erros não
 // descontam, ver api/lu.js). Ao chegar em 0, a caixa de pergunta é
 // desabilitada.
+//
+// BLOQUEIO DURANTE A INDEXAÇÃO: a indexação dos documentos (extração +
+// embedding) roda em segundo plano depois que o parecer é salvo — pode
+// levar alguns segundos a minutos, dependendo da quantidade de documentos.
+// Enquanto não terminar, o chat inteiro fica travado (nada clicável, só a
+// mensagem de carregamento) — nada de deixar o usuário perguntar cedo demais
+// e receber um "não sei" que na verdade é só timing, não falta real de dado.
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban } from 'lucide-react';
 import { perguntarLu, reindexarCaso } from '../lib/lu';
-import { buscarPerguntasLuDisponiveis } from '../lib/casos';
+import { buscarPerguntasLuDisponiveis, buscarStatusIndexacaoCaso } from '../lib/casos';
 
 const LIMITE_PERGUNTAS = 10;
+const INTERVALO_POLL_MS = 3000;
+// Depois de ~45s ainda carregando, mostra um aviso de demora (não desbloqueia).
+const AVISOS_ANTES_DE_DEMORA = Math.ceil(45000 / INTERVALO_POLL_MS);
 
 // Sugestões pré-montadas, restritas a 3 frentes de uso real do advogado
 // tributarista (sem viés didático — o público já domina o protocolo do
@@ -110,6 +120,10 @@ export default function ChatLu({ casoId }) {
   const [disponiveis, setDisponiveis] = useState(null); // null = carregando/desconhecido
   const [reindexando, setReindexando] = useState(false);
   const [reindexOk, setReindexOk] = useState(null); // resultado da última reindexação manual
+  // Status da indexação em segundo plano: true = liberado, false = travado
+  // aguardando, null = ainda não checou (trata como travado até a 1ª checagem).
+  const [indexacaoPronta, setIndexacaoPronta] = useState(null);
+  const [demorando, setDemorando] = useState(false);
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -122,6 +136,47 @@ export default function ChatLu({ casoId }) {
     buscarPerguntasLuDisponiveis(casoId).then((valor) => {
       if (vivo) setDisponiveis(valor);
     });
+    return () => {
+      vivo = false;
+    };
+  }, [casoId]);
+
+  // Poll do status de indexação até completar (ou até não dar mais para
+  // checar — migração pendente etc., aí libera por padrão, nunca bloqueia
+  // pra sempre por um motivo que não é "ainda processando").
+  useEffect(() => {
+    if (!casoId) return;
+    // Reseta de imediato (síncrono) ao trocar de caso — evita mostrar por
+    // um instante o status (liberado/travado) do caso ANTERIOR enquanto a
+    // primeira checagem do novo ainda não voltou.
+    setIndexacaoPronta(null);
+    setDemorando(false);
+    let vivo = true;
+    let tentativas = 0;
+
+    const checar = async () => {
+      const status = await buscarStatusIndexacaoCaso(casoId);
+      if (!vivo) return;
+
+      if (status === null) {
+        // Não deu pra checar (migração pendente) — não bloqueia à toa.
+        setIndexacaoPronta(true);
+        return;
+      }
+      if (status.completo) {
+        setIndexacaoPronta(true);
+        return;
+      }
+
+      tentativas += 1;
+      setIndexacaoPronta(false);
+      setDemorando(tentativas >= AVISOS_ANTES_DE_DEMORA);
+      setTimeout(() => {
+        if (vivo) checar();
+      }, INTERVALO_POLL_MS);
+    };
+
+    checar();
     return () => {
       vivo = false;
     };
@@ -180,6 +235,32 @@ export default function ChatLu({ casoId }) {
           O Lu fica disponível assim que esta análise for salva no histórico. Aguarde alguns
           segundos ou reabra a análise pelo Histórico.
         </p>
+      </div>
+    );
+  }
+
+  // Indexação ainda rodando em segundo plano: nada clicável até terminar —
+  // evita um "não sei" que na verdade é só timing (documento ainda não
+  // processado), não falta real de informação.
+  if (!indexacaoPronta) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-line bg-ink-800/50 px-8 py-16 text-center">
+        <div className="grid h-12 w-12 place-items-center rounded-xl bg-gold/15">
+          <Loader2 size={22} className="animate-spin text-gold" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-parchment">Carregando dados do caso...</p>
+          <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
+            O Lu está processando os documentos deste caso. Isso leva só alguns instantes — a
+            pergunta libera automaticamente assim que terminar.
+          </p>
+        </div>
+        {demorando && (
+          <p className="max-w-sm text-xs text-amber-300/80">
+            Isso está demorando mais que o normal. Continue aguardando — se não liberar em
+            alguns minutos, volte a esta aba mais tarde.
+          </p>
+        )}
       </div>
     );
   }
