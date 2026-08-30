@@ -514,7 +514,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   return (
     <div className="min-h-screen bg-noir">
       <header className="sticky top-0 z-40 border-b border-line bg-ink/85 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-7">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
@@ -572,7 +572,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
       </header>
 
       <div className="bg-ink-800/50 border-b border-line">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-[10px] font-bold text-parchment/40 uppercase tracking-wider">Parte Autora</p>

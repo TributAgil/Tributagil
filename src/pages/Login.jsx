@@ -171,7 +171,7 @@ export default function Login({ onLoginSuccess }) {
         <div className="login-pillars" aria-hidden="true" />
         <div className="login-sheen" aria-hidden="true" />
 
-        <header className="relative -mx-14 -mt-14 mb-2 border-b border-line bg-ink-900/40 px-14 py-9 xl:-mx-16 xl:-mt-16 xl:px-16">
+        <header className="relative -mx-14 -mt-14 mb-2 border-b border-line bg-ink-900/40 px-14 py-11 xl:-mx-16 xl:-mt-16 xl:px-16">
           <Logo size="xl" />
         </header>
 
@@ -206,7 +206,7 @@ export default function Login({ onLoginSuccess }) {
       <main className="flex min-w-0 items-center justify-center px-5 py-10 sm:px-6 sm:py-16">
         <div className="w-full max-w-sm">
           {/* Marca compacta no mobile */}
-          <div className="-mx-5 mb-9 flex flex-col items-center border-b border-line px-5 pb-7 text-center sm:-mx-6 sm:px-6 lg:hidden">
+          <div className="-mx-5 mb-9 flex flex-col items-center border-b border-line px-5 pb-8 text-center sm:-mx-6 sm:px-6 lg:hidden">
             <Logo size="lg" />
             <Slogan className="mt-5 block text-balance font-display text-lg leading-snug text-parchment/90" />
           </div>

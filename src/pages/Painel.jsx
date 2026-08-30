@@ -41,7 +41,7 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
       {/* Barra fixa: acompanha a rolagem para a marca nunca sumir de vista.
           O blur evita que o conteudo passando por baixo compita com o logo. */}
       <header className="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-6 sm:px-6 sm:py-7">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-7 sm:px-6 sm:py-8">
           <Logo size="lg" />
 
           <div className="flex items-center gap-4">

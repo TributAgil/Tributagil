@@ -28,13 +28,13 @@ import React from 'react';
 //                    preto do app. Para cabeçalhos discretos e impressão.
 // ============================================================
 
-const TAMANHOS = { sm: 28, md: 38, lg: 52, xl: 88 };
+const TAMANHOS = { sm: 30, md: 42, lg: 62, xl: 104 };
 
 // Compensação óptica: o mesmo traço que fica elegante em 88px vira um fio
 // quase invisível em 28px. Então o peso base cresce à medida que o desenho
 // encolhe. As proporções internas (conchas 0.88, tirantes 0.59) são as
 // mesmas em todos os tamanhos — só a régua muda.
-const PESOS = { sm: 2.3, md: 2.0, lg: 1.8, xl: 1.7 };
+const PESOS = { sm: 2.3, md: 2.0, lg: 1.75, xl: 1.65 };
 
 export default function Logo({
   size = 'md',
@@ -60,7 +60,7 @@ export default function Logo({
   const classeBalanca = animated ? 'anim-scales' : 'anim-scales-hover';
 
   const escala =
-    size === 'xl' ? 'text-4xl' : size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-base' : 'text-xl';
+    size === 'xl' ? 'text-5xl' : size === 'lg' ? 'text-[2rem]' : size === 'sm' ? 'text-base' : 'text-xl';
 
   return (
     <span className={`group inline-flex items-center gap-3 ${className}`}>
