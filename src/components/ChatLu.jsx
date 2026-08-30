@@ -338,7 +338,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
 
   if (!casoId) {
     return (
-      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-8 py-14 text-center ${T.painel}`}>
+      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-8 text-center ${T.painel}`}>
         <Sparkles size={22} className={T.textoTerciario} />
         <p className={`text-sm ${T.textoSecundario}`}>
           O Lu fica disponível assim que esta análise for salva no histórico. Aguarde alguns
@@ -355,7 +355,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
   // tentar mesmo travado — o próprio Lu já protege contra resposta ruim.
   if (statusChat === 'carregando' && !ignorarBloqueio) {
     return (
-      <div className={`flex flex-col items-center justify-center gap-4 rounded-xl px-8 py-16 text-center ${T.painel}`}>
+      <div className={`flex flex-col items-center justify-center gap-4 rounded-xl px-6 py-8 text-center ${T.painel}`}>
         <div className={`grid h-12 w-12 place-items-center rounded-xl ${travado ? 'bg-red-500/15' : T.iconeFundo}`}>
           {travado ? <MailWarning size={22} className="text-red-400" /> : <Loader2 size={22} className={`animate-spin ${T.iconeCor}`} />}
         </div>
@@ -405,7 +405,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
   // então não há chat possível aqui (estado final, não "carregando").
   if (statusChat === 'sem-conteudo') {
     return (
-      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl px-8 py-14 text-center ${T.painel}`}>
+      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl px-6 py-8 text-center ${T.painel}`}>
         <Ban size={22} className={T.textoTerciario} />
         <p className={`text-sm font-semibold ${T.titulo}`}>Nenhum documento deste caso ficou disponível para o Lu</p>
         <p className={`max-w-sm text-xs ${T.textoTerciario}`}>
@@ -434,7 +434,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
   }
 
   return (
-    <div className={`flex flex-col rounded-xl ${T.painel}`}>
+    <div className={`flex h-full min-h-0 flex-col rounded-xl ${T.painel}`}>
       <div className={`flex flex-col gap-3 border-b px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between ${T.cabecalhoBorda}`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg ${T.iconeFundo}`}>
@@ -474,7 +474,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
         </div>
       )}
 
-      <div className="flex max-h-[28rem] min-h-[16rem] flex-col gap-4 overflow-y-auto px-5 py-4">
+      <div className="flex min-h-[12rem] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
         {mensagens.length === 0 && !limiteAtingido && (
           <div className="space-y-4">
             <p className={`text-sm ${T.textoSecundario}`}>

@@ -34,7 +34,7 @@ export default function ChatLuFlutuante({ casoId, analiseId, user }) {
 
       {aberto && (
         <div
-          className="no-print fixed bottom-20 left-4 z-40 w-[min(24rem,calc(100vw-2rem))] sm:bottom-24 sm:left-6"
+          className="no-print fixed bottom-20 left-4 z-40 flex w-[min(21rem,calc(100vw-2rem))] max-h-[min(28rem,calc(100vh-6rem))] flex-col sm:bottom-24 sm:left-6"
           style={{ marginLeft: 'env(safe-area-inset-left)' }}
         >
           <ChatLu casoId={casoId} analiseId={analiseId} user={user} invertido />
