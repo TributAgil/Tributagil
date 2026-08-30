@@ -175,7 +175,7 @@ export async function excluirAnalise(id, storagePaths = []) {
 }
 
 /**
- * Salva as anotações do advogado sobre um parecer.
+ * Salva as anotações do usuário sobre um parecer.
  * @returns {Promise<{ok: boolean, em: string|null}>}
  */
 export async function salvarObservacoes(id, texto) {

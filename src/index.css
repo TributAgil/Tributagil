@@ -24,6 +24,27 @@
 
   --radius-xl2: 1.15rem;
   --shadow-gold: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 18px 50px -18px rgba(212, 175, 55, 0.28);
+
+  /* ---- MOTION: curvas com "peso" (autoridade), não elástico de brinquedo ----
+     decide  = entra rápido e assenta (decisão tomada, sem hesitar)
+     gavel   = leve overshoot na chegada (a batida do martelo)
+     settle  = saída/acomodação lenta, sem repique
+     Viram utilitários Tailwind: ease-decide, ease-gavel, ease-settle. */
+  --ease-decide: cubic-bezier(0.16, 0.84, 0.24, 1);
+  --ease-gavel: cubic-bezier(0.34, 1.45, 0.44, 1);
+  --ease-settle: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Durações nomeadas — usadas nas animações abaixo e disponíveis para inline
+   style. Mantidas fora do @theme (Tailwind v4 não tem namespace de duração
+   customizada estável); a escala é curta de propósito: micro-interação que
+   passa de ~400ms deixa a interface lenta. */
+:root {
+  --dur-instant: 120ms;
+  --dur-quick: 200ms;
+  --dur-base: 320ms;
+  --dur-slow: 560ms;
+  --dur-scene: 900ms;
 }
 
 /* Compatibilidade com as telas antigas (ainda em claro) */
@@ -262,4 +283,241 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .login-sheen { animation: none; opacity: 0.35; }
+}
+
+/* ============================================================
+   SISTEMA DE MOVIMENTO — "Autoridade em Movimento"
+   ------------------------------------------------------------
+   REGRA DE OURO desta seção: movimento serve à leitura, nunca
+   compete com ela.
+     • Áreas de ANÁLISE (parecer, conclusões, fatos): só movimento
+       de ENTRADA e de MUDANÇA DE ESTADO. Nada em loop perto de
+       texto que o advogado está lendo.
+     • Áreas de ESPERA (carregamento, processamento): aqui o
+       movimento pode ser rico — é ele que segura a atenção
+       enquanto a IA trabalha.
+   Tudo abaixo tem fallback em `prefers-reduced-motion` no fim.
+   ============================================================ */
+
+/* ---- 1. ENTRADA / REVELAÇÃO -------------------------------------------
+   Usado nos blocos de resultado. O elemento nasce invisível e sobe;
+   o JS (hook useRevelar) adiciona `.is-in` quando ele entra na tela. */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity var(--dur-slow) var(--ease-decide),
+    transform var(--dur-slow) var(--ease-decide);
+  will-change: opacity, transform;
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Variante lateral — para itens de timeline (fatos importantes) */
+.reveal-x {
+  opacity: 0;
+  transform: translateX(-16px);
+  transition:
+    opacity var(--dur-slow) var(--ease-decide),
+    transform var(--dur-slow) var(--ease-decide);
+}
+.reveal-x.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Escalonamento: cada filho entra um pouco depois do anterior, guiando o
+   olho de cima para baixo. Teto em 8 para a lista não demorar a assentar. */
+[data-stagger] > * { transition-delay: calc(var(--i, 0) * 60ms); }
+
+/* ---- 2. MICRO-INTERAÇÕES ---------------------------------------------- */
+
+/* Card que "levanta" no hover, com a borda dourada acendendo */
+.mi-lift {
+  transition:
+    transform var(--dur-base) var(--ease-decide),
+    border-color var(--dur-base) var(--ease-settle),
+    box-shadow var(--dur-base) var(--ease-settle);
+}
+.mi-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.7), var(--shadow-gold);
+}
+
+/* Feedback tátil de clique — some a "borracha" do botão que não responde */
+.mi-press { transition: transform var(--dur-instant) var(--ease-settle); }
+.mi-press:active { transform: scale(0.97); }
+
+/* Brilho que varre o botão no hover (superfícies douradas premium) */
+.mi-sheen { position: relative; overflow: hidden; isolation: isolate; }
+.mi-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%) skewX(-18deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+.mi-sheen:hover::after { animation: sheen-sweep 760ms var(--ease-settle); }
+@keyframes sheen-sweep {
+  to { transform: translateX(120%) skewX(-18deg); }
+}
+
+/* Linha de lista que avança um passo no hover (aponta "clicável").
+   Usa transform, não padding: padding animado força reflow a cada frame. */
+.mi-row {
+  transition:
+    background-color var(--dur-quick) var(--ease-settle),
+    transform var(--dur-quick) var(--ease-decide);
+}
+.mi-row:hover { transform: translateX(5px); }
+
+/* Ícone que gira/pulsa levemente quando o pai é hoverado */
+.mi-icon { transition: transform var(--dur-base) var(--ease-gavel); }
+.group:hover .mi-icon { transform: rotate(-8deg) scale(1.08); }
+
+/* ---- 3. MOVIMENTO TEMÁTICO (direito / tributos) ----------------------- */
+
+/* BALANÇA: pesa, oscila e assenta no fiel. Usada no logo e no
+   carregamento. O pivô é o pino central da viga — `transform-box: view-box`
+   faz a porcentagem valer contra o viewBox do SVG (e não contra a bbox do
+   <g>, que mudaria conforme os filhos e desalinharia o eixo). */
+.anim-scales {
+  animation: scales-weigh 4.2s var(--ease-settle) infinite;
+  transform-box: view-box;
+  transform-origin: 50% 34%;
+}
+@keyframes scales-weigh {
+  0%, 100% { transform: rotate(0deg); }
+  16%      { transform: rotate(-6.5deg); }  /* pesa para um lado */
+  38%      { transform: rotate(4.5deg); }   /* contrapeso */
+  56%      { transform: rotate(-2deg); }
+  72%      { transform: rotate(0.8deg); }
+  84%      { transform: rotate(0deg); }     /* fiel: encontra o equilíbrio */
+}
+
+/* Só um toque no hover (logo no cabeçalho) — não fica oscilando sozinho */
+.anim-scales-hover {
+  transition: transform var(--dur-slow) var(--ease-gavel);
+  transform-box: view-box;
+  transform-origin: 50% 34%;
+}
+.group:hover .anim-scales-hover { transform: rotate(-5deg); }
+
+/* SELO / CARIMBO: a chegada de um veredito. Bate e assenta. */
+.anim-seal { animation: seal-stamp 620ms var(--ease-gavel) both; }
+@keyframes seal-stamp {
+  0%   { opacity: 0; transform: scale(1.6) rotate(-9deg); }
+  55%  { opacity: 1; transform: scale(0.94) rotate(1.5deg); }
+  78%  { transform: scale(1.03) rotate(-0.5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+/* MOEDA girando — usada em créditos/valores (tributo = dinheiro) */
+.anim-coin { animation: coin-spin 2.8s var(--ease-settle) infinite; transform-style: preserve-3d; }
+@keyframes coin-spin {
+  0%, 62%, 100% { transform: rotateY(0deg); }
+  80%           { transform: rotateY(180deg); }
+}
+
+/* ---- 4. TELAS DE ESPERA (aqui o movimento pode brilhar) ---------------- */
+
+/* Respiração lenta — substitui o `animate-pulse` seco do Tailwind */
+.anim-breathe { animation: breathe 3.4s var(--ease-settle) infinite; }
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.045); opacity: 0.86; }
+}
+
+/* Varredura: uma linha de luz percorre o bloco, como um scanner lendo o
+   documento. É a metáfora central da tela de processamento. */
+.anim-scan { position: relative; overflow: hidden; }
+.anim-scan::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 42%;
+  background: linear-gradient(180deg, transparent, rgba(212, 175, 55, 0.13), transparent);
+  animation: scan-sweep 2.6s var(--ease-settle) infinite;
+  pointer-events: none;
+}
+@keyframes scan-sweep {
+  0%   { transform: translateY(-120%); }
+  100% { transform: translateY(320%); }
+}
+
+/* Brilho que corre dentro da barra de progresso */
+.anim-shimmer { animation: shimmer-run 2s linear infinite; }
+@keyframes shimmer-run {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* Órbita — pontos girando ao redor do núcleo de processamento */
+.anim-orbit { animation: orbit 5.5s linear infinite; transform-origin: 50% 50%; }
+.anim-orbit-rev { animation: orbit 7.5s linear infinite reverse; transform-origin: 50% 50%; }
+@keyframes orbit {
+  to { transform: rotate(360deg); }
+}
+
+/* Deriva suave das partículas de fundo (substitui pulse estático) */
+.anim-drift { animation: drift 9s var(--ease-settle) infinite; }
+@keyframes drift {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.25; }
+  50%      { transform: translate3d(6px, -14px, 0); opacity: 0.6; }
+}
+
+/* Entrada de linha de log (terminal do processamento) */
+.anim-log-in { animation: log-in 380ms var(--ease-decide) both; }
+@keyframes log-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Barra de confiança / progresso que cresce da esquerda */
+.anim-grow-x { transform-origin: left center; animation: grow-x 900ms var(--ease-decide) both; }
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* ---- 5. ACESSIBILIDADE: quem pede menos movimento, recebe menos --------
+   Não desligamos tudo (o usuário perderia o feedback de estado); trocamos
+   deslocamento/loop por uma transição curta de opacidade. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-x {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  [data-stagger] > * { transition-delay: 0ms !important; }
+
+  .mi-lift:hover,
+  .mi-press:active,
+  .group:hover .mi-icon,
+  .group:hover .anim-scales-hover,
+  .mi-row:hover { transform: none; }
+
+  .mi-sheen:hover::after,
+  .anim-scales,
+  .anim-coin,
+  .anim-scan::before,
+  .anim-shimmer,
+  .anim-orbit,
+  .anim-orbit-rev,
+  .anim-drift { animation: none; }
+
+  .anim-breathe { animation: none; opacity: 0.9; }
+  .anim-seal,
+  .anim-log-in { animation: fade-in-reduced 200ms ease both; }
+  .anim-grow-x { animation: none; transform: none; }
+
+  @keyframes fade-in-reduced {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
 }

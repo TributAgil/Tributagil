@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import BotaoSinalizarErro from '../components/BotaoSinalizarErro';
+import Logo from '../components/Logo';
 
 // Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
 // muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
@@ -27,28 +28,13 @@ const TEMPO_MINIMO_VISIVEL_MS = 2600;
 // CONFIGURAÇÃO DOS ESTÁGIOS DE PROCESSAMENTO
 // ============================================
 const ESTAGIOS = [
-  { id: 1, min: 0, max: 20, frase: 'Enviando documentos para a Inteligência Artificial...', icone: FileSearch, cor: 'emerald', detalhe: 'Conexão segura com o backend estabelecida' },
-  { id: 2, min: 20, max: 40, frase: 'IA analisando variáveis fiscais e carimbos...', icone: Sparkles, cor: 'teal', detalhe: 'Leitura de Fato Gerador e Notificações em andamento' },
-  { id: 3, min: 40, max: 60, frase: 'Identificando datas e marcos processuais...', icone: Clock, cor: 'cyan', detalhe: 'Extração de timelines' },
-  { id: 4, min: 60, max: 80, frase: 'Rodando motores de cálculo (CTN/LEF)...', icone: Scale, cor: 'blue', detalhe: 'Aplicação de regras de Decadência e Prescrição' },
-  { id: 5, min: 80, max: 99, frase: 'Estruturando silogismos jurídicos e recomendações...', icone: Gavel, cor: 'indigo', detalhe: 'Aguardando finalização do modelo Gemini' },
-  { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, cor: 'emerald', detalhe: 'Parecer pronto para revisão' },
+  { id: 1, min: 0, max: 20, frase: 'Enviando documentos para a Inteligência Artificial...', icone: FileSearch, detalhe: 'Conexão segura com o backend estabelecida' },
+  { id: 2, min: 20, max: 40, frase: 'IA analisando variáveis fiscais e carimbos...', icone: Sparkles, detalhe: 'Leitura de Fato Gerador e Notificações em andamento' },
+  { id: 3, min: 40, max: 60, frase: 'Identificando datas e marcos processuais...', icone: Clock, detalhe: 'Extração de timelines' },
+  { id: 4, min: 60, max: 80, frase: 'Rodando motores de cálculo (CTN/LEF)...', icone: Scale, detalhe: 'Aplicação de regras de Decadência e Prescrição' },
+  { id: 5, min: 80, max: 99, frase: 'Estruturando silogismos jurídicos e recomendações...', icone: Gavel, detalhe: 'Aguardando finalização do modelo Gemini' },
+  { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, detalhe: 'Parecer pronto para revisão' },
 ];
-
-// Todos os estágios usam a mesma família dourada (identidade única).
-const COR_DOURADA = {
-  text: 'text-gold',
-  bg: 'bg-gold',
-  glow: 'shadow-[0_0_40px_rgba(212,175,55,0.25)]',
-  light: 'bg-gold/[0.06]',
-};
-const COR_CLASSES = {
-  emerald: COR_DOURADA,
-  teal: COR_DOURADA,
-  cyan: COR_DOURADA,
-  blue: COR_DOURADA,
-  indigo: COR_DOURADA,
-};
 
 // ============================================
 // HELPERS DE STREAMING / PARSING (fora do componente: são puros e estáveis)
@@ -129,48 +115,146 @@ function extrairJson(texto) {
 // ============================================
 // COMPONENTES VISUAIS AUXILIARES
 // ============================================
+
+/* Poeira dourada de fundo: deriva devagar em vez de piscar. É o único
+   movimento em loop fora do núcleo — fica atrás de tudo, bem discreto. */
 const Particula = ({ delay, x, y, tamanho }) => (
-  <div className="absolute rounded-full bg-gold/20 animate-pulse" style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms`, animationDuration: '3s' }} />
+  <div
+    className="absolute rounded-full bg-gold/25 anim-drift"
+    style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms` }}
+  />
 );
 
-const BarraProgresso = ({ progresso, cor }) => {
-  const c = COR_CLASSES[cor] ?? COR_CLASSES.emerald;
-  return (
-    <div className="relative w-full">
-      <div className="h-3 bg-ink-700 rounded-full overflow-hidden">
-        <div className={`h-full ${c.bg} rounded-full transition-all duration-500 ease-out relative`} style={{ width: `${progresso}%` }}>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+/**
+ * NÚCLEO — a balança da marca "pesando" o caso enquanto a IA trabalha.
+ * Dois anéis de pontos orbitam em sentidos opostos (processamento), um halo
+ * respira atrás, e a balança oscila até achar o fiel. Ao concluir, tudo para
+ * e um selo bate no lugar (`anim-seal`) — o veredito chegou.
+ */
+const NucleoAnalise = ({ concluido }) => (
+  <div className="relative mx-auto mb-6 h-32 w-32">
+    {/* halo difuso */}
+    <div
+      className={`absolute inset-3 rounded-full bg-gold/15 blur-2xl ${concluido ? '' : 'anim-breathe'}`}
+    />
+
+    {!concluido && (
+      <>
+        {/* anéis orbitais em sentidos opostos */}
+        <div className="absolute inset-0 anim-orbit">
+          <span className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-gold" />
+          <span className="absolute left-1/2 bottom-0 h-1 w-1 -translate-x-1/2 rounded-full bg-gold/50" />
         </div>
-      </div>
-      <div className="flex justify-between mt-2">
-        {ESTAGIOS.slice(0, -1).map((est) => (
-          <div key={est.id} className={`flex flex-col items-center transition-all duration-300 ${progresso >= est.min ? 'opacity-100' : 'opacity-30'}`}>
-            <div className={`w-2 h-2 rounded-full ${progresso >= est.max ? c.bg : 'bg-ink-600'}`} />
-            <span className="text-[10px] text-parchment/50 mt-1 hidden sm:block">{est.min}%</span>
-          </div>
-        ))}
-        <div className={`flex flex-col items-center transition-all duration-300 ${progresso >= 100 ? 'opacity-100' : 'opacity-30'}`}>
-          <div className={`w-2 h-2 rounded-full ${progresso >= 100 ? c.bg : 'bg-ink-600'}`} />
-          <span className="text-[10px] text-parchment/50 mt-1 hidden sm:block">100%</span>
+        <div className="absolute inset-4 anim-orbit-rev">
+          <span className="absolute left-0 top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-gold/60" />
         </div>
-      </div>
+        {/* aro tênue que delimita a órbita */}
+        <div className="absolute inset-0 rounded-full border border-gold/10" />
+        <div className="absolute inset-4 rounded-full border border-gold/[0.07]" />
+      </>
+    )}
+
+    <div className="absolute inset-0 grid place-items-center">
+      {concluido ? (
+        <div className="anim-seal grid h-24 w-24 place-items-center rounded-full border-2 border-gold bg-gold/15">
+          <CheckCircle2 size={44} className="text-gold" />
+        </div>
+      ) : (
+        <Logo variant="mark" size="xl" showWordmark={false} animated />
+      )}
     </div>
-  );
-};
+  </div>
+);
+
+/**
+ * TRILHA DE ETAPAS — substitui os pontinhos soltos por um caminho visível.
+ * Cada nó tem três estados (concluído / atual / pendente); ao ser vencido,
+ * o nó recebe o selo. É aqui que o usuário lê "onde estamos" sem precisar
+ * decifrar porcentagem.
+ */
+const TrilhaEtapas = ({ progresso, estagioAtual }) => (
+  <ol className="flex items-start justify-between gap-1">
+    {ESTAGIOS.map((est, idx) => {
+      const Icone = est.icone;
+      const vencido = progresso >= est.max;
+      const atual = !vencido && idx === estagioAtual;
+
+      return (
+        <li key={est.id} className="relative flex min-w-0 flex-1 flex-col items-center">
+          {/* trilho ligando ao nó anterior */}
+          {idx > 0 && (
+            <span
+              aria-hidden="true"
+              className={`absolute right-1/2 top-4 h-px w-full transition-colors duration-700 ${
+                vencido || atual ? 'bg-gold/45' : 'bg-line'
+              }`}
+            />
+          )}
+
+          <span
+            className={`relative grid h-8 w-8 place-items-center rounded-full border transition-all duration-500 ${
+              vencido
+                ? 'border-gold bg-gold text-ink'
+                : atual
+                  ? 'border-gold bg-gold/10 text-gold'
+                  : 'border-line bg-ink-800 text-parchment/25'
+            }`}
+          >
+            {vencido ? (
+              <CheckCircle2 size={15} className="anim-seal" />
+            ) : (
+              <Icone size={15} className={atual ? 'anim-breathe' : ''} />
+            )}
+            {/* halo pulsante só no nó atual */}
+            {atual && (
+              <span className="absolute inset-0 animate-ping rounded-full border border-gold/40" style={{ animationDuration: '2.2s' }} />
+            )}
+          </span>
+
+          <span
+            className={`mt-1.5 hidden text-center text-[10px] leading-tight transition-colors duration-500 sm:block ${
+              vencido || atual ? 'text-parchment/60' : 'text-parchment/25'
+            }`}
+          >
+            {est.id === ESTAGIOS.length ? 'Parecer' : `Etapa ${est.id}`}
+          </span>
+        </li>
+      );
+    })}
+  </ol>
+);
+
+const BarraProgresso = ({ progresso }) => (
+  <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-ink-700">
+    <div
+      className="relative h-full rounded-full bg-gradient-to-r from-gold-soft to-gold transition-[width] duration-700 ease-decide"
+      style={{ width: `${progresso}%` }}
+    >
+      <div className="absolute inset-0 anim-shimmer bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+    </div>
+  </div>
+);
 
 const LogProcessamento = ({ logs }) => (
-  <div className="bg-ink-900 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto">
-    <div className="flex items-center gap-2 text-parchment/40 mb-2 border-b border-line pb-2">
-      <Activity size={12} />
+  <div className="anim-scan max-h-44 overflow-y-auto rounded-xl bg-ink-900 p-4 font-mono text-xs">
+    <div className="mb-2 flex items-center gap-2 border-b border-line pb-2 text-parchment/40">
+      <Activity size={12} className="anim-breathe" />
       <span>console.log — Cérebro Tributário v2.1 (Conectado via API)</span>
     </div>
-    {logs.map((log, idx) => (
-      <div key={idx} className={`flex items-start gap-2 transition-all duration-300 ${idx === logs.length - 1 ? 'text-gold' : 'text-parchment/50'}`}>
-        <span className="text-parchment/30 flex-shrink-0">[{log.tempo}]</span>
-        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-gold' : ''}>{log.mensagem}</span>
-      </div>
-    ))}
-    <div className="animate-pulse text-gold">_</div>
+    <div className="space-y-1.5">
+      {logs.map((log, idx) => (
+        <div
+          key={idx}
+          className={`anim-log-in flex items-start gap-2 ${idx === logs.length - 1 ? 'text-gold' : 'text-parchment/50'}`}
+        >
+          <span className="flex-shrink-0 text-parchment/30">[{log.tempo}]</span>
+          <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-gold' : ''}>
+            {log.mensagem}
+          </span>
+        </div>
+      ))}
+    </div>
+    <div className="anim-breathe mt-1 text-gold">_</div>
   </div>
 );
 
@@ -377,7 +461,6 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
 
   const estagio = ESTAGIOS[estagioAtual] || ESTAGIOS[0];
   const IconeAtual = estagio.icone;
-  const corAtual = COR_CLASSES[estagio.cor] ?? COR_CLASSES.emerald;
 
   const particulas = Array.from({ length: 12 }, (_, i) => ({ delay: i * 200, x: 10 + (i * 7) % 80, y: 15 + (i * 13) % 70, tamanho: 4 + (i % 3) * 3 }));
 
@@ -480,78 +563,69 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
       <div className="relative z-10 w-full max-w-2xl">
         <div className="bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-line shadow-2xl overflow-hidden">
 
-          <div className="relative px-5 sm:px-8 pt-8 sm:pt-10 pb-6 text-center">
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full ${corAtual.bg} opacity-10 blur-3xl transition-all duration-1000`} />
-            <div className="relative inline-block">
-              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-gold/15' : 'bg-ink-800'} border border-line transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
-                {concluido ? <CheckCircle2 size={40} className="text-gold" /> : <Brain size={40} className={`${corAtual.text} transition-colors duration-500`} />}
-              </div>
-              {pulsando && (
-                <>
-                  <div className="absolute inset-0 rounded-2xl border-2 border-gold/20 animate-ping" style={{ animationDuration: '2s' }} />
-                  <div className="absolute inset-0 rounded-2xl border border-gold/10 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }} />
-                </>
-              )}
-            </div>
-            <h1 className="text-2xl font-bold text-parchment mb-2">{concluido ? 'Pronto!' : 'Cérebro Tributário'}</h1>
-            <p className="text-parchment/50 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
+          <div className="relative px-5 pt-8 pb-6 text-center sm:px-8 sm:pt-10">
+            <NucleoAnalise concluido={concluido} />
+            <h1 className="mb-2 font-display text-2xl font-bold tracking-tight text-parchment">
+              {concluido ? 'Veredito pronto' : 'Cérebro Tributário'}
+            </h1>
+            <p className="text-sm text-parchment/50">
+              {concluido
+                ? 'Sua análise foi processada com sucesso'
+                : 'Pesando documentos, prazos e fundamentos'}
+            </p>
           </div>
 
-          <div className="px-5 sm:px-8 pb-8 space-y-6">
+          <div className="space-y-6 px-5 pb-8 sm:px-8">
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-parchment/70">{estagio.frase}</span>
-                <span className={`text-sm font-bold ${corAtual.text} tabular-nums`}>{Math.floor(progresso)}%</span>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 text-sm font-medium text-parchment/70">{estagio.frase}</span>
+                <span className="text-lg font-bold tabular-nums text-gold">{Math.floor(progresso)}%</span>
               </div>
-              <BarraProgresso progresso={progresso} cor={estagio.cor} />
+              <BarraProgresso progresso={progresso} />
             </div>
 
-            <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${corAtual.light} border-line`}>
-              <div className={`p-2 rounded-lg ${corAtual.bg} bg-opacity-20`}>
-                <IconeAtual size={18} className={corAtual.text} />
+            <TrilhaEtapas progresso={progresso} estagioAtual={estagioAtual} />
+
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-gold/[0.06] p-4 transition-all duration-500">
+              <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-gold/15">
+                <IconeAtual size={18} className="text-gold" />
               </div>
-              <div>
-                <p className="text-xs text-parchment/40 uppercase tracking-wider font-semibold">Etapa {estagio.id} de {ESTAGIOS.length}</p>
-                <p className="text-sm text-parchment/70 mt-0.5">{estagio.detalhe}</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-parchment/40">
+                  Etapa {estagio.id} de {ESTAGIOS.length}
+                </p>
+                <p className="mt-0.5 text-sm text-parchment/70">{estagio.detalhe}</p>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
-                <Zap size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-base sm:text-lg font-bold text-parchment">{payload?.documentos?.length || 0}</p>
-                <p className="text-[10px] text-parchment/40 uppercase">Documentos</p>
-              </div>
-              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
-                <ShieldCheck size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-base sm:text-lg font-bold text-parchment">CTN/LEF</p>
-                <p className="text-[10px] text-parchment/40 uppercase">Base Legal</p>
-              </div>
-              <div className="bg-ink-800/60 rounded-xl p-3 text-center border border-line">
-                <Brain size={16} className="text-gold mx-auto mb-1" />
-                <p className="text-base sm:text-lg font-bold text-parchment">Backend</p>
-                <p className="text-[10px] text-parchment/40 uppercase">API Segura</p>
-              </div>
+              {[
+                { icone: Zap, valor: payload?.documentos?.length || 0, rotulo: 'Documentos' },
+                { icone: ShieldCheck, valor: 'CTN/LEF', rotulo: 'Base Legal' },
+                { icone: Brain, valor: 'Backend', rotulo: 'API Segura' },
+              ].map(({ icone: Ic, valor, rotulo }) => (
+                <div
+                  key={rotulo}
+                  className="mi-lift group rounded-xl border border-line bg-ink-800/60 p-3 text-center"
+                >
+                  <Ic size={16} className="mi-icon mx-auto mb-1 text-gold" />
+                  <p className="text-base font-bold text-parchment sm:text-lg">{valor}</p>
+                  <p className="text-[10px] uppercase text-parchment/40">{rotulo}</p>
+                </div>
+              ))}
             </div>
 
             <LogProcessamento logs={logs} />
             <div ref={logsEndRef} />
 
             <div className="flex items-center justify-center gap-2 text-xs text-parchment/30">
-              <div className={`w-1.5 h-1.5 rounded-full ${pulsando ? 'bg-gold animate-pulse' : 'bg-gold'}`} />
+              <div className={`h-1.5 w-1.5 rounded-full bg-gold ${pulsando ? 'anim-breathe' : ''}`} />
               <span>{concluido ? 'Processo finalizado' : 'Processamento ativo — aguardando resposta da IA'}</span>
             </div>
           </div>
         </div>
         <RodapeLegal comBorda={false} className="mt-4" />
       </div>
-
-      <style>{`
-        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-        @keyframes pulse-slow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.8; } }
-        .animate-shimmer { animation: shimmer 2s infinite; }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 };

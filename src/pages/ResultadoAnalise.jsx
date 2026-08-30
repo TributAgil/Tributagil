@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock,
   ChevronDown,
-  ChevronUp,
   Shield,
   BookOpen,
   Gavel,
@@ -28,6 +27,7 @@ import {
 import RodapeLegal from '../components/RodapeLegal';
 import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import { salvarObservacoes } from '../lib/analises';
+import { useRevelar } from '../hooks/useRevelar';
 
 // ============================================
 // DADOS MOCK DE SEGURANÇA (FALLBACK)
@@ -176,8 +176,10 @@ const BadgeSeveridade = ({ tipo }) => {
   const config = configs[tipo] || configs.neutro;
   const Icon = config.icon;
 
+  // `anim-seal`: o veredito não "aparece", ele é CARIMBADO. É a micro-interação
+  // que dá peso ao momento em que o usuário lê a severidade da conclusão.
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
+    <span className={`anim-seal inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
       <Icon size={12} />
       {config.label}
     </span>
@@ -187,16 +189,18 @@ const BadgeSeveridade = ({ tipo }) => {
 // ============================================
 // COMPONENTE: CARD DE CONCLUSÃO
 // ============================================
-const CardConclusao = ({ conclusao, expandido, onToggle }) => {
+const CardConclusao = ({ conclusao, expandido, onToggle, indice = 0 }) => {
   return (
-    <div className={`bg-ink-800/50 rounded-xl border transition-all duration-300 overflow-hidden ${
-      conclusao.severidade === 'favoravel' ? 'border-gold/30 shadow-sm shadow-none' :
-      conclusao.severidade === 'atencao' ? 'border-amber-500/30 shadow-sm shadow-none' :
+    <div
+      style={{ '--i': indice }}
+      className={`reveal mi-lift group bg-ink-800/50 rounded-xl border overflow-hidden ${
+      conclusao.severidade === 'favoravel' ? 'border-gold/30' :
+      conclusao.severidade === 'atencao' ? 'border-amber-500/30' :
       'border-line'
     }`}>
       <button
         onClick={onToggle}
-        className="w-full px-5 py-4 flex items-start gap-4 text-left hover:bg-white/[0.03] transition-colors"
+        className="cursor-gavel w-full px-5 py-4 flex items-start gap-4 text-left hover:bg-white/[0.03] transition-colors"
       >
         <div className={`
           w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
@@ -205,11 +209,11 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
             'bg-ink-700'
           }
         `}>
-          <Scale size={18} className={
+          <Scale size={18} className={`mi-icon ${
             conclusao.severidade === 'favoravel' ? 'text-gold' :
             conclusao.severidade === 'atencao' ? 'text-amber-400' :
             'text-parchment/50'
-          } />
+          }`} />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -224,8 +228,9 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
               <Brain size={12} className="text-parchment/40" />
               <span className="text-xs text-parchment/40">Confiança: {conclusao.confianca}%</span>
               <div className="w-16 h-1.5 bg-ink-700 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full ${
+                {/* cresce da esquerda: a confiança é "medida" na frente do usuário */}
+                <div
+                  className={`anim-grow-x h-full rounded-full ${
                     conclusao.confianca >= 90 ? 'bg-gold' :
                     conclusao.confianca >= 75 ? 'bg-amber-500/100' : 'bg-red-500/100'
                   }`}
@@ -236,8 +241,12 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
           </div>
         </div>
 
-        <div className="text-parchment/40 mt-1">
-          {expandido ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        <div
+          className={`text-parchment/40 mt-1 transition-transform duration-300 ease-decide ${
+            expandido ? 'rotate-180' : ''
+          }`}
+        >
+          <ChevronDown size={18} />
         </div>
       </button>
 
@@ -265,7 +274,7 @@ const CardConclusao = ({ conclusao, expandido, onToggle }) => {
 // ============================================
 // COMPONENTE: CARD DE FATO
 // ============================================
-const CardFato = ({ fato }) => {
+const CardFato = ({ fato, indice = 0 }) => {
   const relevanciaCores = {
     critica: 'bg-red-500/10 text-red-300 border-red-500/30',
     alta: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
@@ -282,10 +291,14 @@ const CardFato = ({ fato }) => {
   const Icon = categoriaIcones[fato.categoria] || FileText;
 
   return (
-    <div className="flex gap-4 p-4 bg-ink-800/50 rounded-xl border border-line hover:border-gold/40 transition-colors">
+    // reveal-x: a timeline entra lateralmente, reforçando a leitura cronológica
+    <div
+      style={{ '--i': indice }}
+      className="reveal-x mi-lift group flex gap-4 p-4 bg-ink-800/50 rounded-xl border border-line hover:border-gold/40"
+    >
       <div className="flex flex-col items-center gap-1">
         <div className="w-10 h-10 rounded-lg bg-ink-700 flex items-center justify-center">
-          <Icon size={18} className="text-parchment/50" />
+          <Icon size={18} className="mi-icon text-parchment/50" />
         </div>
         <div className="w-px flex-1 bg-ink-600" />
       </div>
@@ -321,7 +334,10 @@ const CardRaciocinio = ({ raciocinio, index }) => {
   };
 
   return (
-    <div className="bg-ink-800/50 rounded-xl border border-line p-5 space-y-4">
+    <div
+      style={{ '--i': index }}
+      className="reveal mi-lift bg-ink-800/50 rounded-xl border border-line p-5 space-y-4"
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-gold/15 flex items-center justify-center text-xs font-bold text-gold">
@@ -331,9 +347,9 @@ const CardRaciocinio = ({ raciocinio, index }) => {
         </div>
         <button
           onClick={copiarTexto}
-          className="flex items-center gap-1.5 text-xs text-parchment/40 hover:text-gold transition-colors px-2 py-1 rounded-lg hover:bg-gold/10"
+          className="mi-press flex items-center gap-1.5 text-xs text-parchment/40 hover:text-gold transition-colors px-2 py-1 rounded-lg hover:bg-gold/10"
         >
-          {copiado ? <Check size={13} /> : <Copy size={13} />}
+          {copiado ? <Check size={13} className="anim-seal" /> : <Copy size={13} />}
           {copiado ? 'Copiado' : 'Copiar'}
         </button>
       </div>
@@ -425,13 +441,17 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
 
+  // Revela os blocos do parecer em cascata conforme entram na tela. Re-observa
+  // a cada troca de aba, já que o conteúdo é remontado do zero.
+  const refConteudo = useRevelar([abaAtiva]);
+
   // Usa o resultado real da IA (normalizado) ou o mock, se não houver análise.
   const resultado = analise ? normalizarResultado(analise) : RESULTADO_MOCK;
   const analiseId = analise?.id || resultado?.id || null;
   const casoId = analise?.caso_id || null;
   const versao = analise?.versao || 1;
 
-  // ---- Anotações do advogado -------------------------------------------------
+  // ---- Anotações do usuário -------------------------------------------------
   const [obs, setObs] = useState(analise?.observacoes || '');
   const [salvandoObs, setSalvandoObs] = useState(false);
   const [obsSalvoEm, setObsSalvoEm] = useState(analise?.observacoes_em || null);
@@ -488,7 +508,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
     { id: 'fatos', label: 'Fatos Importantes', icon: FileText, count: resultado.fatos_importantes?.length || 0 },
     { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio?.length || 0 },
     { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes?.length || 0 },
-    { id: 'anotacoes', label: 'Anotações', icon: Pencil, count: obs.trim() ? 1 : 0 },
+    { id: 'anotacoes', label: 'Anotações do usuário', icon: Pencil, count: obs.trim() ? 1 : 0 },
   ];
 
   return (
@@ -525,7 +545,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <button
                 onClick={() => window.print()}
                 title="Imprimir ou salvar em PDF"
-                className="hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
+                className="mi-press cursor-gavel hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 hover:border-gold/30 transition-all"
               >
                 <Printer size={16} />
                 PDF
@@ -533,14 +553,14 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <button
                 onClick={baixarTxt}
                 title="Baixar em texto puro (.txt)"
-                className="hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 transition-all"
+                className="mi-press cursor-gavel hidden md:flex items-center gap-2 px-3 py-2 text-sm font-medium text-parchment/60 bg-ink-800/50 border border-line rounded-lg hover:bg-white/5 hover:border-gold/30 transition-all"
               >
                 <FileText size={16} />
                 .txt
               </button>
               <button
                 onClick={baixarDoc}
-                className="cursor-gavel flex items-center gap-2 px-3 sm:px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all"
+                className="mi-press mi-sheen cursor-gavel flex items-center gap-2 px-3 sm:px-5 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold-soft rounded-lg shadow-lg shadow-[var(--shadow-gold)] transition-all"
               >
                 <FileType2 size={16} />
                 <span className="hidden sm:inline">Baixar em Word</span>
@@ -599,14 +619,19 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
                   key={aba.id}
                   onClick={() => setAbaAtiva(aba.id)}
                   className={`
-                    flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-all
-                    ${ativa
-                      ? 'border-gold text-gold bg-gold/[0.06]'
-                      : 'border-transparent text-parchment/50 hover:text-parchment hover:bg-white/5'
-                    }
+                    group mi-press cursor-gavel relative flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors duration-200
+                    ${ativa ? 'text-gold' : 'text-parchment/50 hover:text-parchment hover:bg-white/5'}
                   `}
                 >
-                  <Icon size={16} />
+                  {/* sublinhado que CRESCE do centro em vez de piscar de uma aba
+                      para outra — dá continuidade ao gesto de trocar de seção */}
+                  <span
+                    aria-hidden="true"
+                    className={`absolute inset-x-0 bottom-0 h-0.5 origin-center bg-gold transition-transform duration-300 ease-decide ${
+                      ativa ? 'scale-x-100' : 'scale-x-0'
+                    }`}
+                  />
+                  <Icon size={16} className="mi-icon" />
                   {aba.label}
                   <span className={`
                     text-xs px-1.5 py-0.5 rounded-full
@@ -621,9 +646,9 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main ref={refConteudo} className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {abaAtiva === 'conclusoes' && (
-          <div className="space-y-4">
+          <div className="space-y-4" data-stagger>
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <h2 className="text-lg font-bold text-parchment">Conclusões da IA</h2>
               <div className="flex items-center gap-2 text-sm text-parchment/50">
@@ -634,9 +659,10 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
                 <span>{resultado.conclusoes?.filter(c => c.severidade === 'atencao').length || 0} atenção</span>
               </div>
             </div>
-            {resultado.conclusoes?.map((conclusao) => (
+            {resultado.conclusoes?.map((conclusao, i) => (
               <CardConclusao
                 key={conclusao.id}
+                indice={i}
                 conclusao={conclusao}
                 expandido={conclusaoExpandida === conclusao.id}
                 onToggle={() => setConclusaoExpandida(
@@ -653,9 +679,9 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <h2 className="text-lg font-bold text-parchment">Fatos Importantes Extraídos</h2>
               <span className="text-sm text-parchment/50">Timeline cronológica</span>
             </div>
-            <div className="space-y-3">
-              {resultado.fatos_importantes?.map((fato) => (
-                <CardFato key={fato.id} fato={fato} />
+            <div className="space-y-3" data-stagger>
+              {resultado.fatos_importantes?.map((fato, i) => (
+                <CardFato key={fato.id} fato={fato} indice={i} />
               ))}
             </div>
           </div>
@@ -667,7 +693,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <h2 className="text-lg font-bold text-parchment">Raciocínio Lógico da IA</h2>
               <span className="text-sm text-parchment/50">Silogismos jurídicos aplicados</span>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-4" data-stagger>
               {resultado.raciocinio?.map((r, i) => (
                 <CardRaciocinio key={r.id} raciocinio={r} index={i} />
               ))}
@@ -682,11 +708,15 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <span className="text-sm text-parchment/50">Ações sugeridas pela IA</span>
             </div>
             <div className="bg-ink-800/50 rounded-xl border border-line p-6">
-              <div className="space-y-4">
+              <div className="space-y-2" data-stagger>
                 {resultado.recomendacoes?.map((rec, i) => (
-                  <div key={i} className="flex items-start gap-4">
+                  <div
+                    key={i}
+                    style={{ '--i': i }}
+                    className="reveal mi-row group flex items-start gap-4 rounded-lg px-3 py-2 hover:bg-gold/[0.05]"
+                  >
                     <div className="w-8 h-8 rounded-lg bg-gold/15 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-bold text-gold">{i + 1}</span>
+                      <span className="mi-icon text-sm font-bold text-gold">{i + 1}</span>
                     </div>
                     <div className="flex-1 pt-1">
                       <p className="text-sm text-parchment/80 leading-relaxed">{rec}</p>
@@ -701,7 +731,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
         {abaAtiva === 'anotacoes' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-              <h2 className="text-lg font-bold text-parchment">Anotações do advogado</h2>
+              <h2 className="text-lg font-bold text-parchment">Anotações do usuário</h2>
               <span className="text-sm text-parchment/50">Correções e observações sobre o parecer</span>
             </div>
             <div className="bg-ink-800/50 rounded-xl border border-line p-5 sm:p-6">
@@ -898,7 +928,7 @@ function gerarHtmlParecer(resultado, observacoes = '') {
 
   const secAnotacoes =
     observacoes && observacoes.trim()
-      ? `<h2>Anotações e correções do advogado</h2>
+      ? `<h2>Anotações e correções do usuário</h2>
          <p style="white-space:pre-wrap">${esc(observacoes.trim())}</p>`
       : '';
 
