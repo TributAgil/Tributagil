@@ -22,6 +22,19 @@ yarn dev
 > As rotas `/api/*` só funcionam com `vercel dev` (não com `yarn dev`). Para testar
 > a IA e o formulário de suporte localmente: `npm i -g vercel && vercel dev`.
 
+## Claude Code
+
+O repositório registra o marketplace [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
+em `.claude/settings.json`. Na primeira vez que abrir o projeto no Claude Code
+(e confiar na pasta), rode:
+
+```bash
+claude plugin install agent-skills@addy-agent-skills
+```
+
+Isso habilita skills e comandos (`/spec`, `/plan`, `/build`, `/test`, `/review`,
+`/code-simplify`, `/ship`, `/webperf`) para o fluxo de desenvolvimento.
+
 ## Variáveis de ambiente
 
 | Variável | Onde | Obrigatória | Descrição |
