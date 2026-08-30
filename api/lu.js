@@ -10,11 +10,18 @@
 // bases, devolve um "não sei" explícito SEM chamar o modelo de geração —
 // garante o comportamento por código, não só por prompt.
 //
-// Cota: cada CASO (não cada versão) tem direito a 10 perguntas ao Lu
-// (`casos.perguntas_lu_disponiveis`). Só uma pergunta RESPONDIDA COM
-// SUCESSO desconta da cota — um "não sei" por falta de contexto ou
-// qualquer erro do sistema não descontam (o decremento só acontece no fim
-// do caminho feliz, depois de já ter gerado a resposta).
+// Cota: cada CONSULTA DE ANÁLISE (linha de `analises` — a original e cada
+// reanálise, já que cada uma consome 1 crédito próprio) tem direito a 10
+// perguntas ao Lu (`analises.perguntas_lu_disponiveis`), nunca
+// compartilhada com outras versões do mesmo caso. Só uma pergunta
+// RESPONDIDA COM SUCESSO desconta da cota — um "não sei" por falta de
+// contexto ou qualquer erro do sistema não descontam (o decremento só
+// acontece no fim do caminho feliz, depois de já ter gerado a resposta).
+//
+// Exigência de documento: só gera resposta quando a busca encontra pelo
+// menos 1 chunk de DOCUMENTO do caso com boa correspondência — legislação
+// sozinha não é suficiente (evita virar uma busca de legislação genérica
+// desvinculada do caso, gastando a cota à toa).
 //
 // Runtime: Node (mesmo padrão de autenticação de api/gemini.js).
 
@@ -36,11 +43,11 @@ const K_LEGISLACAO = 6;
 // observar o comportamento real (decisão confirmada por Luan).
 const LIMIAR_SIMILARIDADE = Number.parseFloat(process.env.LU_LIMIAR_SIMILARIDADE ?? '0.6');
 const RESPOSTA_NAO_SEI =
-  'Não encontrei essa informação nos documentos deste caso nem na base de legislação cadastrada. ' +
-  'Não vou inferir ou complementar — confira diretamente nos autos ou reformule a pergunta.';
+  'Não encontrei essa informação nos documentos deste caso. Não vou responder com base só na ' +
+  'legislação, sem nenhum documento do caso relacionado — confira diretamente nos autos ou reformule a pergunta.';
 const RESPOSTA_LIMITE_ATINGIDO =
-  'Você já usou as 10 perguntas disponíveis para este caso. Para continuar investigando, reveja o ' +
-  'parecer e os documentos diretamente, ou inicie uma nova análise (um caso novo tem outras 10 perguntas).';
+  'Você já usou as 10 perguntas disponíveis para esta consulta. Uma reanálise deste caso (nova ' +
+  'consulta) dá outras 10 — cada versão tem sua própria cota, independente das demais.';
 
 const SYSTEM_LU = `Você é Lu, o assistente jurídico do TributÁgil. Trate o usuário com cordialidade profissional, no tratamento masculino ao se referir a si mesmo.
 
@@ -76,13 +83,14 @@ export async function POST(request) {
     return json({ error: 'Corpo da requisição inválido.' }, 400);
   }
 
-  const { casoId, userToken } = body || {};
+  const { casoId, analiseId, userToken } = body || {};
   const pergunta = String(body?.pergunta || '').trim();
   const historico = Array.isArray(body?.historico) ? body.historico.slice(-6) : [];
   const supabaseUrl = SUPABASE_URL_ENV || String(body?.supabaseUrl || '');
   const supabaseAnonKey = SUPABASE_ANON_ENV || String(body?.supabaseAnonKey || '');
 
   if (!casoId) return json({ error: 'Informe o caso (casoId).' }, 400);
+  if (!analiseId) return json({ error: 'Informe a consulta (analiseId).' }, 400);
   if (!pergunta) return json({ error: 'Escreva uma pergunta.' }, 400);
   if (pergunta.length > 2000) return json({ error: 'Pergunta muito longa (máx. 2000 caracteres).' }, 400);
   if (!SUPABASE_URL_RE.test(supabaseUrl) || !supabaseAnonKey || !userToken) {
@@ -104,7 +112,7 @@ export async function POST(request) {
   // Lê o saldo atual; se já está em 0, nem gera embedding. Se a leitura
   // falhar (migração pendente), trata como "desconhecido" e segue sem
   // bloquear — mesma filosofia "nunca quebra" do resto do app.
-  const disponiveisAntes = await lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, casoId });
+  const disponiveisAntes = await lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, analiseId });
   if (disponiveisAntes !== null && disponiveisAntes <= 0) {
     return json({ resposta: RESPOSTA_LIMITE_ATINGIDO, fontes: [], limiteAtingido: true, perguntasDisponiveis: 0 }, 200);
   }
@@ -147,9 +155,12 @@ export async function POST(request) {
     (l) => l.similaridade >= LIMIAR_SIMILARIDADE,
   );
 
-  // ---- Sem contexto relevante em nenhuma base: "não sei" explícito, sem gastar geração ----
-  // Não desconta da cota — só uma resposta de fato gerada consome pergunta.
-  if (docs.length === 0 && legislacao.length === 0) {
+  // ---- Exige pelo menos 1 documento do CASO encontrado: "não sei" explícito,
+  // sem gastar geração, se não houver. Legislação sozinha (mesmo com
+  // correspondência) não é suficiente — sem isso o Lu viraria uma busca de
+  // legislação genérica, sem relação com os documentos do caso, gastando a
+  // cota à toa. Não desconta da cota — só resposta de fato gerada consome.
+  if (docs.length === 0) {
     return json({ resposta: RESPOSTA_NAO_SEI, fontes: [], perguntasDisponiveis: disponiveisAntes }, 200);
   }
 
@@ -220,7 +231,7 @@ export async function POST(request) {
     }
 
     // ---- Só AQUI, com a resposta já gerada, desconta 1 pergunta da cota ----
-    const perguntasDisponiveis = await decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, casoId, disponiveisAntes });
+    const perguntasDisponiveis = await decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, analiseId, disponiveisAntes });
 
     return json({ resposta: texto, fontes, perguntasDisponiveis }, 200);
   } catch (err) {
@@ -237,15 +248,16 @@ function json(data, status) {
 }
 
 /**
- * Lê `casos.perguntas_lu_disponiveis` (leitura simples, coberta pela mesma
- * policy de SELECT de `casos` — sem custo de IA). Devolve `null` se não der
- * para ler (migração pendente, coluna ausente) — nesse caso o chamador trata
- * como "desconhecido" e não bloqueia.
+ * Lê `analises.perguntas_lu_disponiveis` (leitura simples, coberta pela
+ * mesma policy de SELECT de `analises` — sem custo de IA). É por CONSULTA
+ * (linha de `analises`), não por caso — uma reanálise tem cota própria.
+ * Devolve `null` se não der para ler (migração pendente, coluna ausente) —
+ * nesse caso o chamador trata como "desconhecido" e não bloqueia.
  */
-async function lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, casoId }) {
+async function lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, analiseId }) {
   try {
     const resp = await fetch(
-      `${supabaseUrl}/rest/v1/casos?id=eq.${encodeURIComponent(casoId)}&select=perguntas_lu_disponiveis&limit=1`,
+      `${supabaseUrl}/rest/v1/analises?id=eq.${encodeURIComponent(analiseId)}&select=perguntas_lu_disponiveis&limit=1`,
       { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` } },
     );
     if (!resp.ok) return null;
@@ -259,13 +271,14 @@ async function lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken
 }
 
 /**
- * Desconta 1 pergunta da cota do caso, de forma atômica (RPC
- * `decrementar_pergunta_lu` — nunca deixa o saldo passar de 0, mesmo sob
- * concorrência). Chamada só depois que a resposta já foi gerada — uma falha
- * aqui não pode fazer a pergunta já respondida "sumir" para o usuário, então
- * nunca lança: na pior hipótese, devolve uma estimativa best-effort.
+ * Desconta 1 pergunta da cota desta CONSULTA (analise_id), de forma atômica
+ * (RPC `decrementar_pergunta_lu` — nunca deixa o saldo passar de 0, mesmo
+ * sob concorrência). Chamada só depois que a resposta já foi gerada — uma
+ * falha aqui não pode fazer a pergunta já respondida "sumir" para o
+ * usuário, então nunca lança: na pior hipótese, devolve uma estimativa
+ * best-effort.
  */
-async function decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, casoId, disponiveisAntes }) {
+async function decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, analiseId, disponiveisAntes }) {
   try {
     const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/decrementar_pergunta_lu`, {
       method: 'POST',
@@ -274,7 +287,7 @@ async function decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, c
         Authorization: `Bearer ${userToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ p_caso_id: casoId }),
+      body: JSON.stringify({ p_analise_id: analiseId }),
     });
     if (resp.ok) {
       const restantes = await resp.json().catch(() => null);

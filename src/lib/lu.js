@@ -15,17 +15,20 @@ async function tokenDaSessao() {
 }
 
 /**
- * @param {{ casoId: string, pergunta: string, historico?: Array<{papel: 'usuario'|'lu', texto: string}> }} args
- * @returns {Promise<{ resposta: string, fontes: Array<object> }>}
+ * `casoId` escopa o retrieval (documentos + legislação); `analiseId`
+ * escopa a COTA de perguntas — é por consulta (cada versão/reanálise tem
+ * as suas 10 próprias), não por caso. Ver README, "Custo do Lu".
+ * @param {{ casoId: string, analiseId: string, pergunta: string, historico?: Array<{papel: 'usuario'|'lu', texto: string}> }} args
+ * @returns {Promise<{ resposta: string, fontes: Array<object>, perguntasDisponiveis?: number, limiteAtingido?: boolean }>}
  */
-export async function perguntarLu({ casoId, pergunta, historico = [] }) {
+export async function perguntarLu({ casoId, analiseId, pergunta, historico = [] }) {
   const userToken = await tokenDaSessao();
   if (!userToken) throw new Error('Sessão expirada. Faça login novamente.');
 
   const resposta = await fetch('/api/lu', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ casoId, pergunta, historico, supabaseUrl, supabaseAnonKey, userToken }),
+    body: JSON.stringify({ casoId, analiseId, pergunta, historico, supabaseUrl, supabaseAnonKey, userToken }),
   });
 
   const dados = await resposta.json().catch(() => ({}));

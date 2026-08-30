@@ -422,7 +422,7 @@ function normalizarResultado(analise) {
 // ============================================
 // COMPONENTE PRINCIPAL: RESULTADO DA ANÁLISE
 // ============================================
-const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise, onReanalisar }) => {
+const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar }) => {
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
 
@@ -765,7 +765,7 @@ const ResultadoAnalise = ({ analise, onVoltar, onNovaAnalise, onReanalisar }) =>
               <h2 className="text-lg font-bold text-parchment">Perguntar ao Lu</h2>
               <span className="text-sm text-parchment/50">Restrito aos documentos deste caso e à legislação cadastrada</span>
             </div>
-            <ChatLu casoId={casoId} />
+            <ChatLu casoId={casoId} analiseId={analiseId} user={user} />
           </div>
         )}
       </main>

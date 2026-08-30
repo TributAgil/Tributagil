@@ -1,5 +1,5 @@
 // src/components/SuporteModal.jsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   Bug,
@@ -25,6 +25,7 @@ const TIPOS_BUG = [
   'Problema de upload de documentos',
   'Dados incorretos no parecer',
   'Erro de cálculo de prazos',
+  'Chatbot Lu não carregou',
   'Problema de login/sessão',
   'Lentidão no sistema',
   'Outro',
@@ -101,7 +102,13 @@ function AnexoScreenshot({ screenshot, onSelecionar, onRemover, erro }) {
   );
 }
 
-const SuporteModal = ({ aberto, onFechar }) => {
+/**
+ * `prefillBug`: pré-preenche a aba "Reportar Erro" com um relato já
+ * escrito (ex.: indexação do Lu travada — ver ChatLu.jsx) — o usuário só
+ * revisa, opcionalmente anexa uma captura de tela, e envia. Nunca envia
+ * sozinho: quem decide e clica em enviar é sempre a pessoa.
+ */
+const SuporteModal = ({ aberto, onFechar, prefillBug = null }) => {
   const [abaAtiva, setAbaAtiva] = useState('feedback');
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
@@ -113,6 +120,18 @@ const SuporteModal = ({ aberto, onFechar }) => {
   const [screenshotErro, setScreenshotErro] = useState(null);
   // Honeypot anti-bot: mantido fora da tela; humanos nunca preenchem.
   const [honeypot, setHoneypot] = useState('');
+
+  // Aplica o pré-preenchimento sempre que o modal abre com um relato pronto
+  // (ex.: um novo evento de indexação travada enquanto o modal já estava
+  // fechado) — não sobrescreve o que a pessoa já estiver digitando se o
+  // modal já estiver aberto com outro prefill.
+  useEffect(() => {
+    if (aberto && prefillBug) {
+      setAbaAtiva('bug');
+      setBug({ ...BUG_INICIAL, ...prefillBug });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, prefillBug]);
 
   const resetar = () => {
     setFeedback(FEEDBACK_INICIAL);

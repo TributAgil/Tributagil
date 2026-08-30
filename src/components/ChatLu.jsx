@@ -4,32 +4,45 @@
 // (documentos do caso + legislação cadastrada). Só fica disponível depois
 // que o parecer é emitido e salvo (precisa de um `casoId`).
 //
-// Cota fixa de 10 perguntas por caso, mostrada de forma permanente no
-// cabeçalho (decai a cada pergunta RESPONDIDA — "não sei" e erros não
-// descontam, ver api/lu.js). Ao chegar em 0, a caixa de pergunta é
-// desabilitada.
+// Cota fixa de 10 perguntas por CONSULTA DE ANÁLISE (cada linha de
+// `analises` — a original e cada reanálise, já que cada uma consome 1
+// crédito próprio — tem sua própria cota, nunca compartilhada com outras
+// versões do mesmo caso). Mostrada de forma permanente no cabeçalho, decai
+// a cada pergunta RESPONDIDA ("não sei" e erros não descontam, ver
+// api/lu.js). Ao chegar em 0, a caixa de pergunta é desabilitada.
+//
+// EXIGÊNCIA DE DOCUMENTO: o Lu só responde quando a busca encontra pelo
+// menos 1 documento do caso relevante — legislação sozinha não é
+// suficiente (ver api/lu.js). Por isso o chat também trava (estado final,
+// não "carregando") se a indexação terminar sem nenhum documento
+// aproveitável.
 //
 // BLOQUEIO DURANTE A INDEXAÇÃO: a indexação dos documentos (extração +
 // embedding) roda em segundo plano depois que o parecer é salvo — pode
-// levar alguns segundos a minutos, dependendo da quantidade de documentos.
-// Enquanto não terminar, o chat inteiro fica travado (nada clicável, só a
-// mensagem de carregamento) — nada de deixar o usuário perguntar cedo demais
-// e receber um "não sei" que na verdade é só timing, não falta real de dado.
+// levar alguns segundos a minutos. Enquanto não terminar, o chat inteiro
+// fica travado (nada clicável, só a mensagem de carregamento). Se passar de
+// ~2 minutos sem concluir, assume-se problema de backend não identificado:
+// abre automaticamente a Central de Suporte na aba "Reportar Erro", já
+// preenchida com o relato técnico, para o usuário revisar e enviar.
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban } from 'lucide-react';
+import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban, MailWarning } from 'lucide-react';
 import { perguntarLu, reindexarCaso } from '../lib/lu';
-import { buscarPerguntasLuDisponiveis, buscarStatusIndexacaoCaso } from '../lib/casos';
+import { buscarStatusIndexacaoCaso } from '../lib/casos';
+import { buscarPerguntasLuDisponiveis } from '../lib/analises';
 
 const LIMITE_PERGUNTAS = 10;
 const INTERVALO_POLL_MS = 3000;
 // Depois de ~45s ainda carregando, mostra um aviso de demora (não desbloqueia).
-const AVISOS_ANTES_DE_DEMORA = Math.ceil(45000 / INTERVALO_POLL_MS);
+const AVISOS_ANTES_DE_DEMORA = Math.ceil(45_000 / INTERVALO_POLL_MS);
+// Depois de ~2min ainda carregando, assume problema de backend e abre
+// automaticamente a Central de Suporte com o relato pronto.
+const TENTATIVAS_ANTES_DE_TRAVADO = Math.ceil(120_000 / INTERVALO_POLL_MS);
 
 // Sugestões pré-montadas, restritas a 3 frentes de uso real do advogado
 // tributarista (sem viés didático — o público já domina o protocolo do
 // direito tributário): fundamentação legal, estratégia processual e
-// conferência de dados. Cada clique consome 1 das 10 perguntas do caso,
+// conferência de dados. Cada clique consome 1 das 10 perguntas da consulta,
 // então o critério de inclusão é "vale o crédito", não cobertura ampla.
 const SUGESTOES_POR_CATEGORIA = [
   {
@@ -109,10 +122,30 @@ function ContadorPerguntas({ disponiveis }) {
   );
 }
 
+/** Monta e dispara o pedido de abertura da Central de Suporte já preenchido. */
+function abrirSuporteComRelato({ casoId, analiseId, user, minutos }) {
+  const bug = {
+    tipo: 'Chatbot Lu não carregou',
+    descricao:
+      `O chatbot Lu não liberou o chat deste caso — a tela "Carregando dados do caso..." ficou ` +
+      `travada por mais de ${minutos} minuto(s) sem concluir.\n\n` +
+      `Solicito uma avaliação técnica (parecer) sobre a causa provável deste erro.\n\n` +
+      `Se possível, anexe abaixo uma captura de tela da tela travada.`,
+    passos:
+      `Caso: ${casoId}\n` +
+      `Consulta (análise): ${analiseId || '—'}\n` +
+      `Usuário: ${user?.email || 'não identificado'} (id: ${user?.id || '—'})\n` +
+      `Tempo decorrido: ~${minutos} min\n` +
+      `Data/hora: ${new Date().toISOString()}`,
+    email: user?.email || '',
+  };
+  window.dispatchEvent(new CustomEvent('tributagil:abrir-suporte', { detail: { bug } }));
+}
+
 /**
- * @param {{ casoId: string | null }} props
+ * @param {{ casoId: string | null, analiseId: string | null, user?: object }} props
  */
-export default function ChatLu({ casoId }) {
+export default function ChatLu({ casoId, analiseId, user }) {
   const [mensagens, setMensagens] = useState([]); // { papel: 'usuario'|'lu', texto, fontes?, limite? }
   const [pergunta, setPergunta] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -120,10 +153,10 @@ export default function ChatLu({ casoId }) {
   const [disponiveis, setDisponiveis] = useState(null); // null = carregando/desconhecido
   const [reindexando, setReindexando] = useState(false);
   const [reindexOk, setReindexOk] = useState(null); // resultado da última reindexação manual
-  // Status da indexação em segundo plano: true = liberado, false = travado
-  // aguardando, null = ainda não checou (trata como travado até a 1ª checagem).
-  const [indexacaoPronta, setIndexacaoPronta] = useState(null);
+  // 'carregando' | 'sem-conteudo' | 'pronto'
+  const [statusChat, setStatusChat] = useState('carregando');
   const [demorando, setDemorando] = useState(false);
+  const [travado, setTravado] = useState(false);
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -131,28 +164,29 @@ export default function ChatLu({ casoId }) {
   }, [mensagens, enviando]);
 
   useEffect(() => {
-    if (!casoId) return;
+    if (!analiseId) return;
     let vivo = true;
-    buscarPerguntasLuDisponiveis(casoId).then((valor) => {
+    buscarPerguntasLuDisponiveis(analiseId).then((valor) => {
       if (vivo) setDisponiveis(valor);
     });
     return () => {
       vivo = false;
     };
-  }, [casoId]);
+  }, [analiseId]);
 
-  // Poll do status de indexação até completar (ou até não dar mais para
-  // checar — migração pendente etc., aí libera por padrão, nunca bloqueia
-  // pra sempre por um motivo que não é "ainda processando").
+  // Poll do status de indexação até completar com conteúdo aproveitável (ou
+  // até não dar mais para checar — migração pendente etc., aí libera por
+  // padrão, nunca bloqueia pra sempre por um motivo que não é "processando").
   useEffect(() => {
     if (!casoId) return;
-    // Reseta de imediato (síncrono) ao trocar de caso — evita mostrar por
-    // um instante o status (liberado/travado) do caso ANTERIOR enquanto a
-    // primeira checagem do novo ainda não voltou.
-    setIndexacaoPronta(null);
+    // Reseta de imediato (síncrono) ao trocar de caso — evita mostrar por um
+    // instante o status do caso ANTERIOR enquanto a 1ª checagem não voltou.
+    setStatusChat('carregando');
     setDemorando(false);
+    setTravado(false);
     let vivo = true;
     let tentativas = 0;
+    let avisoEnviado = false;
 
     const checar = async () => {
       const status = await buscarStatusIndexacaoCaso(casoId);
@@ -160,17 +194,29 @@ export default function ChatLu({ casoId }) {
 
       if (status === null) {
         // Não deu pra checar (migração pendente) — não bloqueia à toa.
-        setIndexacaoPronta(true);
+        setStatusChat('pronto');
         return;
       }
       if (status.completo) {
-        setIndexacaoPronta(true);
+        setStatusChat(status.algumComConteudo ? 'pronto' : 'sem-conteudo');
         return;
       }
 
       tentativas += 1;
-      setIndexacaoPronta(false);
+      setStatusChat('carregando');
       setDemorando(tentativas >= AVISOS_ANTES_DE_DEMORA);
+
+      if (tentativas >= TENTATIVAS_ANTES_DE_TRAVADO && !avisoEnviado) {
+        avisoEnviado = true;
+        setTravado(true);
+        abrirSuporteComRelato({
+          casoId,
+          analiseId,
+          user,
+          minutos: Math.round((tentativas * INTERVALO_POLL_MS) / 60000),
+        });
+      }
+
       setTimeout(() => {
         if (vivo) checar();
       }, INTERVALO_POLL_MS);
@@ -180,6 +226,7 @@ export default function ChatLu({ casoId }) {
     return () => {
       vivo = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [casoId]);
 
   const limiteAtingido = disponiveis === 0;
@@ -187,7 +234,7 @@ export default function ChatLu({ casoId }) {
   const enviar = useCallback(
     async (textoForcado) => {
       const texto = (textoForcado ?? pergunta).trim();
-      if (!texto || enviando || !casoId || limiteAtingido) return;
+      if (!texto || enviando || !casoId || !analiseId || limiteAtingido) return;
 
       setErro(null);
       setPergunta('');
@@ -198,6 +245,7 @@ export default function ChatLu({ casoId }) {
         const historico = mensagens.slice(-6).map((m) => ({ papel: m.papel, texto: m.texto }));
         const { resposta, fontes, perguntasDisponiveis, limiteAtingido: atingiuAgora } = await perguntarLu({
           casoId,
+          analiseId,
           pergunta: texto,
           historico,
         });
@@ -210,7 +258,7 @@ export default function ChatLu({ casoId }) {
         setEnviando(false);
       }
     },
-    [pergunta, enviando, casoId, limiteAtingido, mensagens],
+    [pergunta, enviando, casoId, analiseId, limiteAtingido, mensagens],
   );
 
   const handleSubmit = (e) => {
@@ -242,23 +290,67 @@ export default function ChatLu({ casoId }) {
   // Indexação ainda rodando em segundo plano: nada clicável até terminar —
   // evita um "não sei" que na verdade é só timing (documento ainda não
   // processado), não falta real de informação.
-  if (!indexacaoPronta) {
+  if (statusChat === 'carregando') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-line bg-ink-800/50 px-8 py-16 text-center">
-        <div className="grid h-12 w-12 place-items-center rounded-xl bg-gold/15">
-          <Loader2 size={22} className="animate-spin text-gold" />
+        <div className={`grid h-12 w-12 place-items-center rounded-xl ${travado ? 'bg-red-500/15' : 'bg-gold/15'}`}>
+          {travado ? <MailWarning size={22} className="text-red-400" /> : <Loader2 size={22} className="animate-spin text-gold" />}
         </div>
-        <div>
-          <p className="text-sm font-semibold text-parchment">Carregando dados do caso...</p>
-          <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
-            O Lu está processando os documentos deste caso. Isso leva só alguns instantes — a
-            pergunta libera automaticamente assim que terminar.
-          </p>
-        </div>
-        {demorando && (
+        {travado ? (
+          <div>
+            <p className="text-sm font-semibold text-parchment">Isso está demorando demais</p>
+            <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
+              Identificamos um problema de backend não identificado ao processar os documentos deste
+              caso. Abrimos a Central de Suporte com um relato pronto — revise, anexe uma captura de
+              tela se puder, e envie para nossa equipe avaliar. O chat libera sozinho se a indexação
+              terminar enquanto isso.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm font-semibold text-parchment">Carregando dados do caso...</p>
+            <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
+              O Lu está processando os documentos deste caso. Isso leva só alguns instantes — a
+              pergunta libera automaticamente assim que terminar.
+            </p>
+          </div>
+        )}
+        {demorando && !travado && (
           <p className="max-w-sm text-xs text-amber-300/80">
-            Isso está demorando mais que o normal. Continue aguardando — se não liberar em
-            alguns minutos, volte a esta aba mais tarde.
+            Isso está demorando mais que o normal. Continue aguardando mais um pouco.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Indexação terminou, mas nenhum documento produziu conteúdo aproveitável
+  // (ilegível/em branco) — o Lu exige documento encontrado para responder,
+  // então não há chat possível aqui (estado final, não "carregando").
+  if (statusChat === 'sem-conteudo') {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-line bg-ink-800/50 px-8 py-14 text-center">
+        <Ban size={22} className="text-parchment/30" />
+        <p className="text-sm font-semibold text-parchment">Nenhum documento deste caso ficou disponível para o Lu</p>
+        <p className="max-w-sm text-xs text-parchment/45">
+          Os documentos anexados não produziram texto aproveitável (podem estar ilegíveis ou em
+          branco). O Lu não responde só com base em legislação genérica, sem relação com este caso.
+          Tente reindexar ou anexe um documento novo numa reanálise.
+        </p>
+        <button
+          type="button"
+          onClick={handleReindexar}
+          disabled={reindexando}
+          className="mt-1 flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs text-parchment/60 transition-colors hover:border-gold/30 hover:text-parchment/85 disabled:opacity-50"
+        >
+          {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Tentar reindexar
+        </button>
+        {reindexOk && (
+          <p className={`text-xs ${reindexOk.ok ? 'text-gold' : 'text-red-300'}`}>
+            {reindexOk.ok
+              ? `${reindexOk.chunks_indexados ?? 0} trecho(s) novo(s) indexado(s).`
+              : reindexOk.error || 'Não foi possível reindexar agora.'}
           </p>
         )}
       </div>
@@ -371,8 +463,8 @@ export default function ChatLu({ casoId }) {
       {limiteAtingido && (
         <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
           <Ban size={13} className="mt-0.5 flex-shrink-0" />
-          Você já usou as 10 perguntas disponíveis para este caso. Uma nova análise (caso novo) dá
-          outras 10.
+          Você já usou as 10 perguntas disponíveis para esta consulta. Uma reanálise deste caso (nova
+          consulta) dá outras 10.
         </div>
       )}
 
@@ -381,7 +473,7 @@ export default function ChatLu({ casoId }) {
           type="text"
           value={pergunta}
           onChange={(e) => setPergunta(e.target.value)}
-          placeholder={limiteAtingido ? 'Cota de perguntas deste caso esgotada' : 'Pergunte ao Lu sobre este caso...'}
+          placeholder={limiteAtingido ? 'Cota de perguntas desta consulta esgotada' : 'Pergunte ao Lu sobre este caso...'}
           disabled={enviando || limiteAtingido}
           maxLength={2000}
           className="flex-1 rounded-lg border border-line bg-ink-900 px-3 py-2.5 text-sm text-parchment placeholder:text-parchment/30 outline-none transition-all focus:border-gold/50 focus:ring-2 focus:ring-gold/15 disabled:opacity-60"

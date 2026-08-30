@@ -197,6 +197,33 @@ export async function salvarObservacoes(id, texto) {
   }
 }
 
+/**
+ * Saldo de perguntas ao Lu disponíveis para ESTA consulta de análise (teto
+ * de 10, decrescente, por linha de `analises` — não por caso; uma
+ * reanálise tem sua própria cota nova. Ver README, "Custo do Lu"). Leitura
+ * direta, coberta pela policy de SELECT de `analises`; não gasta nenhuma
+ * chamada de IA.
+ * @returns {Promise<number|null>} null = desconhecido (migração pendente)
+ */
+export async function buscarPerguntasLuDisponiveis(analiseId) {
+  if (!analiseId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('analises')
+      .select('perguntas_lu_disponiveis')
+      .eq('id', analiseId)
+      .single();
+    if (error) {
+      console.warn('[analises] Falha ao buscar cota de perguntas do Lu:', error.message);
+      return null;
+    }
+    return Number.isFinite(data?.perguntas_lu_disponiveis) ? data.perguntas_lu_disponiveis : null;
+  } catch (err) {
+    console.error('[analises] Erro inesperado ao buscar cota de perguntas do Lu:', err);
+    return null;
+  }
+}
+
 /** Exporta TODAS as análises do usuário como um objeto JSON (portabilidade LGPD, art. 18). */
 export async function exportarHistorico(userId) {
   const lista = await listarAnalises(userId);

@@ -109,30 +109,9 @@ export async function registrarDocumentosIniciais({ casoId, userId, documentos }
   }
 }
 
-/**
- * Saldo de perguntas ao Lu disponíveis para o caso (teto de 10, decrescente
- * — ver README, "Custo do Lu"). Leitura direta, coberta pela policy de
- * SELECT de `casos`; não gasta nenhuma chamada de IA.
- * @returns {Promise<number|null>} null = desconhecido (migração pendente)
- */
-export async function buscarPerguntasLuDisponiveis(casoId) {
-  if (!casoId) return null;
-  try {
-    const { data, error } = await supabase
-      .from('casos')
-      .select('perguntas_lu_disponiveis')
-      .eq('id', casoId)
-      .single();
-    if (error) {
-      console.warn('[casos] Falha ao buscar cota de perguntas do Lu:', error.message);
-      return null;
-    }
-    return Number.isFinite(data?.perguntas_lu_disponiveis) ? data.perguntas_lu_disponiveis : null;
-  } catch (err) {
-    console.error('[casos] Erro inesperado ao buscar cota de perguntas do Lu:', err);
-    return null;
-  }
-}
+// Nota: a cota de perguntas ao Lu é por CONSULTA DE ANÁLISE (linha de
+// `analises`), não por caso — ver `buscarPerguntasLuDisponiveis` em
+// src/lib/analises.js e o README, "Custo do Lu".
 
 /**
  * Status de indexação do caso — usado pelo Lu para bloquear o chat até que
@@ -146,7 +125,14 @@ export async function buscarPerguntasLuDisponiveis(casoId) {
  * de que o registro ainda está em trânsito, não de que não há nada a
  * indexar.
  *
- * @returns {Promise<{ completo: boolean, total: number, indexados: number } | null>}
+ * `algumComConteudo`: pelo menos 1 documento produziu chunk de verdade
+ * (`chunks_gerados > 0`). Um documento pode terminar de "processar"
+ * (`indexado = true`) sem gerar nenhum chunk — texto ilegível/em branco
+ * (ver api/indexar-caso.js) — e o Lu exige documento encontrado na busca
+ * para responder (não gera resposta só com legislação, ver README, "Custo
+ * do Lu"), então `completo` sozinho não basta para liberar o chat.
+ *
+ * @returns {Promise<{ completo: boolean, algumComConteudo: boolean, total: number, indexados: number } | null>}
  *   null = não deu para checar (ex.: coluna/migração ausente) — o chamador
  *   decide como tratar (ChatLu.jsx trata como "não bloqueia", fail-open).
  */
@@ -155,15 +141,17 @@ export async function buscarStatusIndexacaoCaso(casoId) {
   try {
     const { data, error } = await supabase
       .from('documentos_caso')
-      .select('indexado')
+      .select('indexado, chunks_gerados')
       .eq('caso_id', casoId);
     if (error) {
       console.warn('[casos] Falha ao checar status de indexação:', error.message);
       return null;
     }
-    const total = data?.length ?? 0;
-    const indexados = (data ?? []).filter((d) => d.indexado === true).length;
-    return { completo: total > 0 && indexados === total, total, indexados };
+    const linhas = data ?? [];
+    const total = linhas.length;
+    const indexados = linhas.filter((d) => d.indexado === true).length;
+    const algumComConteudo = linhas.some((d) => Number(d.chunks_gerados) > 0);
+    return { completo: total > 0 && indexados === total, algumComConteudo, total, indexados };
   } catch (err) {
     console.error('[casos] Erro inesperado ao checar status de indexação:', err);
     return null;

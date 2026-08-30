@@ -317,6 +317,7 @@ export default function App() {
       {telaAtual === 'resultado' && (
         <ResultadoAnalise
           analise={analiseSelecionada}
+          user={user}
           onVoltar={handleVerHistorico}
           onNovaAnalise={handleNovaAnalise}
           onReanalisar={handleReanalisar}

@@ -441,20 +441,22 @@ language sql stable as $$
 $$;
 grant execute on function public.buscar_legislacao_chunks to authenticated;
 
--- Cota de perguntas ao Lu por caso — teto RÍGIDO de 10, decrescente, exibido
--- de forma fixa na UI (ver ChatLu.jsx). Cada caso novo nasce com 10; uma
--- reanálise (nova versão do MESMO caso) não reseta a cota — só uma análise
--- nova (caso novo) dá outras 10.
-alter table public.casos add column if not exists perguntas_lu_disponiveis integer not null default 10;
--- Leitura: já coberta pela policy "casos: leitura própria" (select) da seção
--- "Créditos..." acima — o client lê esse número direto, sem RPC.
+-- Cota de perguntas ao Lu por CONSULTA DE ANÁLISE — teto RÍGIDO de 10,
+-- decrescente, exibido de forma fixa na UI (ver ChatLu.jsx). Metodologia
+-- fechada: cada linha de `analises` (a análise original E cada reanálise —
+-- cada uma consome 1 crédito próprio, ver "Créditos..." acima) nasce com
+-- 10 perguntas próprias, nunca compartilhadas com outras versões do mesmo
+-- caso. Um plano de 100 consultas dá 100 × 10 = 1000 perguntas no total.
+alter table public.analises add column if not exists perguntas_lu_disponiveis integer not null default 10;
+-- Leitura: já coberta pela policy de SELECT própria de `analises` — o
+-- client lê esse número direto, sem RPC.
 
 -- Decrementa 1 pergunta disponível de forma atômica (row lock do Postgres
 -- serializa concorrência). SÓ deve ser chamada depois que o Lu gerou uma
 -- resposta com sucesso — um "não sei" por falta de contexto ou um erro do
 -- sistema NÃO decrementam (ver api/lu.js: a chamada fica no fim do caminho
 -- feliz, não logo na entrada). Levanta 'LIMITE_ATINGIDO' se já estava em 0.
-create or replace function public.decrementar_pergunta_lu(p_caso_id uuid)
+create or replace function public.decrementar_pergunta_lu(p_analise_id uuid)
 returns integer
 language plpgsql security definer set search_path = public as $$
 declare
@@ -463,14 +465,14 @@ declare
 begin
   if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
 
-  update public.casos
+  update public.analises
      set perguntas_lu_disponiveis = perguntas_lu_disponiveis - 1
-   where id = p_caso_id and user_id = v_user_id and perguntas_lu_disponiveis > 0
+   where id = p_analise_id and user_id = v_user_id and perguntas_lu_disponiveis > 0
    returning perguntas_lu_disponiveis into v_restantes;
 
   if v_restantes is null then
-    if not exists (select 1 from public.casos where id = p_caso_id and user_id = v_user_id) then
-      raise exception 'CASO_NAO_ENCONTRADO';
+    if not exists (select 1 from public.analises where id = p_analise_id and user_id = v_user_id) then
+      raise exception 'ANALISE_NAO_ENCONTRADA';
     end if;
     raise exception 'LIMITE_ATINGIDO';
   end if;
@@ -579,23 +581,31 @@ qualquer falha parcial:
    segurança final: mesmo que duas chamadas rodem em paralelo (corrida, dois
    cliques), nunca duplica linha.
 
-### 5. Custo do Lu — teto de 10 perguntas por caso
+### 5. Custo do Lu — teto de 10 perguntas por CONSULTA DE ANÁLISE
 
-Decisão fechada: cada **caso** (não cada versão/reanálise) tem direito a
-**10 perguntas ao Lu**. `casos.perguntas_lu_disponiveis` nasce em 10 e só
-decresce — nunca reseta numa reanálise do mesmo caso (só um caso novo, com
-uma análise nova, dá outras 10).
+Metodologia fechada: a cota é por **consulta** (cada linha de `analises` —
+a análise original e cada reanálise, já que cada uma consome 1 crédito
+próprio), não por caso. `analises.perguntas_lu_disponiveis` nasce em 10 em
+TODA análise nova, incluindo reanálises do mesmo caso — nunca é
+compartilhada entre versões. Exemplo: um plano de 100 consultas dá
+100 × 10 = **1000 perguntas ao Lu no total**, 10 por consulta individual.
 
 - **Só uma pergunta RESPONDIDA COM SUCESSO consome 1 da cota.** Um "não sei"
-  por falta de contexto (documentos insuficientes/legislação sem
-  correspondência) e qualquer erro do sistema (falha do Gemini, sessão
-  caída, etc.) **não** descontam — `/api/lu` só chama
-  `decrementar_pergunta_lu` no fim do caminho feliz, depois de já ter
-  gerado a resposta.
+  por falta de contexto (nenhum documento do caso encontrado na busca —
+  ver "Exigência de documento" abaixo — ou legislação sem correspondência)
+  e qualquer erro do sistema (falha do Gemini, sessão caída, etc.) **não**
+  descontam — `/api/lu` só chama `decrementar_pergunta_lu` no fim do
+  caminho feliz, depois de já ter gerado a resposta.
 - **Contador fixo e visível** no cabeçalho da aba do Lu (`ChatLu.jsx`):
-  mostra "N de 10 perguntas restantes" com uma barra de decaimento,
+  mostra "N de 10 perguntas desta consulta" com uma barra de decaimento,
   atualizado a cada resposta. Ao chegar em 0, a caixa de pergunta é
-  desabilitada com uma mensagem explicando o motivo — sem chamar a IA à toa.
+  desabilitada com uma mensagem explicando que uma reanálise (nova consulta)
+  dá outras 10 — sem chamar a IA à toa.
+- **Exigência de documento:** `/api/lu` só gera resposta quando a busca
+  encontra pelo menos 1 chunk de DOCUMENTO do caso com boa correspondência —
+  legislação sozinha (sem nenhum documento relevante) não é suficiente. Evita
+  que o Lu vire uma busca de legislação genérica desvinculada do caso,
+  consumindo a cota à toa com perguntas sem relação com os autos.
 - **Ponto único para religar um teto diferente por plano depois:** tanto
   `/api/lu.js` quanto `/api/indexar-caso.js` passam por
   `chatbotLiberadoParaPerfil()` em `api/_chatbot-acesso.js`, que hoje sempre
