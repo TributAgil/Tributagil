@@ -103,24 +103,27 @@ function FontesConsultadas({ fontes }) {
 }
 
 /** Contador FIXO e visível da cota de perguntas — barra de decaimento até 0. */
-function ContadorPerguntas({ disponiveis }) {
+function ContadorPerguntas({ disponiveis, invertido }) {
   if (disponiveis == null) {
-    return <p className="text-xs text-parchment/35">Carregando cota de perguntas...</p>;
+    return <p className={`text-xs ${invertido ? 'text-ink/50' : 'text-parchment/35'}`}>Carregando cota de perguntas...</p>;
   }
   const pct = Math.max(0, Math.min(100, (disponiveis / LIMITE_PERGUNTAS) * 100));
   const zerado = disponiveis <= 0;
   const baixo = disponiveis > 0 && disponiveis <= 2;
+  const corNeutra = invertido ? 'text-ink/70' : 'text-parchment/50';
+  const corTrilha = invertido ? 'bg-ink/15' : 'bg-ink-700';
+  const corBarraNormal = invertido ? 'bg-ink' : 'bg-gold';
 
   return (
     <div className="w-full sm:w-44">
       <div className="mb-1 flex items-center justify-between text-[11px]">
-        <span className={zerado ? 'font-semibold text-red-300' : baixo ? 'font-semibold text-amber-300' : 'text-parchment/50'}>
+        <span className={zerado ? 'font-semibold text-red-700' : baixo ? 'font-semibold text-amber-700' : corNeutra}>
           {disponiveis} de {LIMITE_PERGUNTAS} perguntas
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-ink-700">
+      <div className={`h-1.5 overflow-hidden rounded-full ${corTrilha}`}>
         <div
-          className={`h-full rounded-full transition-all ${zerado ? 'bg-red-500' : baixo ? 'bg-amber-400' : 'bg-gold'}`}
+          className={`h-full rounded-full transition-all ${zerado ? 'bg-red-500' : baixo ? 'bg-amber-400' : corBarraNormal}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -150,10 +153,54 @@ function abrirSuporteComRelato({ casoId, analiseId, user, minutos }) {
   window.dispatchEvent(new CustomEvent('tributagil:abrir-suporte', { detail: { bug } }));
 }
 
+// Paleta do chat. Por padrão segue o resto do app (preto principal, dourado
+// de destaque). Com `invertido` (janela flutuante — ver ChatLuFlutuante.jsx)
+// o painel principal vira dourado e o preto passa a ser o destaque
+// secundário, para o chat se diferenciar visualmente do bloco de resultados.
+function temaChat(invertido) {
+  if (!invertido) {
+    return {
+      painel: 'border border-line bg-ink-800/50',
+      cabecalhoBorda: 'border-line',
+      iconeFundo: 'bg-gold/15',
+      iconeCor: 'text-gold',
+      titulo: 'text-parchment',
+      subtitulo: 'text-parchment/40',
+      botaoBorda: 'border-line text-parchment/50 hover:border-gold/30 hover:text-parchment/80',
+      bolhaUsuario: 'bg-gold text-ink font-medium',
+      bolhaLu: 'border border-line bg-ink-900/60 text-parchment/85',
+      inputBorda: 'border-line bg-ink-900 text-parchment placeholder:text-parchment/30 focus:border-gold/50 focus:ring-gold/15',
+      enviarBotao: 'bg-gold text-ink hover:bg-gold-soft',
+      sugestaoBotao: 'border-line bg-ink-900/50 text-parchment/60 hover:border-gold/30 hover:text-parchment/85',
+      textoPrimario: 'text-parchment',
+      textoSecundario: 'text-parchment/50',
+      textoTerciario: 'text-parchment/45',
+    };
+  }
+  return {
+    painel: 'border border-ink-900/30 bg-gold shadow-2xl shadow-[var(--shadow-gold)]',
+    cabecalhoBorda: 'border-ink-900/15',
+    iconeFundo: 'bg-ink/10',
+    iconeCor: 'text-ink',
+    titulo: 'text-ink',
+    subtitulo: 'text-ink/60',
+    botaoBorda: 'border-ink/20 text-ink/60 hover:border-ink/40 hover:text-ink',
+    bolhaUsuario: 'bg-ink text-gold font-medium',
+    bolhaLu: 'border border-ink/15 bg-ink text-parchment',
+    inputBorda: 'border-ink/25 bg-ink text-parchment placeholder:text-parchment/35 focus:border-ink/50 focus:ring-ink/15',
+    enviarBotao: 'bg-ink text-gold hover:bg-ink-800',
+    sugestaoBotao: 'border-ink/20 bg-ink/90 text-parchment/80 hover:border-ink/40 hover:text-parchment',
+    textoPrimario: 'text-ink',
+    textoSecundario: 'text-ink/70',
+    textoTerciario: 'text-ink/60',
+  };
+}
+
 /**
- * @param {{ casoId: string | null, analiseId: string | null, user?: object }} props
+ * @param {{ casoId: string | null, analiseId: string | null, user?: object, invertido?: boolean }} props
  */
-export default function ChatLu({ casoId, analiseId, user }) {
+export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
+  const T = temaChat(invertido);
   const [mensagens, setMensagens] = useState([]); // { papel: 'usuario'|'lu', texto, fontes?, limite? }
   const [pergunta, setPergunta] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -291,9 +338,9 @@ export default function ChatLu({ casoId, analiseId, user }) {
 
   if (!casoId) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-line bg-ink-800/30 px-8 py-14 text-center">
-        <Sparkles size={22} className="text-parchment/30" />
-        <p className="text-sm text-parchment/50">
+      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-8 py-14 text-center ${T.painel}`}>
+        <Sparkles size={22} className={T.textoTerciario} />
+        <p className={`text-sm ${T.textoSecundario}`}>
           O Lu fica disponível assim que esta análise for salva no histórico. Aguarde alguns
           segundos ou reabra a análise pelo Histórico.
         </p>
@@ -308,34 +355,34 @@ export default function ChatLu({ casoId, analiseId, user }) {
   // tentar mesmo travado — o próprio Lu já protege contra resposta ruim.
   if (statusChat === 'carregando' && !ignorarBloqueio) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-line bg-ink-800/50 px-8 py-16 text-center">
-        <div className={`grid h-12 w-12 place-items-center rounded-xl ${travado ? 'bg-red-500/15' : 'bg-gold/15'}`}>
-          {travado ? <MailWarning size={22} className="text-red-400" /> : <Loader2 size={22} className="animate-spin text-gold" />}
+      <div className={`flex flex-col items-center justify-center gap-4 rounded-xl px-8 py-16 text-center ${T.painel}`}>
+        <div className={`grid h-12 w-12 place-items-center rounded-xl ${travado ? 'bg-red-500/15' : T.iconeFundo}`}>
+          {travado ? <MailWarning size={22} className="text-red-400" /> : <Loader2 size={22} className={`animate-spin ${T.iconeCor}`} />}
         </div>
         {travado ? (
           <div>
-            <p className="text-sm font-semibold text-parchment">Isso está demorando demais</p>
-            <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
+            <p className={`text-sm font-semibold ${T.titulo}`}>Isso está demorando demais</p>
+            <p className={`mt-1.5 max-w-sm text-xs ${T.textoTerciario}`}>
               Identificamos um problema de backend não identificado ao processar os documentos deste
               caso. Já enviamos um diagnóstico técnico automático ao suporte e abrimos a Central de
               Suporte com um relato pronto — revise, anexe uma captura de tela se puder, e confirme o
               envio quando quiser. O chat libera sozinho se a indexação terminar enquanto isso.
             </p>
-            <p className="mt-2 max-w-sm text-xs text-parchment/35">
+            <p className={`mt-2 max-w-sm text-xs ${T.textoTerciario}`}>
               Nenhuma pergunta foi descontada da sua cota por causa desse problema.
             </p>
           </div>
         ) : (
           <div>
-            <p className="text-sm font-semibold text-parchment">Carregando dados do caso...</p>
-            <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
+            <p className={`text-sm font-semibold ${T.titulo}`}>Carregando dados do caso...</p>
+            <p className={`mt-1.5 max-w-sm text-xs ${T.textoTerciario}`}>
               O Lu está processando os documentos deste caso. Isso leva só alguns instantes — a
               pergunta libera automaticamente assim que terminar.
             </p>
           </div>
         )}
         {demorando && !travado && (
-          <p className="max-w-sm text-xs text-amber-300/80">
+          <p className="max-w-sm text-xs text-amber-700/90">
             Isso está demorando mais que o normal. Continue aguardando mais um pouco.
           </p>
         )}
@@ -343,7 +390,7 @@ export default function ChatLu({ casoId, analiseId, user }) {
           <button
             type="button"
             onClick={() => setIgnorarBloqueio(true)}
-            className="mt-1 flex items-center gap-1 text-[11px] text-parchment/40 underline-offset-2 transition-colors hover:text-gold hover:underline"
+            className={`mt-1 flex items-center gap-1 text-[11px] underline-offset-2 transition-colors hover:underline ${T.textoTerciario}`}
           >
             <ArrowLeft size={11} />
             Retornar à tela inicial do Lu
@@ -358,10 +405,10 @@ export default function ChatLu({ casoId, analiseId, user }) {
   // então não há chat possível aqui (estado final, não "carregando").
   if (statusChat === 'sem-conteudo') {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-line bg-ink-800/50 px-8 py-14 text-center">
-        <Ban size={22} className="text-parchment/30" />
-        <p className="text-sm font-semibold text-parchment">Nenhum documento deste caso ficou disponível para o Lu</p>
-        <p className="max-w-sm text-xs text-parchment/45">
+      <div className={`flex flex-col items-center justify-center gap-3 rounded-xl px-8 py-14 text-center ${T.painel}`}>
+        <Ban size={22} className={T.textoTerciario} />
+        <p className={`text-sm font-semibold ${T.titulo}`}>Nenhum documento deste caso ficou disponível para o Lu</p>
+        <p className={`max-w-sm text-xs ${T.textoTerciario}`}>
           Os documentos anexados não produziram texto aproveitável (podem estar ilegíveis ou em
           branco). O Lu não responde só com base em legislação genérica, sem relação com este caso.
           Tente reindexar ou anexe um documento novo numa reanálise.
@@ -370,13 +417,13 @@ export default function ChatLu({ casoId, analiseId, user }) {
           type="button"
           onClick={handleReindexar}
           disabled={reindexando}
-          className="mt-1 flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs text-parchment/60 transition-colors hover:border-gold/30 hover:text-parchment/85 disabled:opacity-50"
+          className={`mt-1 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${T.botaoBorda}`}
         >
           {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           Tentar reindexar
         </button>
         {reindexOk && (
-          <p className={`text-xs ${reindexOk.ok ? 'text-gold' : 'text-red-300'}`}>
+          <p className={`text-xs ${reindexOk.ok ? T.textoPrimario : 'text-red-700'}`}>
             {reindexOk.ok
               ? `${reindexOk.chunks_indexados ?? 0} trecho(s) novo(s) indexado(s).`
               : reindexOk.error || 'Não foi possível reindexar agora.'}
@@ -387,26 +434,26 @@ export default function ChatLu({ casoId, analiseId, user }) {
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-line bg-ink-800/50">
-      <div className="flex flex-col gap-3 border-b border-line px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+    <div className={`flex flex-col rounded-xl ${T.painel}`}>
+      <div className={`flex flex-col gap-3 border-b px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between ${T.cabecalhoBorda}`}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-gold/15">
-            <Sparkles size={15} className="text-gold" />
+          <div className={`grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg ${T.iconeFundo}`}>
+            <Sparkles size={15} className={T.iconeCor} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-parchment">Lu — assistente jurídico</p>
-            <p className="text-xs text-parchment/40">Responde só com base neste caso e na legislação cadastrada</p>
+            <p className={`text-sm font-semibold ${T.titulo}`}>Lu — assistente jurídico</p>
+            <p className={`text-xs ${T.subtitulo}`}>Responde só com base neste caso e na legislação cadastrada</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <ContadorPerguntas disponiveis={disponiveis} />
+          <ContadorPerguntas disponiveis={disponiveis} invertido={invertido} />
           <button
             type="button"
             onClick={handleReindexar}
             disabled={reindexando}
             title="Se o Lu não estiver encontrando um documento que você já anexou, tente reindexar — seguro de repetir, documentos já indexados são pulados"
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-parchment/50 transition-colors hover:border-gold/30 hover:text-parchment/80 disabled:opacity-50"
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50 ${T.botaoBorda}`}
           >
             {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             <span className="hidden sm:inline">Reindexar</span>
@@ -416,8 +463,8 @@ export default function ChatLu({ casoId, analiseId, user }) {
 
       {reindexOk && (
         <div
-          className={`flex items-center gap-2 border-b border-line px-5 py-2 text-xs ${
-            reindexOk.ok ? 'text-gold' : 'text-red-300'
+          className={`flex items-center gap-2 border-b px-5 py-2 text-xs ${T.cabecalhoBorda} ${
+            reindexOk.ok ? T.textoPrimario : 'text-red-700'
           }`}
         >
           {reindexOk.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
@@ -430,13 +477,13 @@ export default function ChatLu({ casoId, analiseId, user }) {
       <div className="flex max-h-[28rem] min-h-[16rem] flex-col gap-4 overflow-y-auto px-5 py-4">
         {mensagens.length === 0 && !limiteAtingido && (
           <div className="space-y-4">
-            <p className="text-sm text-parchment/50">
+            <p className={`text-sm ${T.textoSecundario}`}>
               Pergunte sobre os documentos deste caso ou sobre a legislação de prescrição/decadência
               aplicada no parecer.
             </p>
             {SUGESTOES_POR_CATEGORIA.map((grupo) => (
               <div key={grupo.categoria}>
-                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-parchment/35">
+                <p className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider ${T.textoTerciario}`}>
                   {grupo.categoria}
                 </p>
                 <div className="flex flex-col gap-2">
@@ -445,7 +492,7 @@ export default function ChatLu({ casoId, analiseId, user }) {
                       key={s}
                       type="button"
                       onClick={() => enviar(s)}
-                      className="rounded-lg border border-line bg-ink-900/50 px-3 py-2 text-left text-xs text-parchment/60 transition-colors hover:border-gold/30 hover:text-parchment/85"
+                      className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${T.sugestaoBotao}`}
                     >
                       {s}
                     </button>
@@ -461,10 +508,10 @@ export default function ChatLu({ casoId, analiseId, user }) {
             <div
               className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
                 m.papel === 'usuario'
-                  ? 'bg-gold text-ink font-medium'
+                  ? T.bolhaUsuario
                   : m.limite
-                    ? 'border border-amber-500/30 bg-amber-500/10 text-amber-200/90'
-                    : 'border border-line bg-ink-900/60 text-parchment/85'
+                    ? 'border border-amber-500/30 bg-amber-500/10 text-amber-900'
+                    : T.bolhaLu
               }`}
             >
               <p className="whitespace-pre-wrap">{m.texto}</p>
@@ -474,13 +521,13 @@ export default function ChatLu({ casoId, analiseId, user }) {
         ))}
 
         {enviando && (
-          <div className="flex items-center gap-2 text-xs text-parchment/40">
+          <div className={`flex items-center gap-2 text-xs ${T.textoTerciario}`}>
             <Loader2 size={13} className="animate-spin" /> Lu está consultando o caso e a legislação...
           </div>
         )}
 
         {erro && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700">
             <AlertCircle size={13} className="mt-0.5 flex-shrink-0" />
             {erro}
           </div>
@@ -490,14 +537,14 @@ export default function ChatLu({ casoId, analiseId, user }) {
       </div>
 
       {limiteAtingido && (
-        <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
+        <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
           <Ban size={13} className="mt-0.5 flex-shrink-0" />
           Você já usou as 10 perguntas disponíveis para esta consulta. Uma reanálise deste caso (nova
           consulta) dá outras 10.
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-line p-3">
+      <form onSubmit={handleSubmit} className={`flex items-center gap-2 border-t p-3 ${T.cabecalhoBorda}`}>
         <input
           type="text"
           value={pergunta}
@@ -505,12 +552,12 @@ export default function ChatLu({ casoId, analiseId, user }) {
           placeholder={limiteAtingido ? 'Cota de perguntas desta consulta esgotada' : 'Pergunte ao Lu sobre este caso...'}
           disabled={enviando || limiteAtingido}
           maxLength={2000}
-          className="flex-1 rounded-lg border border-line bg-ink-900 px-3 py-2.5 text-sm text-parchment placeholder:text-parchment/30 outline-none transition-all focus:border-gold/50 focus:ring-2 focus:ring-gold/15 disabled:opacity-60"
+          className={`flex-1 rounded-lg border px-3 py-2.5 text-sm outline-none transition-all focus:ring-2 disabled:opacity-60 ${T.inputBorda}`}
         />
         <button
           type="submit"
           disabled={enviando || limiteAtingido || !pergunta.trim()}
-          className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-gold text-ink transition-colors hover:bg-gold-soft disabled:cursor-not-allowed disabled:opacity-40"
+          className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${T.enviarBotao}`}
           aria-label="Enviar pergunta"
         >
           {enviando ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

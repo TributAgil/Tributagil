@@ -24,10 +24,9 @@ import {
   Loader2,
   FilePlus2,
   History,
-  Sparkles,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
-import ChatLu from '../components/ChatLu';
+import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import { salvarObservacoes } from '../lib/analises';
 
 // ============================================
@@ -490,7 +489,6 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
     { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio?.length || 0 },
     { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes?.length || 0 },
     { id: 'anotacoes', label: 'Anotações', icon: Pencil, count: obs.trim() ? 1 : 0 },
-    { id: 'lu', label: 'Perguntar ao Lu', icon: Sparkles, count: 0 },
   ];
 
   return (
@@ -610,14 +608,12 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
                 >
                   <Icon size={16} />
                   {aba.label}
-                  {aba.id !== 'lu' && (
-                    <span className={`
-                      text-xs px-1.5 py-0.5 rounded-full
-                      ${ativa ? 'bg-gold/15 text-gold' : 'bg-ink-700 text-parchment/50'}
-                    `}>
-                      {aba.count}
-                    </span>
-                  )}
+                  <span className={`
+                    text-xs px-1.5 py-0.5 rounded-full
+                    ${ativa ? 'bg-gold/15 text-gold' : 'bg-ink-700 text-parchment/50'}
+                  `}>
+                    {aba.count}
+                  </span>
                 </button>
               );
             })}
@@ -759,16 +755,9 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
           </div>
         )}
 
-        {abaAtiva === 'lu' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-              <h2 className="text-lg font-bold text-parchment">Perguntar ao Lu</h2>
-              <span className="text-sm text-parchment/50">Restrito aos documentos deste caso e à legislação cadastrada</span>
-            </div>
-            <ChatLu casoId={casoId} analiseId={analiseId} user={user} />
-          </div>
-        )}
       </main>
+
+      <ChatLuFlutuante casoId={casoId} analiseId={analiseId} user={user} />
 
       <div className="no-print max-w-6xl mx-auto px-4 sm:px-6 pb-12">
         <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">
