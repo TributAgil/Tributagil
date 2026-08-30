@@ -11,9 +11,16 @@
 // Gemini — cujo teto de request é ~20 MB. Por isso ~12 MB de conteúdo.
 // (Para processos maiores, o caminho é a Files API do Gemini — pendente de
 //  ajuste de credencial.)
+//
+// IMPORTANTE: os 12 MB abaixo (total, PDF e imagem) precisam bater com
+// `MAX_BYTES_POR_DOC`/`MAX_BYTES_TOTAL` em api/gemini.js e api/indexar-caso.js
+// — antes a imagem entrava permitindo até 30 MB aqui, mas o backend já
+// rejeitava (HTTP 413) qualquer arquivo acima de 12 MB DEPOIS de já ter
+// descontado o crédito da análise. Deixando os dois lados tabelados em
+// 12 MB, o problema nem chega a acontecer: o upload já é barrado na tela.
 export const LIMITE_TOTAL_DOCS = 12 * 1024 * 1024; // 12 MB no total da análise
 export const MAX_PDF_BYTES = 12 * 1024 * 1024; // 12 MB por arquivo
-export const MAX_IMAGEM_BYTES = 30 * 1024 * 1024; // imagem entra maior e é comprimida
+export const MAX_IMAGEM_BYTES = 12 * 1024 * 1024; // 12 MB por arquivo (antes da compressão)
 
 const MAX_DIMENSAO_PX = 2600; // lado maior da imagem após a redução
 const QUALIDADE_JPEG = 0.75;

@@ -42,8 +42,12 @@ const TEMPERATURA_PADRAO = 0.3;             // GEMINI_TEMPERATURE
 const THINKING_LEVEL_PADRAO = 'high';       // GEMINI_THINKING_LEVEL: 'high' | 'low' | 'off'
 const TIMEOUT_GERACAO_MS = 280_000;
 const MAX_DOCS = 20;
+// Tabelado em 12 MB — igual ao teto do frontend (prepararDocumentos.js) e ao
+// de api/indexar-caso.js, pela mesma limitação de espaço/tempo de
+// processamento da IA. Mantendo os três alinhados, o backend não rejeita
+// (HTTP 413) um arquivo que a própria tela já deveria ter barrado no upload.
 const MAX_BYTES_POR_DOC = 12 * 1024 * 1024;
-const MAX_BYTES_TOTAL = 13 * 1024 * 1024; // base64 ~17 MB de request — abaixo do teto do Gemini
+const MAX_BYTES_TOTAL = 12 * 1024 * 1024;
 const BUCKET = 'documentos';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 

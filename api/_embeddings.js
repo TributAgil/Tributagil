@@ -51,3 +51,60 @@ export async function gerarEmbedding(texto) {
     await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
   }
 }
+
+// A API do Gemini aceita até 100 requests por chamada de :batchEmbedContents.
+const TAMANHO_LOTE = 100;
+
+/**
+ * Gera os embeddings de VÁRIOS textos numa (ou em poucas) chamada(s) ao
+ * Gemini, em vez de uma chamada por texto — é o que torna a indexação de um
+ * documento com dezenas de chunks viável dentro do teto de tempo de uma
+ * serverless function (menos round-trips = menos chance de estourar o
+ * `maxDuration` e menos pontos de falha parcial).
+ * @param {string[]} textos
+ * @returns {Promise<number[][]>} um vetor por texto, na MESMA ordem de entrada
+ */
+export async function gerarEmbeddingsLote(textos) {
+  if (!Array.isArray(textos) || textos.length === 0) return [];
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
+
+  const resultados = [];
+  for (let inicio = 0; inicio < textos.length; inicio += TAMANHO_LOTE) {
+    const lote = textos.slice(inicio, inicio + TAMANHO_LOTE);
+    const corpo = JSON.stringify({
+      requests: lote.map((texto) => ({
+        model: `models/${MODELO_EMBEDDING}`,
+        content: { parts: [{ text: String(texto || '').slice(0, 8000) }] },
+        outputDimensionality: DIMENSOES_EMBEDDING,
+      })),
+    });
+
+    const ESPERAS_MS = [1500];
+    for (let tentativa = 0; ; tentativa++) {
+      const resp = await fetch(
+        `${GEMINI}/v1beta/models/${MODELO_EMBEDDING}:batchEmbedContents?key=${encodeURIComponent(apiKey)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo },
+      );
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const embeddings = data?.embeddings;
+        if (!Array.isArray(embeddings) || embeddings.length !== lote.length) {
+          throw new Error('Resposta de batchEmbedContents com formato inesperado.');
+        }
+        resultados.push(...embeddings.map((e) => e.values));
+        break;
+      }
+
+      const transitorio = [429, 500, 503].includes(resp.status);
+      if (!transitorio || tentativa >= ESPERAS_MS.length) {
+        const detalhe = await resp.text().catch(() => '');
+        throw new Error(`Falha ao gerar embeddings em lote (HTTP ${resp.status}): ${detalhe.slice(0, 300)}`);
+      }
+      await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
+    }
+  }
+  return resultados;
+}

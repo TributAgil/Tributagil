@@ -7,6 +7,7 @@
 // Auth e todo o retrieval é escopado ao caso do próprio usuário.
 
 import { supabase, supabaseUrl, supabaseAnonKey } from './supabase';
+import { listarDocumentosCaso } from './casos';
 
 async function tokenDaSessao() {
   const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
@@ -35,22 +36,61 @@ export async function perguntarLu({ casoId, pergunta, historico = [] }) {
 }
 
 /**
- * Dispara (best-effort, sem bloquear a UI) a indexação de documentos de um
- * caso na base vetorial. Nunca lança — uma falha aqui não pode impedir o
- * usuário de ver o parecer ou seguir usando o app.
- * @param {{ casoId: string, documentos: Array<object> }} args
+ * Dispara a indexação de documentos de um caso na base vetorial.
+ *
+ * Por padrão (`manual: false`, o caso de uso normal — logo após salvar uma
+ * análise, ou ao confirmar um upload complementar) é "fire-and-forget": não
+ * lança, não bloqueia a UI, e usa `keepalive` para sobreviver a uma
+ * navegação rápida do usuário (o fetch normal seria abortado ao trocar de
+ * tela).
+ *
+ * Com `manual: true` (botão "Reindexar documentos" na aba do Lu) devolve o
+ * resultado para a UI dar feedback — seguro de chamar quantas vezes for
+ * preciso: a indexação é idempotente (documento já indexado é pulado sem
+ * gastar IA de novo).
+ *
+ * @param {{ casoId: string, documentos: Array<object>, manual?: boolean }} args
+ * @returns {Promise<{ok: boolean, chunks_indexados?: number, documentos_pulados?: number, error?: string} | undefined>}
  */
-export async function indexarCaso({ casoId, documentos }) {
-  if (!casoId || !Array.isArray(documentos) || documentos.length === 0) return;
+export async function indexarCaso({ casoId, documentos, manual = false }) {
+  if (!casoId || !Array.isArray(documentos) || documentos.length === 0) {
+    return manual ? { ok: false, error: 'Nenhum documento para indexar.' } : undefined;
+  }
+
   try {
     const userToken = await tokenDaSessao();
-    if (!userToken) return;
-    await fetch('/api/indexar-caso', {
+    if (!userToken) {
+      if (manual) throw new Error('Sessão expirada. Faça login novamente.');
+      return;
+    }
+
+    const resposta = await fetch('/api/indexar-caso', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ casoId, documentos, supabaseUrl, supabaseAnonKey, userToken }),
+      keepalive: true,
     });
+
+    if (!manual) return;
+
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) throw new Error(dados.error || 'Não foi possível indexar os documentos agora.');
+    return { ok: true, ...dados };
   } catch (err) {
-    console.warn('[lu] Falha ao indexar caso (best-effort, não bloqueia o usuário):', err);
+    console.warn('[lu] Falha ao indexar caso:', err);
+    if (manual) return { ok: false, error: err.message || 'Não foi possível indexar os documentos agora.' };
   }
+}
+
+/**
+ * Reindexação manual: busca TODOS os documentos já anexados ao caso e
+ * dispara a indexação de novo. Seguro/barato mesmo que a maioria já esteja
+ * indexada — cada documento já indexado é pulado sem gastar IA (ver
+ * api/indexar-caso.js).
+ * @param {string} casoId
+ */
+export async function reindexarCaso(casoId) {
+  const docs = await listarDocumentosCaso(casoId);
+  const documentos = docs.map((d) => ({ nome: d.nome, mime_type: d.mime_type, storage_path: d.storage_path }));
+  return indexarCaso({ casoId, documentos, manual: true });
 }

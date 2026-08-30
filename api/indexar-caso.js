@@ -5,23 +5,41 @@
 // "Lu" consulta, sempre escopada por `caso_id` (nunca mistura casos de
 // usuários diferentes).
 //
-// Disparado pelo frontend de forma "fire-and-forget" (best-effort, não
-// bloqueia a exibição do parecer) em dois momentos:
+// Desenho pensado para ser IDEMPOTENTE E RESUMÍVEL, adaptado ao que este
+// projeto já tem (Vercel serverless sem fila externa, Supabase, Gemini):
+//   1. Pula documento já indexado (`documentos_caso.indexado`) ANTES de
+//      gastar qualquer chamada de IA — reindexar (retry, clique duplicado,
+//      botão manual "Reindexar") é seguro e barato.
+//   2. Embeddings de TODOS os chunks de um documento numa única chamada a
+//      :batchEmbedContents, não uma por chunk.
+//   3. Gravação de todos os chunks de um documento numa única RPC, que só
+//      marca `indexado = true` depois de gravar — unidade atômica por
+//      documento; se falhar no meio, o documento continua "não indexado" e
+//      a próxima chamada tenta de novo do zero, sem estado parcial.
+//   4. Rede de segurança final: `unique (caso_id, storage_path, pagina,
+//      chunk_index)` + `on conflict do nothing` no banco — mesmo duas
+//      chamadas em paralelo não duplicam linha.
+//
+// Disparado pelo frontend de forma "fire-and-forget" com `keepalive: true`
+// (sobrevive a uma navegação rápida), em três momentos:
 //   1. Logo após a PRIMEIRA análise de um caso novo ser salva (todos os docs).
-//   2. Ao confirmar o upload de um documento COMPLEMENTAR numa reanálise
-//      (só o(s) arquivo(s) novo(s) — os antigos já foram indexados antes).
+//   2. Ao confirmar o upload de um documento COMPLEMENTAR numa reanálise.
+//   3. Manualmente, pelo botão "Reindexar documentos" na aba do Lu.
 //
 // Runtime: Node (mesmo runtime de api/gemini.js), reaproveita o padrão de
 // autenticação + leitura do Storage via RLS.
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
-import { gerarEmbedding } from './_embeddings.js';
+import { gerarEmbeddingsLote } from './_embeddings.js';
+import { chatbotLiberadoParaPerfil } from './_chatbot-acesso.js';
 
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 const BUCKET = 'documentos';
 const MAX_DOCS = 20;
+// Alinhado com api/gemini.js e com o teto real de processamento da IA
+// (inline_data ~20 MB de request) — ver README, "tabelado a 12 MB".
 const MAX_BYTES_POR_DOC = 12 * 1024 * 1024;
 const TAMANHO_CHUNK = 1500; // caracteres
 
@@ -31,6 +49,11 @@ const RL_JANELA_MS = 60_000;
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return json({ error: 'GEMINI_API_KEY não configurada.' }, 500);
+
+  const acesso = chatbotLiberadoParaPerfil();
+  if (!acesso.liberado) {
+    return json({ error: acesso.motivo || 'Indexação não disponível para este perfil.' }, 403);
+  }
 
   const rl = rateLimit(`indexar-caso:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) return json({ error: 'Muitas requisições. Aguarde um minuto.' }, 429);
@@ -54,7 +77,7 @@ export async function POST(request) {
     return json({ error: 'Sessão ou configuração do Supabase ausente.' }, 401);
   }
 
-  // ---- Autenticação + posse do caso (RLS garante que só o dono acessa) ----
+  // ---- Autenticação (RLS garante que só o dono acessa) --------------------
   try {
     const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
@@ -65,7 +88,14 @@ export async function POST(request) {
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
+  const headersSupabase = {
+    apikey: supabaseAnonKey,
+    Authorization: `Bearer ${userToken}`,
+    'Content-Type': 'application/json',
+  };
+
   let totalChunks = 0;
+  let pulados = 0;
   const erros = [];
 
   for (const doc of documentos) {
@@ -73,7 +103,14 @@ export async function POST(request) {
     if (!storagePath) continue;
 
     try {
-      // 1. Baixa o arquivo do Storage (respeitando RLS, como em api/gemini.js).
+      // 1. Pula se já indexado — não gasta NENHUMA chamada de IA neste caso.
+      const jaIndexado = await documentoJaIndexado({ supabaseUrl, headersSupabase, casoId, storagePath });
+      if (jaIndexado) {
+        pulados += 1;
+        continue;
+      }
+
+      // 2. Baixa o arquivo do Storage (respeitando RLS, como em api/gemini.js).
       const objetoUrl =
         `${supabaseUrl}/storage/v1/object/${BUCKET}/` +
         storagePath.split('/').map(encodeURIComponent).join('/');
@@ -86,45 +123,45 @@ export async function POST(request) {
       }
       const buffer = await arqResp.arrayBuffer();
       if (buffer.byteLength > MAX_BYTES_POR_DOC) {
-        erros.push(`${doc?.nome || storagePath}: excede o limite para indexação.`);
+        erros.push(`${doc?.nome || storagePath}: excede ${mb(MAX_BYTES_POR_DOC)} MB, não indexado.`);
         continue;
       }
       const mime = doc?.mime_type || arqResp.headers.get('content-type') || 'application/octet-stream';
 
-      // 2. Extrai o texto integral, página a página, via Gemini.
+      // 3. Extrai o texto integral, página a página, via Gemini.
       const paginas = await extrairPaginas({ apiKey, mime, base64: Buffer.from(buffer).toString('base64') });
 
-      // 3. Quebra cada página em chunks, gera embedding e grava via RPC
-      //    (SECURITY DEFINER — só grava no próprio caso do usuário chamador).
+      // 4. Quebra cada página em chunks (pagina + chunk_index, sem gerar embedding ainda).
+      const chunks = [];
       for (const pagina of paginas) {
-        const pedacos = quebrarEmChunks(pagina.texto, TAMANHO_CHUNK);
-        for (const pedaco of pedacos) {
-          if (!pedaco.trim()) continue;
-          const embedding = await gerarEmbedding(pedaco);
-          const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/inserir_documento_chunk`, {
-            method: 'POST',
-            headers: {
-              apikey: supabaseAnonKey,
-              Authorization: `Bearer ${userToken}`,
-              'Content-Type': 'application/json',
-              Prefer: 'return=minimal',
-            },
-            body: JSON.stringify({
-              p_caso_id: casoId,
-              p_documento_nome: doc?.nome || null,
-              p_storage_path: storagePath,
-              p_pagina: pagina.pagina,
-              p_conteudo: pedaco,
-              p_embedding: embedding,
-            }),
-          });
-          if (rpcResp.ok) {
-            totalChunks += 1;
-          } else {
-            const detalhe = await rpcResp.text().catch(() => '');
-            erros.push(`${doc?.nome || storagePath} (pág. ${pagina.pagina}): ${detalhe.slice(0, 200)}`);
-          }
-        }
+        quebrarEmChunks(pagina.texto, TAMANHO_CHUNK).forEach((conteudo, chunkIndex) => {
+          if (conteudo.trim()) chunks.push({ pagina: pagina.pagina, chunk_index: chunkIndex, conteudo });
+        });
+      }
+      if (chunks.length === 0) continue;
+
+      // 5. Embeddings de TODOS os chunks deste documento numa (ou poucas) chamada(s).
+      const embeddings = await gerarEmbeddingsLote(chunks.map((c) => c.conteudo));
+      const chunksComEmbedding = chunks.map((c, i) => ({ ...c, embedding: embeddings[i] }));
+
+      // 6. Grava tudo numa única RPC — atômico por documento, idempotente no banco.
+      const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/inserir_documento_chunks_lote`, {
+        method: 'POST',
+        headers: headersSupabase,
+        body: JSON.stringify({
+          p_caso_id: casoId,
+          p_storage_path: storagePath,
+          p_documento_nome: doc?.nome || null,
+          p_chunks: chunksComEmbedding,
+        }),
+      });
+
+      if (rpcResp.ok) {
+        const inseridos = await rpcResp.json().catch(() => 0);
+        totalChunks += Number(inseridos) || 0;
+      } else {
+        const detalhe = await rpcResp.text().catch(() => '');
+        erros.push(`${doc?.nome || storagePath}: ${detalhe.slice(0, 200)}`);
       }
     } catch (err) {
       console.error('[api/indexar-caso] Falha ao indexar documento:', doc?.nome, err);
@@ -132,7 +169,21 @@ export async function POST(request) {
     }
   }
 
-  return json({ ok: true, chunks_indexados: totalChunks, erros: erros.length ? erros : undefined }, 200);
+  return json(
+    { ok: true, chunks_indexados: totalChunks, documentos_pulados: pulados, erros: erros.length ? erros : undefined },
+    200,
+  );
+}
+
+/** Consulta `documentos_caso.indexado` para o par (caso, storage_path) — barato, sem IA. */
+async function documentoJaIndexado({ supabaseUrl, headersSupabase, casoId, storagePath }) {
+  const url =
+    `${supabaseUrl}/rest/v1/documentos_caso?select=indexado` +
+    `&caso_id=eq.${encodeURIComponent(casoId)}&storage_path=eq.${encodeURIComponent(storagePath)}&limit=1`;
+  const resp = await fetch(url, { headers: headersSupabase });
+  if (!resp.ok) return false; // migração pendente ou linha ainda não existe: segue e tenta indexar
+  const linhas = await resp.json().catch(() => []);
+  return Array.isArray(linhas) && linhas[0]?.indexado === true;
 }
 
 /**
@@ -206,6 +257,10 @@ function quebrarEmChunks(texto, tamanho) {
   }
   if (atual.trim()) chunks.push(atual.trim());
   return chunks;
+}
+
+function mb(bytes) {
+  return Math.round(bytes / (1024 * 1024));
 }
 
 function json(data, status) {

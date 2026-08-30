@@ -43,6 +43,7 @@ yarn dev
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
 | `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `text-embedding-004`, 768 dimensões) |
 | `LU_LIMIAR_SIMILARIDADE` | servidor | — | Limiar de similaridade (0–1) do Lu antes de responder "não sei" (padrão `0.6`) |
+| `LU_ALERTA_PERGUNTAS_POR_CASO` | servidor | — | Nº de perguntas num mesmo caso a partir do qual `/api/lu` loga um aviso (padrão `30`) — só observacional, não bloqueia |
 | `SUPABASE_SERVICE_ROLE_KEY` | só local | — | Usada apenas por `scripts/seed-legislacao.mjs`. Nunca configurar na Vercel |
 
 Na Vercel: **Project Settings → Environment Variables** (defina para Production,
@@ -277,7 +278,14 @@ create policy "documentos_caso: inserção própria" on public.documentos_caso f
 > análise) só roda para análises **sem** `caso_id` (fallback enquanto esta
 > migração não for aplicada). Uma vez migrado, os documentos de um caso só
 > saem do Storage pela exclusão total do histórico ("Excluir meus
-> dados/histórico", no Histórico).
+> dados/histórico", no Histórico) — que usa a RPC dedicada
+> `excluir_caso_completo` (seção "Chatbot Lu" abaixo, onde `documento_chunks`
+> é definida). Ela existe justamente porque `documentos_caso` e
+> `documento_chunks` são insert-only para o client (sem policy de
+> update/delete, de propósito, contra fraude) — sem essa RPC `SECURITY
+> DEFINER`, o "excluir meus dados" ficaria incapaz de apagar essas duas
+> tabelas, inclusive o TEXTO EXTRAÍDO dos documentos que fica em
+> `documento_chunks`.
 
 Sem essas tabelas, o app **não quebra**: a barra de créditos simplesmente não
 aparece, `/api/gemini` segue sem bloquear por créditos, e cada análise nova é
@@ -309,17 +317,23 @@ Rode no **SQL Editor** do Supabase (precisa da tabela `casos`, da seção
 ```sql
 create extension if not exists vector;
 
--- Chunks dos documentos de cada caso.
+-- Chunks dos documentos de cada caso. `chunk_index` é a posição do pedaço
+-- DENTRO da página (0, 1, 2...) — junto com (caso_id, storage_path, pagina)
+-- forma uma chave única que torna a indexação IDEMPOTENTE: reindexar o mesmo
+-- documento (retry de rede, chamada duplicada) nunca duplica linha, o
+-- `on conflict do nothing` da função abaixo absorve.
 create table if not exists public.documento_chunks (
   id             uuid primary key default gen_random_uuid(),
   caso_id        uuid not null references public.casos (id) on delete cascade,
   user_id        uuid not null references auth.users (id) on delete cascade,
   documento_nome text,
-  storage_path   text,
-  pagina         integer,
+  storage_path   text not null,
+  pagina         integer not null default 1,
+  chunk_index    integer not null default 0,
   conteudo       text not null,
   embedding      vector(768),
-  criado_em      timestamptz not null default now()
+  criado_em      timestamptz not null default now(),
+  unique (caso_id, storage_path, pagina, chunk_index)
 );
 
 alter table public.documento_chunks enable row level security;
@@ -330,23 +344,55 @@ create policy "documento_chunks: leitura própria" on public.documento_chunks fo
 create index if not exists documento_chunks_embedding_idx
   on public.documento_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 
-create or replace function public.inserir_documento_chunk(
-  p_caso_id uuid, p_documento_nome text, p_storage_path text,
-  p_pagina integer, p_conteudo text, p_embedding vector(768)
-) returns void
+-- Marcadores de indexação no PRÓPRIO `documentos_caso` — permite pular um
+-- documento já indexado ANTES de gastar qualquer chamada de IA (extração +
+-- embeddings), em vez de só evitar duplicata depois de já ter pago o custo.
+alter table public.documentos_caso
+  add column if not exists indexado boolean not null default false,
+  add column if not exists chunks_gerados integer not null default 0,
+  add column if not exists indexado_em timestamptz;
+
+-- Grava TODOS os chunks de um documento em uma única chamada (em vez de uma
+-- RPC por chunk) e marca o documento como indexado — unidade atômica: ou o
+-- documento fica com todos os seus chunks, ou (se a função falhar no meio)
+-- fica não-indexado e uma futura chamada tenta de novo do zero (idempotente
+-- via unique + on conflict).
+-- p_chunks: jsonb no formato [{"pagina":1,"chunk_index":0,"conteudo":"...","embedding":[0.1,...]}, ...]
+create or replace function public.inserir_documento_chunks_lote(
+  p_caso_id uuid, p_storage_path text, p_documento_nome text, p_chunks jsonb
+) returns integer
 language plpgsql security definer set search_path = public as $$
 declare
   v_user_id uuid := auth.uid();
+  v_inseridos integer;
 begin
   if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
   if not exists (select 1 from public.casos where id = p_caso_id and user_id = v_user_id) then
     raise exception 'CASO_NAO_ENCONTRADO';
   end if;
-  insert into public.documento_chunks (caso_id, user_id, documento_nome, storage_path, pagina, conteudo, embedding)
-  values (p_caso_id, v_user_id, p_documento_nome, p_storage_path, p_pagina, p_conteudo, p_embedding);
+
+  insert into public.documento_chunks (caso_id, user_id, documento_nome, storage_path, pagina, chunk_index, conteudo, embedding)
+  select
+    p_caso_id, v_user_id, p_documento_nome, p_storage_path,
+    (c ->> 'pagina')::integer,
+    (c ->> 'chunk_index')::integer,
+    c ->> 'conteudo',
+    (c ->> 'embedding')::vector(768)
+  from jsonb_array_elements(p_chunks) as c
+  on conflict (caso_id, storage_path, pagina, chunk_index) do nothing;
+
+  get diagnostics v_inseridos = row_count;
+
+  -- Só atualiza os metadados de indexação (nunca nome/storage_path/categoria
+  -- — essas colunas continuam imutáveis, preservando a garantia antifraude).
+  update public.documentos_caso
+     set indexado = true, chunks_gerados = coalesce(chunks_gerados, 0) + v_inseridos, indexado_em = now()
+   where caso_id = p_caso_id and user_id = v_user_id and storage_path = p_storage_path;
+
+  return v_inseridos;
 end;
 $$;
-grant execute on function public.inserir_documento_chunk to authenticated;
+grant execute on function public.inserir_documento_chunks_lote(uuid, text, text, jsonb) to authenticated;
 
 create or replace function public.buscar_documento_chunks(
   p_caso_id uuid, p_query_embedding vector(768), p_limite integer default 6
@@ -395,6 +441,67 @@ language sql stable as $$
   limit p_limite;
 $$;
 grant execute on function public.buscar_legislacao_chunks to authenticated;
+
+-- Contador de uso (só observacional — NÃO bloqueia; ver seção "Custo do Lu"
+-- abaixo). Incrementado a cada pergunta enviada, best-effort, por /api/lu.
+alter table public.casos add column if not exists perguntas_lu integer not null default 0;
+
+create or replace function public.registrar_pergunta_lu(p_caso_id uuid)
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_total integer;
+begin
+  if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
+  update public.casos set perguntas_lu = perguntas_lu + 1
+   where id = p_caso_id and user_id = v_user_id
+   returning perguntas_lu into v_total;
+  if v_total is null then raise exception 'CASO_NAO_ENCONTRADO'; end if;
+  return v_total;
+end;
+$$;
+grant execute on function public.registrar_pergunta_lu(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Exclusão completa de um caso (LGPD — "direito ao esquecimento").
+--
+-- `documentos_caso` e `documento_chunks` são de propósito INSERT-ONLY para o
+-- client (sem policy de UPDATE/DELETE) — é o que garante que ninguém apaga
+-- documento pra forçar reprocessamento grátis (ver seção "Créditos..."
+-- acima). Só que isso também bloqueia o cliente de cumprir o "excluir meus
+-- dados" para essas duas tabelas. Esta função SECURITY DEFINER é a ÚNICA
+-- porta para apagar um caso por inteiro — e só apaga o caso do PRÓPRIO
+-- usuário chamador. Devolve os `storage_path` para o backend/cliente apagar
+-- do Storage em seguida (apagar Storage não dá pra fazer de dentro do
+-- Postgres).
+-- ---------------------------------------------------------------------------
+create or replace function public.excluir_caso_completo(p_caso_id uuid)
+returns table (storage_paths text[])
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_paths text[];
+begin
+  if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
+  if not exists (select 1 from public.casos where id = p_caso_id and user_id = v_user_id) then
+    raise exception 'CASO_NAO_ENCONTRADO';
+  end if;
+
+  select coalesce(array_agg(distinct dc.storage_path), '{}')
+    into v_paths
+    from public.documentos_caso dc
+   where dc.caso_id = p_caso_id and dc.user_id = v_user_id;
+
+  delete from public.documento_chunks where caso_id = p_caso_id and user_id = v_user_id;
+  delete from public.documentos_caso  where caso_id = p_caso_id and user_id = v_user_id;
+  delete from public.analises         where caso_id = p_caso_id and user_id = v_user_id;
+  delete from public.casos            where id = p_caso_id and user_id = v_user_id;
+
+  return query select v_paths;
+end;
+$$;
+grant execute on function public.excluir_caso_completo(uuid) to authenticated;
 ```
 
 ### 2. Popular a base de legislação (uma vez)
@@ -413,15 +520,74 @@ nenhuma variável com prefixo `VITE_`. Rode de novo sempre que o corpus em
 
 ### 3. Como funciona em produção
 
-- `/api/indexar-caso` roda em segundo plano (fire-and-forget, não bloqueia a
-  tela do parecer) logo após a primeira análise de um caso ser salva, e de
-  novo — só para o(s) arquivo(s) novo(s) — quando um documento complementar é
-  confirmado numa reanálise.
+- `/api/indexar-caso` roda em segundo plano (fire-and-forget, `keepalive` —
+  sobrevive a uma navegação rápida do usuário) logo após a primeira análise
+  de um caso ser salva, e de novo — só para o(s) arquivo(s) novo(s) — quando
+  um documento complementar é confirmado numa reanálise.
+- **Indexação idempotente e resumível** (ver seção "Indexação" abaixo): pode
+  ser chamada quantas vezes for preciso para o mesmo documento sem duplicar
+  nada nem gastar Gemini à toa — inclusive existe um botão "Reindexar
+  documentos" na aba do Lu para o usuário disparar manualmente se desconfiar
+  que a indexação automática não rodou.
 - `/api/lu` recebe a pergunta, gera o embedding, busca nas duas bases (RPCs
   acima), e só chama o Gemini se houver contexto com similaridade ≥
   `LU_LIMIAR_SIMILARIDADE` (padrão 0.6) em pelo menos uma delas.
 - Sem as tabelas/funções acima (migração pendente), o Lu simplesmente sempre
   responde "não sei" em vez de quebrar — nada no resto do app depende delas.
+
+### 4. Indexação: idempotente, resumível e em lote
+
+Reescrita para não repetir os dois problemas do desenho anterior — reindexar
+duplicava chunks, e uma chamada por chunk (extração → N embeddings → N
+inserts) deixava o processo frágil contra o teto de 300s da function e
+qualquer falha parcial:
+
+1. **Pula documento já indexado** — antes de gastar qualquer chamada de IA,
+   `/api/indexar-caso` consulta `documentos_caso.indexado` para aquele
+   `storage_path`. Se já é `true`, nem baixa o arquivo. Isso é o que torna
+   uma reindexação manual (ou uma chamada duplicada por retry de rede) barata
+   e segura de rodar de novo.
+2. **Embeddings em lote** — todos os chunks de um documento são embedados em
+   UMA chamada a `:batchEmbedContents` (endpoint de lote do Gemini), em vez
+   de uma chamada por chunk. Menos round-trips, menos chance de a function
+   estourar o `maxDuration` no meio do processo.
+3. **Gravação em lote e atômica** — todos os chunks de um documento são
+   inseridos numa única chamada à RPC `inserir_documento_chunks_lote`, que
+   também marca `indexado = true` só depois de gravar. Ou o documento fica
+   com todos os seus chunks, ou (se algo falhar no meio) continua marcado
+   como não-indexado — a próxima chamada tenta de novo do zero para aquele
+   documento, sem estado parcial para depurar.
+4. **Dedup garantido no banco** — a constraint `unique (caso_id,
+   storage_path, pagina, chunk_index)` + `on conflict do nothing` é a rede de
+   segurança final: mesmo que duas chamadas rodem em paralelo (corrida, dois
+   cliques), nunca duplica linha.
+
+### 5. Custo do Lu — sem teto por enquanto, com um número de referência
+
+O Lu está liberado sem checagem de crédito/plano enquanto a segmentação de
+perfis é desenvolvida em branch isolada (decisão explícita — ver instruções
+do chatbot). Isso é um ponto cego real de custo (créditos travam
+`/api/gemini`, mas nada trava `/api/lu`), então:
+
+- **Cada pergunta custa 1 chamada de embedding + 1 de geração de texto ao
+  Gemini** — pequena perto de uma análise completa (que embute documentos
+  inteiros), mas não é grátis.
+- `casos.perguntas_lu` conta perguntas por caso, incrementado (best-effort,
+  nunca bloqueia) a cada chamada a `/api/lu`. Puramente observacional — dá
+  para consultar no SQL Editor (`select perguntas_lu from casos order by
+  perguntas_lu desc limit 20`) para ver o uso real antes de decidir um teto.
+- `/api/lu` loga um aviso no servidor quando um caso ultrapassa
+  `LU_ALERTA_PERGUNTAS_POR_CASO` perguntas (padrão **30** — número de
+  referência para planejamento, não um limite técnico): uso normal de um
+  advogado revisando um parecer costuma ficar na casa de 3 a 15 perguntas por
+  caso; a partir de ~30 no mesmo caso já vale olhar se é uso legítimo
+  (processo complexo, várias sessões) ou abuso/loop. Ajuste esse número
+  observando `perguntas_lu` reais antes de transformá-lo num bloqueio.
+- **Ponto único para religar um teto/plano depois:** tanto `/api/lu.js`
+  quanto `/api/indexar-caso.js` passam por `chatbotLiberadoParaPerfil()` em
+  `api/_chatbot-acesso.js`, que hoje sempre libera. Quando a segmentação de
+  planos existir (ex.: plano "com chatbot" x "sem chatbot"), o corte entra
+  só ali — nenhum outro lugar do código precisa mudar.
 
 ## Storage — bucket `documentos`
 

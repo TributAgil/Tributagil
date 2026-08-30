@@ -128,3 +128,34 @@ export async function listarVersoesCaso(casoId) {
     return [];
   }
 }
+
+/**
+ * Exclusão completa de um caso — LGPD ("direito ao esquecimento").
+ *
+ * `documentos_caso` e `documento_chunks` são insert-only para o cliente (sem
+ * policy de update/delete, de propósito, contra fraude — ver README). Por
+ * isso essa exclusão só é possível através da RPC `excluir_caso_completo`
+ * (SECURITY DEFINER): é a ÚNICA via que consegue apagar essas duas tabelas,
+ * e só apaga o caso do PRÓPRIO usuário chamador. Ela também apaga `casos` e
+ * TODAS as versões em `analises` daquele caso, e devolve os `storage_path`
+ * para o chamador remover do Storage em seguida (isso o Postgres não faz
+ * sozinho).
+ * @returns {Promise<{ ok: boolean, storagePaths: string[] }>}
+ */
+export async function excluirCasoCompleto(casoId) {
+  if (!casoId) return { ok: false, storagePaths: [] };
+  try {
+    const { data, error } = await supabase.rpc('excluir_caso_completo', { p_caso_id: casoId });
+    if (error) {
+      console.error('[casos] Falha ao excluir caso completo:', error.message);
+      return { ok: false, storagePaths: [] };
+    }
+    // `returns table (storage_paths text[])` -> supabase-js devolve uma
+    // única linha num array: [{ storage_paths: [...] }].
+    const storagePaths = data?.[0]?.storage_paths ?? [];
+    return { ok: true, storagePaths: Array.isArray(storagePaths) ? storagePaths : [] };
+  } catch (err) {
+    console.error('[casos] Erro inesperado ao excluir caso completo:', err);
+    return { ok: false, storagePaths: [] };
+  }
+}

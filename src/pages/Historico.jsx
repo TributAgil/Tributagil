@@ -26,6 +26,8 @@ import {
   caminhosDocumentos,
   exportarHistorico,
 } from '../lib/analises';
+import { excluirCasoCompleto } from '../lib/casos';
+import { removerDocumentos } from '../lib/storageDocumentos';
 import RodapeLegal from '../components/RodapeLegal';
 
 // ============================================
@@ -347,8 +349,22 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
         mostrarToast('Não foi possível excluir agora.', 'info');
       }
     } else {
-      // Exclusão total: remove documentos + registro, uma a uma (best-effort).
-      await Promise.all(analises.map((a) => excluirAnalise(a.id, caminhosDocumentos(a))));
+      // Exclusão total (LGPD): agrupa por caso. `casos`, `documentos_caso` e
+      // `documento_chunks` são insert-only para o cliente (proteção
+      // antifraude — ver README) — a RPC `excluir_caso_completo` é a única
+      // via que consegue apagá-las, e apaga o caso inteiro (todas as
+      // versões) numa tacada só. Itens legados sem `caso_id` (anteriores a
+      // essa migração) seguem pelo caminho antigo, item a item.
+      const casoIds = [...new Set(analises.map((a) => a.caso_id).filter(Boolean))];
+      const semCaso = analises.filter((a) => !a.caso_id);
+
+      await Promise.all([
+        ...casoIds.map(async (casoId) => {
+          const { ok, storagePaths } = await excluirCasoCompleto(casoId);
+          if (ok && storagePaths.length > 0) await removerDocumentos(storagePaths);
+        }),
+        ...semCaso.map((a) => excluirAnalise(a.id, caminhosDocumentos(a))),
+      ]);
       setAnalises([]);
       mostrarToast('Todos os seus dados e documentos foram excluídos.', 'info');
     }

@@ -14,6 +14,7 @@
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { gerarEmbedding } from './_embeddings.js';
+import { chatbotLiberadoParaPerfil } from './_chatbot-acesso.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -28,6 +29,10 @@ const K_LEGISLACAO = 6;
 // Ponto de partida deliberadamente básico — ajuste fino fica para depois de
 // observar o comportamento real (decisão confirmada por Luan).
 const LIMIAR_SIMILARIDADE = Number.parseFloat(process.env.LU_LIMIAR_SIMILARIDADE ?? '0.6');
+// Sem teto de custo por enquanto (decisão explícita, em processo de análise e
+// adaptação) — este número é só um alerta observacional no log do servidor,
+// nunca bloqueia uma pergunta. Ver README, "Custo do Lu".
+const ALERTA_PERGUNTAS_POR_CASO = Number.parseInt(process.env.LU_ALERTA_PERGUNTAS_POR_CASO ?? '30', 10);
 const RESPOSTA_NAO_SEI =
   'Não encontrei essa informação nos documentos deste caso nem na base de legislação cadastrada. ' +
   'Não vou inferir ou complementar — confira diretamente nos autos ou reformule a pergunta.';
@@ -48,6 +53,11 @@ REGRAS INEGOCIÁVEIS:
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return json({ error: 'GEMINI_API_KEY não configurada.' }, 500);
+
+  const acesso = chatbotLiberadoParaPerfil();
+  if (!acesso.liberado) {
+    return json({ error: acesso.motivo || 'O Lu não está disponível para o seu plano.' }, 403);
+  }
 
   const rl = rateLimit(`lu:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) {
@@ -83,6 +93,17 @@ export async function POST(request) {
   } catch (err) {
     console.error('[api/lu] Falha ao validar sessão:', err);
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
+  }
+
+  // ---- Contador de uso (best-effort, só observacional — nunca bloqueia) --
+  // Sem teto de custo por ora; o alerta é só para guiar quando um teto fizer
+  // sentido (ver README, "Custo do Lu"). `await`ado (não é fire-and-forget)
+  // porque uma function serverless pode ser encerrada assim que a resposta
+  // sai — uma promise solta correria o risco de nunca terminar de gravar.
+  try {
+    await registrarUso({ supabaseUrl, supabaseAnonKey, userToken, casoId });
+  } catch (err) {
+    console.warn('[api/lu] Falha ao registrar uso (não bloqueia a pergunta):', err.message);
   }
 
   // ---- Retrieval (embedding da pergunta + busca nas duas bases) --------
@@ -206,4 +227,28 @@ function json(data, status) {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
+}
+
+/**
+ * Incrementa `casos.perguntas_lu` via RPC e loga um aviso (só no servidor)
+ * quando o caso ultrapassa `ALERTA_PERGUNTAS_POR_CASO`. Puramente
+ * observacional: uma falha aqui (migração pendente, RPC ausente) nunca deve
+ * impedir a pergunta de ser respondida — o chamador já trata isso com
+ * try/catch.
+ */
+async function registrarUso({ supabaseUrl, supabaseAnonKey, userToken, casoId }) {
+  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/registrar_pergunta_lu`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_caso_id: casoId }),
+  });
+  if (!resp.ok) return; // migração pendente — silencioso, não é um erro real
+  const total = await resp.json().catch(() => null);
+  if (Number.isFinite(total) && total === ALERTA_PERGUNTAS_POR_CASO) {
+    console.warn(`[api/lu] Caso ${casoId} passou de ${ALERTA_PERGUNTAS_POR_CASO} perguntas ao Lu — vale checar uso.`);
+  }
 }

@@ -5,8 +5,8 @@
 // que o parecer é emitido e salvo (precisa de um `casoId`).
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle } from 'lucide-react';
-import { perguntarLu } from '../lib/lu';
+import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { perguntarLu, reindexarCaso } from '../lib/lu';
 
 const SUGESTOES = [
   'A prescrição intercorrente já está consumada neste caso?',
@@ -50,6 +50,8 @@ export default function ChatLu({ casoId }) {
   const [pergunta, setPergunta] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState(null);
+  const [reindexando, setReindexando] = useState(false);
+  const [reindexOk, setReindexOk] = useState(null); // resultado da última reindexação manual
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -82,6 +84,15 @@ export default function ChatLu({ casoId }) {
     enviar();
   };
 
+  const handleReindexar = async () => {
+    if (reindexando || !casoId) return;
+    setReindexando(true);
+    setReindexOk(null);
+    const resultado = await reindexarCaso(casoId);
+    setReindexando(false);
+    setReindexOk(resultado);
+  };
+
   if (!casoId) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-line bg-ink-800/30 px-8 py-14 text-center">
@@ -96,15 +107,40 @@ export default function ChatLu({ casoId }) {
 
   return (
     <div className="flex flex-col rounded-xl border border-line bg-ink-800/50">
-      <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
-        <div className="grid h-8 w-8 place-items-center rounded-lg bg-gold/15">
-          <Sparkles size={15} className="text-gold" />
+      <div className="flex items-center justify-between gap-2.5 border-b border-line px-5 py-3.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-gold/15">
+            <Sparkles size={15} className="text-gold" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-parchment">Lu — assistente jurídico</p>
+            <p className="text-xs text-parchment/40">Responde só com base neste caso e na legislação cadastrada</p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-parchment">Lu — assistente jurídico</p>
-          <p className="text-xs text-parchment/40">Responde só com base neste caso e na legislação cadastrada</p>
-        </div>
+        <button
+          type="button"
+          onClick={handleReindexar}
+          disabled={reindexando}
+          title="Se o Lu não estiver encontrando um documento que você já anexou, tente reindexar — seguro de repetir, documentos já indexados são pulados"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-parchment/50 transition-colors hover:border-gold/30 hover:text-parchment/80 disabled:opacity-50"
+        >
+          {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          <span className="hidden sm:inline">Reindexar documentos</span>
+        </button>
       </div>
+
+      {reindexOk && (
+        <div
+          className={`flex items-center gap-2 border-b border-line px-5 py-2 text-xs ${
+            reindexOk.ok ? 'text-gold' : 'text-red-300'
+          }`}
+        >
+          {reindexOk.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+          {reindexOk.ok
+            ? `Documentos reindexados: ${reindexOk.chunks_indexados ?? 0} trecho(s) novo(s), ${reindexOk.documentos_pulados ?? 0} já estava(m) em dia.`
+            : reindexOk.error || 'Não foi possível reindexar agora.'}
+        </div>
+      )}
 
       <div className="flex max-h-[28rem] min-h-[16rem] flex-col gap-4 overflow-y-auto px-5 py-4">
         {mensagens.length === 0 && (
