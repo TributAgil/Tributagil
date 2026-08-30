@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import ChatLuFlutuante from '../components/ChatLuFlutuante';
+import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
 
@@ -523,6 +524,10 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               >
                 <ArrowLeft size={20} />
               </button>
+
+              <Logo size="md" showWordmark={false} className="shrink-0" />
+              <span className="hidden h-11 w-px shrink-0 bg-line sm:block" aria-hidden="true" />
+
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl font-bold text-parchment truncate flex items-center gap-2">
                   Resultado da Análise
