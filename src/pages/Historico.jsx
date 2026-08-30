@@ -27,6 +27,7 @@ import {
   exportarHistorico,
 } from '../lib/analises';
 import { excluirCasoCompleto } from '../lib/casos';
+import Logo from '../components/Logo';
 import { removerDocumentos } from '../lib/storageDocumentos';
 import RodapeLegal from '../components/RodapeLegal';
 
@@ -387,11 +388,17 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
 
       <header className="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
+          {/* Marca + fio vertical + contexto da pagina: a logo ancora o
+              cabecalho, o titulo diz onde voce esta dentro dela. */}
+          <div className="flex min-w-0 items-center gap-4">
+            <Logo size="md" showWordmark={false} />
+            <span className="hidden h-11 w-px shrink-0 bg-line sm:block" aria-hidden="true" />
+            <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-bold text-parchment">Histórico de Resultados</h1>
             <p className="text-sm text-parchment/50 truncate">
               {user?.email ? user.email : 'Suas análises tributárias concluídas'}
             </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

@@ -9,6 +9,7 @@ import { uploadDocumento, removerDocumentos } from '../lib/storageDocumentos';
 import { listarDocumentosCaso, registrarDocumentoCaso } from '../lib/casos';
 import { indexarCaso } from '../lib/lu';
 import RodapeLegal from '../components/RodapeLegal';
+import Logo from '../components/Logo';
 
 const AREA_CONFIG = {
   principal: {
@@ -238,7 +239,11 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar, casoExistente = null })
           >
             <ArrowLeft size={18} />
           </button>
-          <div>
+
+          <Logo size="md" showWordmark={false} className="shrink-0" />
+          <span className="hidden h-11 w-px shrink-0 bg-line sm:block" aria-hidden="true" />
+
+          <div className="min-w-0">
             <h1 className="font-display text-xl font-semibold text-parchment flex items-center gap-2">
               {emReanalise ? (
                 <>
