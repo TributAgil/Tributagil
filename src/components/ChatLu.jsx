@@ -16,10 +16,33 @@ import { buscarPerguntasLuDisponiveis } from '../lib/casos';
 
 const LIMITE_PERGUNTAS = 10;
 
-const SUGESTOES = [
-  'A prescrição intercorrente já está consumada neste caso?',
-  'Qual o fundamento legal para arguir decadência aqui?',
-  'Que instrumento processual você recomenda para esta conclusão?',
+// Sugestões pré-montadas, restritas a 3 frentes de uso real do advogado
+// tributarista (sem viés didático — o público já domina o protocolo do
+// direito tributário): fundamentação legal, estratégia processual e
+// conferência de dados. Cada clique consome 1 das 10 perguntas do caso,
+// então o critério de inclusão é "vale o crédito", não cobertura ampla.
+const SUGESTOES_POR_CATEGORIA = [
+  {
+    categoria: 'Fundamentação legal',
+    perguntas: [
+      'Qual o fundamento legal exato da conclusão mais favorável deste parecer?',
+      'Essa decadência se enquadra no art. 150, §4º ou no art. 173, I do CTN — e por quê?',
+    ],
+  },
+  {
+    categoria: 'Estratégia processual',
+    perguntas: [
+      'Entre exceção de pré-executividade e embargos, qual você recomenda aqui e por quê?',
+      'Quais são os próximos passos recomendados para este caso?',
+    ],
+  },
+  {
+    categoria: 'Conferência de dados',
+    perguntas: [
+      'Existe alguma data usada no cálculo que ainda precisa ser confirmada nos documentos?',
+      'Em que documento consta a data de citação do executado?',
+    ],
+  },
 ];
 
 function FontesConsultadas({ fontes }) {
@@ -204,23 +227,30 @@ export default function ChatLu({ casoId }) {
 
       <div className="flex max-h-[28rem] min-h-[16rem] flex-col gap-4 overflow-y-auto px-5 py-4">
         {mensagens.length === 0 && !limiteAtingido && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-sm text-parchment/50">
               Pergunte sobre os documentos deste caso ou sobre a legislação de prescrição/decadência
               aplicada no parecer.
             </p>
-            <div className="flex flex-col gap-2">
-              {SUGESTOES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => enviar(s)}
-                  className="rounded-lg border border-line bg-ink-900/50 px-3 py-2 text-left text-xs text-parchment/60 transition-colors hover:border-gold/30 hover:text-parchment/85"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            {SUGESTOES_POR_CATEGORIA.map((grupo) => (
+              <div key={grupo.categoria}>
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-parchment/35">
+                  {grupo.categoria}
+                </p>
+                <div className="flex flex-col gap-2">
+                  {grupo.perguntas.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => enviar(s)}
+                      className="rounded-lg border border-line bg-ink-900/50 px-3 py-2 text-left text-xs text-parchment/60 transition-colors hover:border-gold/30 hover:text-parchment/85"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
