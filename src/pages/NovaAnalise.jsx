@@ -51,6 +51,7 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar, casoExistente = null })
   const [confirmacaoPendente, setConfirmacaoPendente] = useState(null); // { areaId, novosArquivos }
   const [saldoCreditos, setSaldoCreditos] = useState(null); // null = desconhecido (não bloqueia)
   const analiseIdRef = useRef(novoId());
+  const confirmandoUploadRef = useRef(false);
 
   useEffect(() => {
     const on = () => setIsDraggingGlobal(true);
@@ -154,11 +155,22 @@ const NovaAnalise = ({ user, onIniciarAnalise, onVoltar, casoExistente = null })
   };
 
   const confirmarAdicaoComplementar = () => {
+    // Guarda por ref (não por state): um duplo clique/toque antes do modal
+    // desmontar chamaria este handler duas vezes com o MESMO `confirmacaoPendente`
+    // (state ainda não re-renderizou) — sem isso, o mesmo arquivo seria
+    // registrado duas vezes em `documentos_caso` (a tabela não tem unique
+    // constraint em storage_path, e a ledger é insert-only por design).
+    if (confirmandoUploadRef.current) return;
+    confirmandoUploadRef.current = true;
+
     const pendentes = confirmacaoPendente;
     setConfirmacaoPendente(null);
-    if (!pendentes) return;
-    setArquivos((prev) => [...prev, ...pendentes.novosArquivos]);
-    enviarParaStorage(pendentes.novosArquivos, { registrarNoCaso: true });
+    if (pendentes) {
+      setArquivos((prev) => [...prev, ...pendentes.novosArquivos]);
+      enviarParaStorage(pendentes.novosArquivos, { registrarNoCaso: true });
+    }
+
+    confirmandoUploadRef.current = false;
   };
 
   const cancelarAdicaoComplementar = () => setConfirmacaoPendente(null);

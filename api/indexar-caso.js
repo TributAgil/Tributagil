@@ -138,13 +138,23 @@ export async function POST(request) {
           if (conteudo.trim()) chunks.push({ pagina: pagina.pagina, chunk_index: chunkIndex, conteudo });
         });
       }
-      if (chunks.length === 0) continue;
 
       // 5. Embeddings de TODOS os chunks deste documento numa (ou poucas) chamada(s).
-      const embeddings = await gerarEmbeddingsLote(chunks.map((c) => c.conteudo));
-      const chunksComEmbedding = chunks.map((c, i) => ({ ...c, embedding: embeddings[i] }));
+      //    Documento sem texto extraível (em branco/ilegível): `chunks` fica
+      //    vazio e simplesmente pulamos a etapa de embedding — a gravação
+      //    (passo 6) roda igual, com lista vazia, e a RPC ainda assim marca
+      //    `indexado = true`. Sem isso, um documento assim seria retentado
+      //    (gastando extração de novo) a cada indexação futura, para sempre.
+      let chunksParaGravar = [];
+      if (chunks.length > 0) {
+        const embeddings = await gerarEmbeddingsLote(chunks.map((c) => c.conteudo));
+        chunksParaGravar = chunks.map((c, i) => ({ ...c, embedding: embeddings[i] }));
+      } else {
+        erros.push(`${doc?.nome || storagePath}: nenhum texto extraído (documento em branco ou ilegível?) — não será tentado de novo.`);
+      }
 
-      // 6. Grava tudo numa única RPC — atômico por documento, idempotente no banco.
+      // 6. Grava tudo numa única RPC — atômico por documento, idempotente no
+      //    banco. Com lista vazia, só marca `indexado = true` (0 chunks).
       const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/inserir_documento_chunks_lote`, {
         method: 'POST',
         headers: headersSupabase,
@@ -152,7 +162,7 @@ export async function POST(request) {
           p_caso_id: casoId,
           p_storage_path: storagePath,
           p_documento_nome: doc?.nome || null,
-          p_chunks: chunksComEmbedding,
+          p_chunks: chunksParaGravar,
         }),
       });
 

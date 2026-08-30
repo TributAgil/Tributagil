@@ -280,11 +280,17 @@ async function decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, c
       const restantes = await resp.json().catch(() => null);
       return Number.isFinite(restantes) ? restantes : disponiveisAntes;
     }
-    // 'LIMITE_ATINGIDO' (corrida rara: duas perguntas simultâneas no mesmo
-    // caso) ou migração pendente — loga e cai na estimativa abaixo.
-    console.warn('[api/lu] Falha ao descontar pergunta:', await resp.text().catch(() => ''));
+    const detalhe = await resp.text().catch(() => '');
+    console.warn('[api/lu] Falha ao descontar pergunta:', detalhe);
+    // Se o RPC diz explicitamente que a cota já estava zerada (corrida rara:
+    // a checagem inicial não leu direito e só o decremento atômico pegou o
+    // 0 real), devolve 0 de verdade — nunca `disponiveisAntes` aqui, senão
+    // o frontend acha que ainda há margem e deixa perguntar de novo.
+    if (/LIMITE_ATINGIDO/i.test(detalhe)) return 0;
   } catch (err) {
     console.warn('[api/lu] Erro de rede ao descontar pergunta:', err.message);
   }
+  // Migração pendente ou falha de rede (não é "limite atingido"): estimativa
+  // best-effort a partir do que já sabíamos antes da pergunta.
   return disponiveisAntes !== null ? Math.max(0, disponiveisAntes - 1) : null;
 }
