@@ -10,6 +10,12 @@
 // bases, devolve um "não sei" explícito SEM chamar o modelo de geração —
 // garante o comportamento por código, não só por prompt.
 //
+// Cota: cada CASO (não cada versão) tem direito a 10 perguntas ao Lu
+// (`casos.perguntas_lu_disponiveis`). Só uma pergunta RESPONDIDA COM
+// SUCESSO desconta da cota — um "não sei" por falta de contexto ou
+// qualquer erro do sistema não descontam (o decremento só acontece no fim
+// do caminho feliz, depois de já ter gerado a resposta).
+//
 // Runtime: Node (mesmo padrão de autenticação de api/gemini.js).
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
@@ -29,13 +35,12 @@ const K_LEGISLACAO = 6;
 // Ponto de partida deliberadamente básico — ajuste fino fica para depois de
 // observar o comportamento real (decisão confirmada por Luan).
 const LIMIAR_SIMILARIDADE = Number.parseFloat(process.env.LU_LIMIAR_SIMILARIDADE ?? '0.6');
-// Sem teto de custo por enquanto (decisão explícita, em processo de análise e
-// adaptação) — este número é só um alerta observacional no log do servidor,
-// nunca bloqueia uma pergunta. Ver README, "Custo do Lu".
-const ALERTA_PERGUNTAS_POR_CASO = Number.parseInt(process.env.LU_ALERTA_PERGUNTAS_POR_CASO ?? '30', 10);
 const RESPOSTA_NAO_SEI =
   'Não encontrei essa informação nos documentos deste caso nem na base de legislação cadastrada. ' +
   'Não vou inferir ou complementar — confira diretamente nos autos ou reformule a pergunta.';
+const RESPOSTA_LIMITE_ATINGIDO =
+  'Você já usou as 10 perguntas disponíveis para este caso. Para continuar investigando, reveja o ' +
+  'parecer e os documentos diretamente, ou inicie uma nova análise (um caso novo tem outras 10 perguntas).';
 
 const SYSTEM_LU = `Você é Lu, o assistente jurídico do TributÁgil. Trate o usuário com cordialidade profissional, no tratamento masculino ao se referir a si mesmo.
 
@@ -95,15 +100,13 @@ export async function POST(request) {
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
-  // ---- Contador de uso (best-effort, só observacional — nunca bloqueia) --
-  // Sem teto de custo por ora; o alerta é só para guiar quando um teto fizer
-  // sentido (ver README, "Custo do Lu"). `await`ado (não é fire-and-forget)
-  // porque uma function serverless pode ser encerrada assim que a resposta
-  // sai — uma promise solta correria o risco de nunca terminar de gravar.
-  try {
-    await registrarUso({ supabaseUrl, supabaseAnonKey, userToken, casoId });
-  } catch (err) {
-    console.warn('[api/lu] Falha ao registrar uso (não bloqueia a pergunta):', err.message);
+  // ---- Cota de perguntas: checagem BARATA antes de gastar qualquer IA -----
+  // Lê o saldo atual; se já está em 0, nem gera embedding. Se a leitura
+  // falhar (migração pendente), trata como "desconhecido" e segue sem
+  // bloquear — mesma filosofia "nunca quebra" do resto do app.
+  const disponiveisAntes = await lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, casoId });
+  if (disponiveisAntes !== null && disponiveisAntes <= 0) {
+    return json({ resposta: RESPOSTA_LIMITE_ATINGIDO, fontes: [], limiteAtingido: true, perguntasDisponiveis: 0 }, 200);
   }
 
   // ---- Retrieval (embedding da pergunta + busca nas duas bases) --------
@@ -145,8 +148,9 @@ export async function POST(request) {
   );
 
   // ---- Sem contexto relevante em nenhuma base: "não sei" explícito, sem gastar geração ----
+  // Não desconta da cota — só uma resposta de fato gerada consome pergunta.
   if (docs.length === 0 && legislacao.length === 0) {
-    return json({ resposta: RESPOSTA_NAO_SEI, fontes: [] }, 200);
+    return json({ resposta: RESPOSTA_NAO_SEI, fontes: [], perguntasDisponiveis: disponiveisAntes }, 200);
   }
 
   // ---- Monta o contexto recuperado + fontes estruturadas (backstop da UI) ----
@@ -215,7 +219,10 @@ export async function POST(request) {
       return json({ error: 'A IA não retornou uma resposta. Tente reformular a pergunta.' }, 502);
     }
 
-    return json({ resposta: texto, fontes }, 200);
+    // ---- Só AQUI, com a resposta já gerada, desconta 1 pergunta da cota ----
+    const perguntasDisponiveis = await decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, casoId, disponiveisAntes });
+
+    return json({ resposta: texto, fontes, perguntasDisponiveis }, 200);
   } catch (err) {
     console.error('[api/lu] Erro ao gerar resposta:', err);
     return json({ error: 'Erro ao conectar com a IA.' }, 502);
@@ -230,25 +237,54 @@ function json(data, status) {
 }
 
 /**
- * Incrementa `casos.perguntas_lu` via RPC e loga um aviso (só no servidor)
- * quando o caso ultrapassa `ALERTA_PERGUNTAS_POR_CASO`. Puramente
- * observacional: uma falha aqui (migração pendente, RPC ausente) nunca deve
- * impedir a pergunta de ser respondida — o chamador já trata isso com
- * try/catch.
+ * Lê `casos.perguntas_lu_disponiveis` (leitura simples, coberta pela mesma
+ * policy de SELECT de `casos` — sem custo de IA). Devolve `null` se não der
+ * para ler (migração pendente, coluna ausente) — nesse caso o chamador trata
+ * como "desconhecido" e não bloqueia.
  */
-async function registrarUso({ supabaseUrl, supabaseAnonKey, userToken, casoId }) {
-  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/registrar_pergunta_lu`, {
-    method: 'POST',
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${userToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ p_caso_id: casoId }),
-  });
-  if (!resp.ok) return; // migração pendente — silencioso, não é um erro real
-  const total = await resp.json().catch(() => null);
-  if (Number.isFinite(total) && total === ALERTA_PERGUNTAS_POR_CASO) {
-    console.warn(`[api/lu] Caso ${casoId} passou de ${ALERTA_PERGUNTAS_POR_CASO} perguntas ao Lu — vale checar uso.`);
+async function lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, casoId }) {
+  try {
+    const resp = await fetch(
+      `${supabaseUrl}/rest/v1/casos?id=eq.${encodeURIComponent(casoId)}&select=perguntas_lu_disponiveis&limit=1`,
+      { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` } },
+    );
+    if (!resp.ok) return null;
+    const linhas = await resp.json().catch(() => []);
+    const valor = linhas?.[0]?.perguntas_lu_disponiveis;
+    return Number.isFinite(valor) ? valor : null;
+  } catch (err) {
+    console.warn('[api/lu] Falha ao ler a cota de perguntas:', err.message);
+    return null;
   }
+}
+
+/**
+ * Desconta 1 pergunta da cota do caso, de forma atômica (RPC
+ * `decrementar_pergunta_lu` — nunca deixa o saldo passar de 0, mesmo sob
+ * concorrência). Chamada só depois que a resposta já foi gerada — uma falha
+ * aqui não pode fazer a pergunta já respondida "sumir" para o usuário, então
+ * nunca lança: na pior hipótese, devolve uma estimativa best-effort.
+ */
+async function decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, casoId, disponiveisAntes }) {
+  try {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/decrementar_pergunta_lu`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_caso_id: casoId }),
+    });
+    if (resp.ok) {
+      const restantes = await resp.json().catch(() => null);
+      return Number.isFinite(restantes) ? restantes : disponiveisAntes;
+    }
+    // 'LIMITE_ATINGIDO' (corrida rara: duas perguntas simultâneas no mesmo
+    // caso) ou migração pendente — loga e cai na estimativa abaixo.
+    console.warn('[api/lu] Falha ao descontar pergunta:', await resp.text().catch(() => ''));
+  } catch (err) {
+    console.warn('[api/lu] Erro de rede ao descontar pergunta:', err.message);
+  }
+  return disponiveisAntes !== null ? Math.max(0, disponiveisAntes - 1) : null;
 }

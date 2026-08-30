@@ -3,10 +3,18 @@
 // Painel de chat do "Lu" — assistente jurídico RAG restrito ao caso corrente
 // (documentos do caso + legislação cadastrada). Só fica disponível depois
 // que o parecer é emitido e salvo (precisa de um `casoId`).
+//
+// Cota fixa de 10 perguntas por caso, mostrada de forma permanente no
+// cabeçalho (decai a cada pergunta RESPONDIDA — "não sei" e erros não
+// descontam, ver api/lu.js). Ao chegar em 0, a caixa de pergunta é
+// desabilitada.
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban } from 'lucide-react';
 import { perguntarLu, reindexarCaso } from '../lib/lu';
+import { buscarPerguntasLuDisponiveis } from '../lib/casos';
+
+const LIMITE_PERGUNTAS = 10;
 
 const SUGESTOES = [
   'A prescrição intercorrente já está consumada neste caso?',
@@ -42,14 +50,41 @@ function FontesConsultadas({ fontes }) {
   );
 }
 
+/** Contador FIXO e visível da cota de perguntas — barra de decaimento até 0. */
+function ContadorPerguntas({ disponiveis }) {
+  if (disponiveis == null) {
+    return <p className="text-xs text-parchment/35">Carregando cota de perguntas...</p>;
+  }
+  const pct = Math.max(0, Math.min(100, (disponiveis / LIMITE_PERGUNTAS) * 100));
+  const zerado = disponiveis <= 0;
+  const baixo = disponiveis > 0 && disponiveis <= 2;
+
+  return (
+    <div className="w-full sm:w-44">
+      <div className="mb-1 flex items-center justify-between text-[11px]">
+        <span className={zerado ? 'font-semibold text-red-300' : baixo ? 'font-semibold text-amber-300' : 'text-parchment/50'}>
+          {disponiveis} de {LIMITE_PERGUNTAS} perguntas
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-ink-700">
+        <div
+          className={`h-full rounded-full transition-all ${zerado ? 'bg-red-500' : baixo ? 'bg-amber-400' : 'bg-gold'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
  * @param {{ casoId: string | null }} props
  */
 export default function ChatLu({ casoId }) {
-  const [mensagens, setMensagens] = useState([]); // { papel: 'usuario'|'lu', texto, fontes? }
+  const [mensagens, setMensagens] = useState([]); // { papel: 'usuario'|'lu', texto, fontes?, limite? }
   const [pergunta, setPergunta] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState(null);
+  const [disponiveis, setDisponiveis] = useState(null); // null = carregando/desconhecido
   const [reindexando, setReindexando] = useState(false);
   const [reindexOk, setReindexOk] = useState(null); // resultado da última reindexação manual
   const fimRef = useRef(null);
@@ -58,26 +93,47 @@ export default function ChatLu({ casoId }) {
     fimRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensagens, enviando]);
 
-  const enviar = async (textoForcado) => {
-    const texto = (textoForcado ?? pergunta).trim();
-    if (!texto || enviando || !casoId) return;
+  useEffect(() => {
+    if (!casoId) return;
+    let vivo = true;
+    buscarPerguntasLuDisponiveis(casoId).then((valor) => {
+      if (vivo) setDisponiveis(valor);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [casoId]);
 
-    setErro(null);
-    setPergunta('');
-    setMensagens((prev) => [...prev, { papel: 'usuario', texto }]);
-    setEnviando(true);
+  const limiteAtingido = disponiveis === 0;
 
-    try {
-      const historico = mensagens.slice(-6).map((m) => ({ papel: m.papel, texto: m.texto }));
-      const { resposta, fontes } = await perguntarLu({ casoId, pergunta: texto, historico });
-      setMensagens((prev) => [...prev, { papel: 'lu', texto: resposta, fontes }]);
-    } catch (err) {
-      console.error('[ChatLu] Falha ao perguntar:', err);
-      setErro(err.message || 'Não foi possível falar com o Lu agora.');
-    } finally {
-      setEnviando(false);
-    }
-  };
+  const enviar = useCallback(
+    async (textoForcado) => {
+      const texto = (textoForcado ?? pergunta).trim();
+      if (!texto || enviando || !casoId || limiteAtingido) return;
+
+      setErro(null);
+      setPergunta('');
+      setMensagens((prev) => [...prev, { papel: 'usuario', texto }]);
+      setEnviando(true);
+
+      try {
+        const historico = mensagens.slice(-6).map((m) => ({ papel: m.papel, texto: m.texto }));
+        const { resposta, fontes, perguntasDisponiveis, limiteAtingido: atingiuAgora } = await perguntarLu({
+          casoId,
+          pergunta: texto,
+          historico,
+        });
+        setMensagens((prev) => [...prev, { papel: 'lu', texto: resposta, fontes, limite: !!atingiuAgora }]);
+        if (Number.isFinite(perguntasDisponiveis)) setDisponiveis(perguntasDisponiveis);
+      } catch (err) {
+        console.error('[ChatLu] Falha ao perguntar:', err);
+        setErro(err.message || 'Não foi possível falar com o Lu agora.');
+      } finally {
+        setEnviando(false);
+      }
+    },
+    [pergunta, enviando, casoId, limiteAtingido, mensagens],
+  );
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -107,7 +163,7 @@ export default function ChatLu({ casoId }) {
 
   return (
     <div className="flex flex-col rounded-xl border border-line bg-ink-800/50">
-      <div className="flex items-center justify-between gap-2.5 border-b border-line px-5 py-3.5">
+      <div className="flex flex-col gap-3 border-b border-line px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-gold/15">
             <Sparkles size={15} className="text-gold" />
@@ -117,16 +173,20 @@ export default function ChatLu({ casoId }) {
             <p className="text-xs text-parchment/40">Responde só com base neste caso e na legislação cadastrada</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleReindexar}
-          disabled={reindexando}
-          title="Se o Lu não estiver encontrando um documento que você já anexou, tente reindexar — seguro de repetir, documentos já indexados são pulados"
-          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-parchment/50 transition-colors hover:border-gold/30 hover:text-parchment/80 disabled:opacity-50"
-        >
-          {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          <span className="hidden sm:inline">Reindexar documentos</span>
-        </button>
+
+        <div className="flex items-center gap-3">
+          <ContadorPerguntas disponiveis={disponiveis} />
+          <button
+            type="button"
+            onClick={handleReindexar}
+            disabled={reindexando}
+            title="Se o Lu não estiver encontrando um documento que você já anexou, tente reindexar — seguro de repetir, documentos já indexados são pulados"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-parchment/50 transition-colors hover:border-gold/30 hover:text-parchment/80 disabled:opacity-50"
+          >
+            {reindexando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            <span className="hidden sm:inline">Reindexar</span>
+          </button>
+        </div>
       </div>
 
       {reindexOk && (
@@ -143,7 +203,7 @@ export default function ChatLu({ casoId }) {
       )}
 
       <div className="flex max-h-[28rem] min-h-[16rem] flex-col gap-4 overflow-y-auto px-5 py-4">
-        {mensagens.length === 0 && (
+        {mensagens.length === 0 && !limiteAtingido && (
           <div className="space-y-3">
             <p className="text-sm text-parchment/50">
               Pergunte sobre os documentos deste caso ou sobre a legislação de prescrição/decadência
@@ -170,7 +230,9 @@ export default function ChatLu({ casoId }) {
               className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
                 m.papel === 'usuario'
                   ? 'bg-gold text-ink font-medium'
-                  : 'border border-line bg-ink-900/60 text-parchment/85'
+                  : m.limite
+                    ? 'border border-amber-500/30 bg-amber-500/10 text-amber-200/90'
+                    : 'border border-line bg-ink-900/60 text-parchment/85'
               }`}
             >
               <p className="whitespace-pre-wrap">{m.texto}</p>
@@ -195,19 +257,27 @@ export default function ChatLu({ casoId }) {
         <div ref={fimRef} />
       </div>
 
+      {limiteAtingido && (
+        <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
+          <Ban size={13} className="mt-0.5 flex-shrink-0" />
+          Você já usou as 10 perguntas disponíveis para este caso. Uma nova análise (caso novo) dá
+          outras 10.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-line p-3">
         <input
           type="text"
           value={pergunta}
           onChange={(e) => setPergunta(e.target.value)}
-          placeholder="Pergunte ao Lu sobre este caso..."
-          disabled={enviando}
+          placeholder={limiteAtingido ? 'Cota de perguntas deste caso esgotada' : 'Pergunte ao Lu sobre este caso...'}
+          disabled={enviando || limiteAtingido}
           maxLength={2000}
           className="flex-1 rounded-lg border border-line bg-ink-900 px-3 py-2.5 text-sm text-parchment placeholder:text-parchment/30 outline-none transition-all focus:border-gold/50 focus:ring-2 focus:ring-gold/15 disabled:opacity-60"
         />
         <button
           type="submit"
-          disabled={enviando || !pergunta.trim()}
+          disabled={enviando || limiteAtingido || !pergunta.trim()}
           className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-gold text-ink transition-colors hover:bg-gold-soft disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Enviar pergunta"
         >

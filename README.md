@@ -43,7 +43,6 @@ yarn dev
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
 | `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `text-embedding-004`, 768 dimensões) |
 | `LU_LIMIAR_SIMILARIDADE` | servidor | — | Limiar de similaridade (0–1) do Lu antes de responder "não sei" (padrão `0.6`) |
-| `LU_ALERTA_PERGUNTAS_POR_CASO` | servidor | — | Nº de perguntas num mesmo caso a partir do qual `/api/lu` loga um aviso (padrão `30`) — só observacional, não bloqueia |
 | `SUPABASE_SERVICE_ROLE_KEY` | só local | — | Usada apenas por `scripts/seed-legislacao.mjs`. Nunca configurar na Vercel |
 
 Na Vercel: **Project Settings → Environment Variables** (defina para Production,
@@ -442,26 +441,44 @@ language sql stable as $$
 $$;
 grant execute on function public.buscar_legislacao_chunks to authenticated;
 
--- Contador de uso (só observacional — NÃO bloqueia; ver seção "Custo do Lu"
--- abaixo). Incrementado a cada pergunta enviada, best-effort, por /api/lu.
-alter table public.casos add column if not exists perguntas_lu integer not null default 0;
+-- Cota de perguntas ao Lu por caso — teto RÍGIDO de 10, decrescente, exibido
+-- de forma fixa na UI (ver ChatLu.jsx). Cada caso novo nasce com 10; uma
+-- reanálise (nova versão do MESMO caso) não reseta a cota — só uma análise
+-- nova (caso novo) dá outras 10.
+alter table public.casos add column if not exists perguntas_lu_disponiveis integer not null default 10;
+-- Leitura: já coberta pela policy "casos: leitura própria" (select) da seção
+-- "Créditos..." acima — o client lê esse número direto, sem RPC.
 
-create or replace function public.registrar_pergunta_lu(p_caso_id uuid)
+-- Decrementa 1 pergunta disponível de forma atômica (row lock do Postgres
+-- serializa concorrência). SÓ deve ser chamada depois que o Lu gerou uma
+-- resposta com sucesso — um "não sei" por falta de contexto ou um erro do
+-- sistema NÃO decrementam (ver api/lu.js: a chamada fica no fim do caminho
+-- feliz, não logo na entrada). Levanta 'LIMITE_ATINGIDO' se já estava em 0.
+create or replace function public.decrementar_pergunta_lu(p_caso_id uuid)
 returns integer
 language plpgsql security definer set search_path = public as $$
 declare
   v_user_id uuid := auth.uid();
-  v_total integer;
+  v_restantes integer;
 begin
   if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
-  update public.casos set perguntas_lu = perguntas_lu + 1
-   where id = p_caso_id and user_id = v_user_id
-   returning perguntas_lu into v_total;
-  if v_total is null then raise exception 'CASO_NAO_ENCONTRADO'; end if;
-  return v_total;
+
+  update public.casos
+     set perguntas_lu_disponiveis = perguntas_lu_disponiveis - 1
+   where id = p_caso_id and user_id = v_user_id and perguntas_lu_disponiveis > 0
+   returning perguntas_lu_disponiveis into v_restantes;
+
+  if v_restantes is null then
+    if not exists (select 1 from public.casos where id = p_caso_id and user_id = v_user_id) then
+      raise exception 'CASO_NAO_ENCONTRADO';
+    end if;
+    raise exception 'LIMITE_ATINGIDO';
+  end if;
+
+  return v_restantes;
 end;
 $$;
-grant execute on function public.registrar_pergunta_lu(uuid) to authenticated;
+grant execute on function public.decrementar_pergunta_lu(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Exclusão completa de um caso (LGPD — "direito ao esquecimento").
@@ -562,32 +579,29 @@ qualquer falha parcial:
    segurança final: mesmo que duas chamadas rodem em paralelo (corrida, dois
    cliques), nunca duplica linha.
 
-### 5. Custo do Lu — sem teto por enquanto, com um número de referência
+### 5. Custo do Lu — teto de 10 perguntas por caso
 
-O Lu está liberado sem checagem de crédito/plano enquanto a segmentação de
-perfis é desenvolvida em branch isolada (decisão explícita — ver instruções
-do chatbot). Isso é um ponto cego real de custo (créditos travam
-`/api/gemini`, mas nada trava `/api/lu`), então:
+Decisão fechada: cada **caso** (não cada versão/reanálise) tem direito a
+**10 perguntas ao Lu**. `casos.perguntas_lu_disponiveis` nasce em 10 e só
+decresce — nunca reseta numa reanálise do mesmo caso (só um caso novo, com
+uma análise nova, dá outras 10).
 
-- **Cada pergunta custa 1 chamada de embedding + 1 de geração de texto ao
-  Gemini** — pequena perto de uma análise completa (que embute documentos
-  inteiros), mas não é grátis.
-- `casos.perguntas_lu` conta perguntas por caso, incrementado (best-effort,
-  nunca bloqueia) a cada chamada a `/api/lu`. Puramente observacional — dá
-  para consultar no SQL Editor (`select perguntas_lu from casos order by
-  perguntas_lu desc limit 20`) para ver o uso real antes de decidir um teto.
-- `/api/lu` loga um aviso no servidor quando um caso ultrapassa
-  `LU_ALERTA_PERGUNTAS_POR_CASO` perguntas (padrão **30** — número de
-  referência para planejamento, não um limite técnico): uso normal de um
-  advogado revisando um parecer costuma ficar na casa de 3 a 15 perguntas por
-  caso; a partir de ~30 no mesmo caso já vale olhar se é uso legítimo
-  (processo complexo, várias sessões) ou abuso/loop. Ajuste esse número
-  observando `perguntas_lu` reais antes de transformá-lo num bloqueio.
-- **Ponto único para religar um teto/plano depois:** tanto `/api/lu.js`
-  quanto `/api/indexar-caso.js` passam por `chatbotLiberadoParaPerfil()` em
-  `api/_chatbot-acesso.js`, que hoje sempre libera. Quando a segmentação de
-  planos existir (ex.: plano "com chatbot" x "sem chatbot"), o corte entra
-  só ali — nenhum outro lugar do código precisa mudar.
+- **Só uma pergunta RESPONDIDA COM SUCESSO consome 1 da cota.** Um "não sei"
+  por falta de contexto (documentos insuficientes/legislação sem
+  correspondência) e qualquer erro do sistema (falha do Gemini, sessão
+  caída, etc.) **não** descontam — `/api/lu` só chama
+  `decrementar_pergunta_lu` no fim do caminho feliz, depois de já ter
+  gerado a resposta.
+- **Contador fixo e visível** no cabeçalho da aba do Lu (`ChatLu.jsx`):
+  mostra "N de 10 perguntas restantes" com uma barra de decaimento,
+  atualizado a cada resposta. Ao chegar em 0, a caixa de pergunta é
+  desabilitada com uma mensagem explicando o motivo — sem chamar a IA à toa.
+- **Ponto único para religar um teto diferente por plano depois:** tanto
+  `/api/lu.js` quanto `/api/indexar-caso.js` passam por
+  `chatbotLiberadoParaPerfil()` em `api/_chatbot-acesso.js`, que hoje sempre
+  libera. Quando a segmentação de planos existir (ex.: plano "com chatbot" x
+  "sem chatbot", ou tetos diferentes por plano), o corte entra só ali —
+  nenhum outro lugar do código precisa mudar.
 
 ## Storage — bucket `documentos`
 

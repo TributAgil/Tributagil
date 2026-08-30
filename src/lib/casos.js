@@ -109,6 +109,31 @@ export async function registrarDocumentosIniciais({ casoId, userId, documentos }
   }
 }
 
+/**
+ * Saldo de perguntas ao Lu disponíveis para o caso (teto de 10, decrescente
+ * — ver README, "Custo do Lu"). Leitura direta, coberta pela policy de
+ * SELECT de `casos`; não gasta nenhuma chamada de IA.
+ * @returns {Promise<number|null>} null = desconhecido (migração pendente)
+ */
+export async function buscarPerguntasLuDisponiveis(casoId) {
+  if (!casoId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('casos')
+      .select('perguntas_lu_disponiveis')
+      .eq('id', casoId)
+      .single();
+    if (error) {
+      console.warn('[casos] Falha ao buscar cota de perguntas do Lu:', error.message);
+      return null;
+    }
+    return Number.isFinite(data?.perguntas_lu_disponiveis) ? data.perguntas_lu_disponiveis : null;
+  } catch (err) {
+    console.error('[casos] Erro inesperado ao buscar cota de perguntas do Lu:', err);
+    return null;
+  }
+}
+
 /** Lista as versões (análises) de um caso, mais recente primeiro. */
 export async function listarVersoesCaso(casoId) {
   if (!casoId) return [];
