@@ -56,6 +56,11 @@ export default async function handler(req) {
   const passos = sanitize(body.passos, 3000);
   const avaliacao = sanitize(String(body.avaliacao ?? ''), 3);
   const tipoBug = sanitize(body.tipoProblema ?? body.tipo_bug, 80);
+  // Só usados por `tipo === 'erro_sistema'`, para diferenciar as duas origens
+  // desse tipo (estorno de crédito do motor de análise x diagnóstico
+  // automático de indexação travada do Lu) sem precisar de um 3º tipo.
+  const assuntoErroSistema = sanitize(body.assuntoErroSistema, 120);
+  const acaoSolicitada = sanitize(body.acaoSolicitada, 200);
 
   // ---- Validação -----------------------------------------------------------
   if (!mensagem) {
@@ -90,7 +95,7 @@ export default async function handler(req) {
   // ---- Montagem do e-mail ------------------------------------------------
   const assunto =
     tipo === 'erro_sistema'
-      ? `[ERRO SISTEMA] Solicitação de estorno de crédito`
+      ? `[ERRO SISTEMA] ${assuntoErroSistema || 'Solicitação de estorno de crédito'}`
       : tipo === 'bug'
         ? `[BUG] ${tipoBug || 'Não especificado'}`
         : `[Feedback] TributÁgil${avaliacao ? ` — ${avaliacao}/5` : ''}`;
@@ -102,7 +107,7 @@ export default async function handler(req) {
     tipo === 'feedback' && avaliacao ? `Avaliação ........: ${avaliacao}/5` : null,
     tipo === 'bug' && tipoBug ? `Categoria ........: ${tipoBug}` : null,
     `Screenshot .......: ${anexo ? anexo.filename : 'nenhum'}`,
-    tipo === 'erro_sistema' ? 'Ação solicitada ..: avaliação técnica + estorno do crédito como bônus na conta' : null,
+    tipo === 'erro_sistema' ? `Ação solicitada ..: ${acaoSolicitada || 'avaliação técnica + estorno do crédito como bônus na conta'}` : null,
     '',
     'Mensagem:',
     mensagem,

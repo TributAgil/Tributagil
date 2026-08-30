@@ -21,13 +21,19 @@
 // embedding) roda em segundo plano depois que o parecer é salvo — pode
 // levar alguns segundos a minutos. Enquanto não terminar, o chat inteiro
 // fica travado (nada clicável, só a mensagem de carregamento). Se passar de
-// ~2 minutos sem concluir, assume-se problema de backend não identificado:
-// abre automaticamente a Central de Suporte na aba "Reportar Erro", já
-// preenchida com o relato técnico, para o usuário revisar e enviar.
+// ~2 minutos sem concluir, assume-se problema de backend não identificado e
+// dispara um ENVIO DUPLO:
+//   1. Automático, sem confirmação — um diagnóstico técnico detalhado
+//      (possíveis causas) vai direto ao suporte via /api/contato.
+//   2. Manual — a Central de Suporte abre na aba "Reportar Erro", já
+//      preenchida, e só envia quando o usuário revisar e confirmar.
+// Junto, um botão pequeno "Retornar à tela inicial do Lu" deixa o usuário
+// voltar a tentar perguntar sem esperar — e nenhum erro desconta pergunta
+// da cota (só uma resposta gerada com sucesso desconta, ver api/lu.js).
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban, MailWarning } from 'lucide-react';
-import { perguntarLu, reindexarCaso } from '../lib/lu';
+import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban, MailWarning, ArrowLeft } from 'lucide-react';
+import { perguntarLu, reindexarCaso, sinalizarIndexacaoTravadaAutomatico } from '../lib/lu';
 import { buscarStatusIndexacaoCaso } from '../lib/casos';
 import { buscarPerguntasLuDisponiveis } from '../lib/analises';
 
@@ -122,15 +128,17 @@ function ContadorPerguntas({ disponiveis }) {
   );
 }
 
-/** Monta e dispara o pedido de abertura da Central de Suporte já preenchido. */
+/** Monta e dispara o pedido de abertura da Central de Suporte já preenchido (2º envio — manual). */
 function abrirSuporteComRelato({ casoId, analiseId, user, minutos }) {
   const bug = {
     tipo: 'Chatbot Lu não carregou',
     descricao:
       `O chatbot Lu não liberou o chat deste caso — a tela "Carregando dados do caso..." ficou ` +
       `travada por mais de ${minutos} minuto(s) sem concluir.\n\n` +
-      `Solicito uma avaliação técnica (parecer) sobre a causa provável deste erro.\n\n` +
-      `Se possível, anexe abaixo uma captura de tela da tela travada.`,
+      `Um diagnóstico técnico automático já foi enviado ao suporte assim que o travamento foi detectado. ` +
+      `Esta mensagem é complementar — sinta-se à vontade para adicionar mais contexto e anexar uma ` +
+      `captura de tela da tela travada, se tiver.\n\n` +
+      `Solicito uma avaliação técnica (parecer) sobre a causa provável deste erro.`,
     passos:
       `Caso: ${casoId}\n` +
       `Consulta (análise): ${analiseId || '—'}\n` +
@@ -157,6 +165,11 @@ export default function ChatLu({ casoId, analiseId, user }) {
   const [statusChat, setStatusChat] = useState('carregando');
   const [demorando, setDemorando] = useState(false);
   const [travado, setTravado] = useState(false);
+  // Escape manual: "Retornar à tela inicial do Lu" — deixa o usuário voltar
+  // a tentar perguntar mesmo com a indexação ainda travada (o próprio Lu
+  // protege contra resposta ruim: sem documento encontrado, é "não sei",
+  // que não desconta pergunta — ver api/lu.js).
+  const [ignorarBloqueio, setIgnorarBloqueio] = useState(false);
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -184,6 +197,7 @@ export default function ChatLu({ casoId, analiseId, user }) {
     setStatusChat('carregando');
     setDemorando(false);
     setTravado(false);
+    setIgnorarBloqueio(false);
     let vivo = true;
     let tentativas = 0;
     let avisoEnviado = false;
@@ -209,12 +223,12 @@ export default function ChatLu({ casoId, analiseId, user }) {
       if (tentativas >= TENTATIVAS_ANTES_DE_TRAVADO && !avisoEnviado) {
         avisoEnviado = true;
         setTravado(true);
-        abrirSuporteComRelato({
-          casoId,
-          analiseId,
-          user,
-          minutos: Math.round((tentativas * INTERVALO_POLL_MS) / 60000),
-        });
+        const minutos = Math.round((tentativas * INTERVALO_POLL_MS) / 60000);
+        // Envio 1 — automático, sem confirmação: diagnóstico técnico direto ao suporte.
+        sinalizarIndexacaoTravadaAutomatico({ casoId, analiseId, user, minutos });
+        // Envio 2 — manual: abre a Central de Suporte já preenchida; só sai
+        // do ar quando o usuário revisar e clicar em enviar.
+        abrirSuporteComRelato({ casoId, analiseId, user, minutos });
       }
 
       setTimeout(() => {
@@ -289,8 +303,10 @@ export default function ChatLu({ casoId, analiseId, user }) {
 
   // Indexação ainda rodando em segundo plano: nada clicável até terminar —
   // evita um "não sei" que na verdade é só timing (documento ainda não
-  // processado), não falta real de informação.
-  if (statusChat === 'carregando') {
+  // processado), não falta real de informação. Exceção: `ignorarBloqueio`
+  // (botão "Retornar à tela inicial do Lu") deixa o usuário voltar a
+  // tentar mesmo travado — o próprio Lu já protege contra resposta ruim.
+  if (statusChat === 'carregando' && !ignorarBloqueio) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-line bg-ink-800/50 px-8 py-16 text-center">
         <div className={`grid h-12 w-12 place-items-center rounded-xl ${travado ? 'bg-red-500/15' : 'bg-gold/15'}`}>
@@ -301,9 +317,12 @@ export default function ChatLu({ casoId, analiseId, user }) {
             <p className="text-sm font-semibold text-parchment">Isso está demorando demais</p>
             <p className="mt-1.5 max-w-sm text-xs text-parchment/45">
               Identificamos um problema de backend não identificado ao processar os documentos deste
-              caso. Abrimos a Central de Suporte com um relato pronto — revise, anexe uma captura de
-              tela se puder, e envie para nossa equipe avaliar. O chat libera sozinho se a indexação
-              terminar enquanto isso.
+              caso. Já enviamos um diagnóstico técnico automático ao suporte e abrimos a Central de
+              Suporte com um relato pronto — revise, anexe uma captura de tela se puder, e confirme o
+              envio quando quiser. O chat libera sozinho se a indexação terminar enquanto isso.
+            </p>
+            <p className="mt-2 max-w-sm text-xs text-parchment/35">
+              Nenhuma pergunta foi descontada da sua cota por causa desse problema.
             </p>
           </div>
         ) : (
@@ -319,6 +338,16 @@ export default function ChatLu({ casoId, analiseId, user }) {
           <p className="max-w-sm text-xs text-amber-300/80">
             Isso está demorando mais que o normal. Continue aguardando mais um pouco.
           </p>
+        )}
+        {travado && (
+          <button
+            type="button"
+            onClick={() => setIgnorarBloqueio(true)}
+            className="mt-1 flex items-center gap-1 text-[11px] text-parchment/40 underline-offset-2 transition-colors hover:text-gold hover:underline"
+          >
+            <ArrowLeft size={11} />
+            Retornar à tela inicial do Lu
+          </button>
         )}
       </div>
     );

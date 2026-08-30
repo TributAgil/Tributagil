@@ -97,3 +97,46 @@ export async function reindexarCaso(casoId) {
   const documentos = docs.map((d) => ({ nome: d.nome, mime_type: d.mime_type, storage_path: d.storage_path }));
   return indexarCaso({ casoId, documentos, manual: true });
 }
+
+/**
+ * Envio automático (1º dos dois envios, ver ChatLu.jsx): quando a indexação
+ * fica travada por tempo demais, o sistema já manda sozinho — sem esperar
+ * confirmação — um relato técnico detalhado ao suporte, com hipóteses de
+ * causa. É best-effort e silencioso: uma falha aqui não pode travar a UI
+ * nem impedir o 2º envio (o formulário que o usuário revisa e confirma).
+ * @param {{ casoId: string, analiseId: string|null, user?: object, minutos: number }} args
+ */
+export async function sinalizarIndexacaoTravadaAutomatico({ casoId, analiseId, user, minutos }) {
+  try {
+    await fetch('/api/contato', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipo: 'erro_sistema',
+        email: user?.email || '',
+        assuntoErroSistema: 'Indexação do Lu travada (diagnóstico automático)',
+        acaoSolicitada: 'avaliação técnica da causa provável do travamento',
+        descricao:
+          `Sinalização AUTOMÁTICA (sem intervenção do usuário): a indexação de documentos do Lu ficou ` +
+          `travada em "carregando" por mais de ${minutos} minuto(s) sem concluir, para o caso ${casoId}` +
+          `${analiseId ? ` (consulta/análise ${analiseId})` : ''}.\n\n` +
+          `Possíveis causas técnicas a investigar, em ordem provável:\n` +
+          `1. GEMINI_API_KEY ausente, inválida ou sem quota disponível no ambiente de produção.\n` +
+          `2. Migração pendente no Supabase: extensão "vector" não habilitada, ou tabelas/RPCs de ` +
+          `indexação (documentos_caso.indexado, inserir_documento_chunks_lote) ausentes.\n` +
+          `3. Rate limit da API do Gemini atingido nas chamadas de extração de texto ou de embedding em lote.\n` +
+          `4. Timeout da serverless function (Vercel) durante a extração de um documento grande ou com muitas páginas.\n` +
+          `5. Instabilidade de rede entre o backend e o Supabase (Storage) ou o Gemini.\n\n` +
+          `Um segundo e-mail, revisado e confirmado pelo usuário, pode chegar em seguida com mais contexto.`,
+        passos:
+          `Caso: ${casoId}\n` +
+          `Consulta (análise): ${analiseId || '—'}\n` +
+          `Usuário: ${user?.email || 'não identificado'} (id: ${user?.id || '—'})\n` +
+          `Tempo decorrido até o disparo automático: ~${minutos} min\n` +
+          `Data/hora: ${new Date().toISOString()}`,
+      }),
+    });
+  } catch (err) {
+    console.warn('[lu] Falha no envio automático de diagnóstico (best-effort):', err);
+  }
+}
