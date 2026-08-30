@@ -115,7 +115,7 @@ function ContadorPerguntas({ disponiveis, invertido }) {
   const corBarraNormal = invertido ? 'bg-ink' : 'bg-gold';
 
   return (
-    <div className="w-full sm:w-44">
+    <div className="w-28 flex-shrink-0">
       <div className="mb-1 flex items-center justify-between text-[11px]">
         <span className={zerado ? 'font-semibold text-red-700' : baixo ? 'font-semibold text-amber-700' : corNeutra}>
           {disponiveis} de {LIMITE_PERGUNTAS} perguntas
@@ -435,7 +435,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
 
   return (
     <div className={`flex h-full min-h-0 flex-col rounded-xl ${T.painel}`}>
-      <div className={`flex flex-col gap-3 border-b px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between ${T.cabecalhoBorda}`}>
+      <div className={`flex flex-col gap-2.5 border-b px-4 py-3 ${T.cabecalhoBorda}`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg ${T.iconeFundo}`}>
             <Sparkles size={15} className={T.iconeCor} />
