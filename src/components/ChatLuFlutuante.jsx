@@ -14,8 +14,10 @@ import ChatLu from './ChatLu';
 export default function ChatLuFlutuante({ casoId, analiseId, user }) {
   const [aberto, setAberto] = useState(false);
 
-  if (!casoId) return null;
-
+  // O botão fica SEMPRE visível (mesmo sem casoId ainda) — o próprio ChatLu
+  // já mostra um estado "indisponível por enquanto" apropriado nesse caso.
+  // Escondê-lo por completo antes deixava a impressão de que o Lu tinha
+  // sumido da página.
   return (
     <>
       <button
@@ -25,7 +27,7 @@ export default function ChatLuFlutuante({ casoId, analiseId, user }) {
           marginBottom: 'env(safe-area-inset-bottom)',
           marginLeft: 'env(safe-area-inset-left)',
         }}
-        title={aberto ? 'Fechar o Lu' : 'Perguntar ao Lu'}
+        title={aberto ? 'Fechar o bate-papo com o Lu' : 'Bate-papo com o Lu'}
       >
         {aberto ? <X size={22} /> : <Sparkles size={22} />}
       </button>

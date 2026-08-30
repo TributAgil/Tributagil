@@ -441,7 +441,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
             <Sparkles size={15} className={T.iconeCor} />
           </div>
           <div className="min-w-0">
-            <p className={`text-sm font-semibold ${T.titulo}`}>Lu — assistente jurídico</p>
+            <p className={`text-sm font-semibold ${T.titulo}`}>Bate-papo com o Lu</p>
             <p className={`text-xs ${T.subtitulo}`}>Responde só com base neste caso e na legislação cadastrada</p>
           </div>
         </div>
