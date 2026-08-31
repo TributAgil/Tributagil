@@ -22,6 +22,7 @@
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
+import { ESQUEMA_PARECER } from './_schema-parecer.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 
@@ -38,7 +39,10 @@ const RL_JANELA_MS = 60_000;
 // Para ligar o Pro depois de ativar o billing no Google Cloud:
 //   GEMINI_MODEL = gemini-3.1-pro-preview
 const MODELO_PADRAO = 'gemini-3.5-flash';   // GEMINI_MODEL
-const TEMPERATURA_PADRAO = 0.3;             // GEMINI_TEMPERATURE
+// Zero por padrão: perícia não pode variar entre execuções do mesmo processo.
+// Ressalva: temperatura 0 reduz muito, mas não elimina a variação — modelos
+// de linguagem não são plenamente determinísticos nem a zero.
+const TEMPERATURA_PADRAO = 0;               // GEMINI_TEMPERATURE
 const THINKING_LEVEL_PADRAO = 'high';       // GEMINI_THINKING_LEVEL: 'high' | 'low' | 'off'
 const TIMEOUT_GERACAO_MS = 280_000;
 const MAX_DOCS = 20;
@@ -232,6 +236,10 @@ export async function POST(request) {
     generationConfig: {
       temperature: Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO,
       responseMimeType: 'application/json',
+      // Sem esquema, `application/json` garantia JSON válido mas não a FORMA:
+      // o mesmo processo devolvia 4, 5 ou 6 fatos, com CDAs em uma execução e
+      // ausentes na seguinte. Ver api/_schema-parecer.js.
+      responseSchema: ESQUEMA_PARECER,
       ...(thinkingConfig ? { thinkingConfig } : {}),
     },
     // Sem `tools`: nada de Google Search / acesso externo.

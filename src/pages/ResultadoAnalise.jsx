@@ -1,5 +1,5 @@
 // src/pages/ResultadoAnalise.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   Download,
@@ -29,6 +29,22 @@ import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
+
+// Ordena a linha do tempo por data crescente. Usada na tela E nas duas
+// exportações (Word e .txt) — a promessa de "timeline cronológica" vale em
+// todo lugar onde a lista aparece, não só na aba.
+// Data ausente ou fora do formato DD/MM/AAAA vai para o fim, em vez de sumir
+// ou embaralhar o resto.
+function ordenarFatosPorData(fatos) {
+  const ordinal = (br) => {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(br || '').trim());
+    if (!m) return Number.POSITIVE_INFINITY;
+    const [, dia, mes, ano] = m;
+    return Number(`${ano}${mes}${dia}`); // AAAAMMDD compara como número
+  };
+  return [...(fatos ?? [])].sort((a, b) => ordinal(a?.data) - ordinal(b?.data));
+}
+
 
 // ============================================
 // DADOS MOCK DE SEGURANÇA (FALLBACK)
@@ -452,6 +468,19 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   const casoId = analise?.caso_id || null;
   const versao = analise?.versao || 1;
 
+  // ---- Timeline: ordena por data ---------------------------------------------
+  // O rótulo da aba promete "Timeline cronológica", mas a lista era renderizada
+  // na ordem em que o modelo devolveu — e execuções reais vieram fora de ordem
+  // (30/04/2008 -> 08/01/2010 -> 30/04/2009). A ordenação passa a ser garantida
+  // aqui, no código, em vez de confiada ao modelo.
+  //
+  // Datas vêm como "DD/MM/AAAA". Uma data ausente ou malformada vai para o FIM
+  // da lista em vez de sumir ou quebrar a ordenação dos demais.
+  const fatosOrdenados = useMemo(
+    () => ordenarFatosPorData(resultado.fatos_importantes),
+    [resultado.fatos_importantes],
+  );
+
   // ---- Anotações do usuário -------------------------------------------------
   const [obs, setObs] = useState(analise?.observacoes || '');
   const [salvandoObs, setSalvandoObs] = useState(false);
@@ -685,7 +714,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               <span className="text-sm text-parchment/50">Timeline cronológica</span>
             </div>
             <div className="space-y-3" data-stagger>
-              {resultado.fatos_importantes?.map((fato, i) => (
+              {fatosOrdenados.map((fato, i) => (
                 <CardFato key={fato.id} fato={fato} indice={i} />
               ))}
             </div>
@@ -827,7 +856,8 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
 };
 
 function gerarConteudoParecer(resultado, observacoes = '') {
-  const { metadata, conclusoes = [], fatos_importantes = [], raciocinio = [], recomendacoes = [] } = resultado;
+  const { metadata, conclusoes = [], raciocinio = [], recomendacoes = [] } = resultado;
+  const fatos_importantes = ordenarFatosPorData(resultado.fatos_importantes);
 
   const blocoAnotacoes = observacoes && observacoes.trim()
     ? `
@@ -929,7 +959,8 @@ function esc(v) {
 // MIME nativamente e preserva títulos, negrito, listas e tabelas — sem
 // nenhuma biblioteca de terceiros.
 function gerarHtmlParecer(resultado, observacoes = '') {
-  const { metadata, conclusoes = [], fatos_importantes = [], raciocinio = [], recomendacoes = [] } = resultado;
+  const { metadata, conclusoes = [], raciocinio = [], recomendacoes = [] } = resultado;
+  const fatos_importantes = ordenarFatosPorData(resultado.fatos_importantes);
 
   const secAnotacoes =
     observacoes && observacoes.trim()
