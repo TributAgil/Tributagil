@@ -121,6 +121,7 @@ export async function POST(request) {
       });
       if (jaIndexado) {
         pulados += 1;
+        console.info(`[api/indexar-caso] ${doc?.nome || storagePath}: pulado (já indexado${manual ? ', com conteúdo — reindex manual não força reprocessar' : ''}).`);
         continue;
       }
 
@@ -183,6 +184,10 @@ export async function POST(request) {
       if (rpcResp.ok) {
         const inseridos = await rpcResp.json().catch(() => 0);
         totalChunks += Number(inseridos) || 0;
+        // Log em toda tentativa real (sucesso, inclusive) — antes só falha
+        // gerava linha no log, e uma bateria de chamadas 200-sem-mensagem
+        // ficava ambígua entre "tudo pulado" e "tudo funcionou silenciosamente".
+        console.info(`[api/indexar-caso] ${doc?.nome || storagePath}: ${Number(inseridos) || 0} chunk(s) gravado(s).`);
       } else {
         const detalhe = await rpcResp.text().catch(() => '');
         erros.push(`${doc?.nome || storagePath}: ${detalhe.slice(0, 200)}`);
