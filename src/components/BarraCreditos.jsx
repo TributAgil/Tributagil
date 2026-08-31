@@ -12,8 +12,17 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Coins, AlertTriangle, Loader2 } from 'lucide-react';
 import { buscarCreditos } from '../lib/creditos';
 
+// Rotulos por valor da coluna `perfis.plano`. A coluna e texto livre (sem
+// CHECK no banco), entao um valor desconhecido cai no fallback e aparece
+// cru — por isso todo plano novo precisa entrar aqui.
+// Os quatro primeiros sao a nomenclatura nova; os antigos ficam abaixo para
+// nao quebrar o rotulo de perfis criados antes da mudanca.
 const NOMES_PLANO = {
   gratuito: 'Plano Gratuito',
+  starter: 'Plano Starter',
+  business: 'Plano Business',
+  business_pro: 'Plano Business Pro',
+
   essencial: 'Plano Essencial',
   profissional: 'Plano Profissional',
   ilimitado: 'Plano Ilimitado',
