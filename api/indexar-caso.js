@@ -298,7 +298,36 @@ async function extrairPaginas({ apiKey, mime, base64 }) {
   }
 
   const data = await resp.json();
-  const texto = data?.candidates?.[0]?.content?.parts?.map((p) => p?.text || '').join('') || '{}';
+  const candidato = data?.candidates?.[0];
+
+  // HTTP 200 não significa "gerou conteúdo": um candidato bloqueado por
+  // segurança, cortado por limite de tokens, ou simplesmente ausente,
+  // também vem como 200. O código anterior tratava qualquer um desses casos
+  // como "resposta vazia = documento em branco" e gravava isso como
+  // definitivo — era o gatilho real do bug (achado em produção: reindexação
+  // manual já reprocessando de verdade, com o ESQUEMA_PAGINAS em vigor, e
+  // ainda assim voltando com 0 trechos, em processos totalmente diferentes
+  // dos dois primeiros investigados — sinal de causa sistêmica, não de um
+  // documento específico malformado).
+  //
+  // finishReason relevante: 'STOP' (normal) e 'MAX_TOKENS' (documento muito
+  // longo — ainda aproveitamos o que veio) seguem para extrair texto.
+  // Qualquer outro motivo (SAFETY, RECITATION, OTHER, ou nenhum candidato)
+  // é tratado como FALHA da extração, não como "documento em branco" — cai
+  // no catch do chamador, fica "não indexado" e pode ser retentado depois,
+  // em vez de ser marcado como vazio para sempre.
+  const finishReason = candidato?.finishReason;
+  if (!candidato || (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason))) {
+    throw new Error(
+      `Extração não produziu conteúdo (motivo: ${finishReason || 'sem candidato na resposta'}).`,
+    );
+  }
+
+  const texto = candidato?.content?.parts?.map((p) => p?.text || '').join('') || '';
+  if (!texto.trim()) {
+    throw new Error('Extração retornou resposta vazia (sem texto no candidato).');
+  }
+
   let parsed;
   try {
     parsed = JSON.parse(texto);
@@ -306,7 +335,10 @@ async function extrairPaginas({ apiKey, mime, base64 }) {
     return [{ pagina: 1, texto }];
   }
   const paginas = Array.isArray(parsed?.paginas) ? parsed.paginas : [];
-  return paginas.length > 0 ? paginas : [{ pagina: 1, texto: '' }];
+  if (paginas.length === 0) {
+    throw new Error('Extração devolveu JSON válido mas sem nenhuma página — não confiável como "documento em branco".');
+  }
+  return paginas;
 }
 
 /** Quebra um texto em pedaços de até `tamanho` caracteres, preferindo cortar em quebras de parágrafo. */
