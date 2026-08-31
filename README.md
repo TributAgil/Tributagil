@@ -58,9 +58,19 @@ Fluxo:
    Supabase Storage** (bucket `documentos`, pasta `<user_id>/<analise_id>/`).
    Os arquivos **não passam** pelo corpo de nenhuma Function → sem o teto de 4 MB.
 2. `/api/gemini` (Node, `maxDuration` 300s) recebe só os *caminhos* + o token do
-   usuário. Baixa cada arquivo do Storage **respeitando a RLS** e os embute como
-   `inline_data` na chamada `streamGenerateContent` (auth via `?key=` na URL).
-3. A resposta volta em streaming para a tela do Cérebro.
+   usuário. Baixa cada arquivo do Storage **respeitando a RLS** e chama o Gemini
+   **duas vezes**:
+   - **Fase 1 — extração** (`generateContent`, sem streaming): os arquivos vão
+     como `inline_data`; o modelo só lista todo evento datado dos documentos
+     (`api/_schema-extracao.js`), sem julgamento jurídico. Existe porque uma
+     única chamada que extrai E raciocina ao mesmo tempo mostrou variância
+     perigosa entre execuções do mesmo processo (uma rodada real chegou a
+     devolver zero pagamentos extraídos).
+   - **Fase 2 — raciocínio** (`streamGenerateContent`): recebe a tabela da
+     fase 1 como texto (não mais os documentos brutos) e aplica os módulos de
+     decadência/prescrição do Motor TributÁgil sobre essa base fixa.
+3. A resposta da fase 2 volta em streaming para a tela do Cérebro — o formato
+   trocado com o navegador não mudou com a divisão em duas fases.
 
 > Como o `inline_data` tem teto de ~20 MB de request, o limite prático hoje é
 > **~12 MB de documentos por análise**. Para processos maiores, migrar para a

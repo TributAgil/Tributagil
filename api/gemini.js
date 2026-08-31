@@ -1,11 +1,33 @@
 // api/gemini.js
 //
-// Proxy seguro para o Google Gemini.
+// Proxy seguro para o Google Gemini — em DUAS chamadas (extração + raciocínio).
 //
 //   navegador ──(upload direto)──> Supabase Storage
 //   navegador ──(paths + token)──> ESTA FUNÇÃO
 //   ESTA FUNÇÃO ──(baixa via RLS)──> Storage
-//   ESTA FUNÇÃO ──(inline_data + stream SSE)──> navegador
+//   ESTA FUNÇÃO ──(inline_data)──> Gemini [FASE 1: extração, sem streaming]
+//   ESTA FUNÇÃO ──(tabela extraída como texto)──> Gemini [FASE 2: raciocínio, streamed]
+//   ESTA FUNÇÃO ──(stream SSE, formato idêntico ao de antes)──> navegador
+//
+// POR QUE DUAS CHAMADAS: uma única chamada que extrai TUDO dos documentos E
+// aplica os módulos de decadência/prescrição ao mesmo tempo sobrecarrega a
+// tarefa. Testado com o mesmo processo real rodado várias vezes já com
+// temperatura 0 + responseSchema + regra de enumeração: uma execução devolveu
+// ZERO pagamentos — a categoria de fato que decide a maior parte do valor da
+// causa. Prompt-only bateu no teto.
+//
+// A fase de extração (api/_schema-extracao.js) só lista o que está escrito —
+// zero julgamento jurídico. A fase de raciocínio (_motor-tributagil.js +
+// _schema-parecer.js, ambos inalterados por esta mudança) recebe essa tabela
+// como TEXTO, não mais os documentos brutos: raciocina sobre uma base fixa,
+// em vez de garimpar datas e aplicar direito ao mesmo tempo. Isso não zera a
+// variação (nenhuma chamada a um LLM é determinística, nem a temperatura 0),
+// mas separa a variação de EXTRAÇÃO (que muda os fatos — perigosa) da
+// variação de ênfase na fase de raciocínio (tolerável).
+//
+// O formato que chega ao navegador não muda: a fase 2 ainda é
+// streamGenerateContent com o mesmo ESQUEMA_PARECER de antes, encaminhado
+// como SSE bruto igual sempre foi. O frontend não precisou mudar.
 //
 // Os arquivos vêm do Storage (não do corpo da request), então não esbarram no
 // limite de ~4 MB de uma Function. Eles são embutidos como `inline_data` na
@@ -18,11 +40,13 @@
 // contra o Supabase Auth ANTES de gastar qualquer chamada ao Gemini. Sem isso o
 // endpoint seria um proxy de IA aberto (abuso de custo).
 //
-// Runtime: Node. `maxDuration` configurado em vercel.json.
+// Runtime: Node. `maxDuration` configurado em vercel.json (300s, dividido
+// entre as duas fases — ver TIMEOUT_EXTRACAO_MS / TIMEOUT_RACIOCINIO_MS).
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { ESQUEMA_PARECER } from './_schema-parecer.js';
+import { ESQUEMA_EXTRACAO, PROMPT_EXTRACAO } from './_schema-extracao.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 
@@ -44,8 +68,17 @@ const MODELO_PADRAO = 'gemini-3.5-flash';   // GEMINI_MODEL
 // de linguagem não são plenamente determinísticos nem a zero.
 const TEMPERATURA_PADRAO = 0;               // GEMINI_TEMPERATURE
 const THINKING_LEVEL_PADRAO = 'high';       // GEMINI_THINKING_LEVEL: 'high' | 'low' | 'off'
-const TIMEOUT_GERACAO_MS = 280_000;
+// Orçamento de tempo dividido entre as duas fases, dentro do teto de 300s da
+// function (vercel.json). 130s+130s=260s deixa ~40s de folga para
+// download/auth/créditos, que rodam ANTES deste timer começar.
+const TIMEOUT_EXTRACAO_MS = 130_000;
+const TIMEOUT_GERACAO_MS = 130_000;
 const MAX_DOCS = 20;
+// Abaixo disso, com documentos de verdade anexados, a extração falhou — ver
+// validarExtracao(). Não é um número mágico: é o piso do próprio
+// ESQUEMA_EXTRACAO (minItems), mantido igual aqui para a mensagem de erro
+// citar o mesmo número que o esquema exige.
+const EXTRACAO_MIN_EVENTOS = 4;
 // Tabelado em 12 MB — igual ao teto do frontend (prepararDocumentos.js) e ao
 // de api/indexar-caso.js, pela mesma limitação de espaço/tempo de
 // processamento da IA. Mantendo os três alinhados, o backend não rejeita
@@ -159,7 +192,7 @@ export async function POST(request) {
   }
 
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
-  const parts = [{ text: prompt }];
+  const docParts = [];
   let bytesTotal = 0;
 
   try {
@@ -194,8 +227,8 @@ export async function POST(request) {
       }
 
       const mime = d?.mime_type || arqResp.headers.get('content-type') || 'application/octet-stream';
-      if (d?.nome) parts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
-      parts.push({
+      if (d?.nome) docParts.push({ text: `--- Documento anexado: ${String(d.nome).slice(0, 200)} ---` });
+      docParts.push({
         inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') },
       });
     }
@@ -204,9 +237,7 @@ export async function POST(request) {
     return json({ error: err.message || 'Falha ao preparar os documentos para a IA.' }, 502);
   }
 
-  // ---- 3. Geração (streaming) ----------------------------------------------
   const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
-
   const temperatura = Number.parseFloat(
     process.env.GEMINI_TEMPERATURE ?? String(TEMPERATURA_PADRAO),
   );
@@ -227,14 +258,90 @@ export async function POST(request) {
     thinkingConfig = { thinkingLevel: nivelThinking };
   }
 
+  const temperaturaFinal = Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO;
+
+  // ---- 3. FASE 1 — extração (sem streaming) ---------------------------------
+  // Lista todo evento datado dos documentos, sem julgamento jurídico. Ver
+  // cabeçalho do arquivo e api/_schema-extracao.js para o porquê.
+  let extracao;
+  try {
+    const corpoExtracao = JSON.stringify({
+      systemInstruction: { parts: [{ text: PROMPT_EXTRACAO }] },
+      contents: [{ role: 'user', parts: [{ text: 'Extraia todos os eventos datados dos documentos anexados abaixo.' }, ...docParts] }],
+      generationConfig: {
+        temperature: temperaturaFinal,
+        responseMimeType: 'application/json',
+        responseSchema: ESQUEMA_EXTRACAO,
+        ...(thinkingConfig ? { thinkingConfig } : {}),
+      },
+    });
+    const urlExtracao = `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const controllerExtracao = new AbortController();
+    const timerExtracao = setTimeout(() => controllerExtracao.abort(), TIMEOUT_EXTRACAO_MS);
+    let respostaExtracao;
+    try {
+      respostaExtracao = await fetchComRetry(urlExtracao, corpoExtracao, controllerExtracao.signal);
+    } finally {
+      clearTimeout(timerExtracao);
+    }
+    if (respostaExtracao.erro) return respostaExtracao.erro;
+
+    const corpo = await respostaExtracao.resp.json();
+    const textoJson = corpo?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+    extracao = JSON.parse(textoJson);
+  } catch (err) {
+    const abortado = err?.name === 'AbortError';
+    console.error('[api/gemini] Falha na fase de extração:', err);
+    return json(
+      { error: abortado ? 'Tempo limite excedido ao ler os documentos.' : 'Não foi possível ler os documentos anexados.' },
+      abortado ? 504 : 502,
+    );
+  }
+
+  // A fase de extração pode sinalizar documento ilegível sem travar tudo —
+  // mas se sobrar praticamente nada extraído com documentos de verdade
+  // anexados, é mais seguro travar aqui do que deixar a fase 2 raciocinar
+  // sobre uma tabela vazia e produzir um parecer com base fática inexistente.
+  const eventos = Array.isArray(extracao?.eventos) ? extracao.eventos : [];
+  if (docParts.length > 0 && eventos.length < EXTRACAO_MIN_EVENTOS) {
+    console.error('[api/gemini] Extração insuficiente:', eventos.length, 'eventos —', extracao?.alerta_ilegivel || '(sem alerta)');
+    return json(
+      {
+        error:
+          extracao?.alerta_ilegivel ||
+          'A extração dos documentos não encontrou dados suficientes para a análise. Verifique se os arquivos estão legíveis e tente novamente.',
+      },
+      422,
+    );
+  }
+
+  // ---- 4. FASE 2 — raciocínio jurídico (streaming) --------------------------
+  // Recebe a tabela extraída como TEXTO — não mais os documentos brutos. O
+  // motor (_motor-tributagil.js) e o esquema de saída (_schema-parecer.js)
+  // são exatamente os de antes desta mudança.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_GERACAO_MS);
 
   const corpoGemini = JSON.stringify({
     systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
-    contents: [{ role: 'user', parts }],
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: prompt },
+        {
+          text:
+            '\n\n[TABELA DE FATOS JÁ EXTRAÍDA — FONTE DE VERDADE DESTA ANÁLISE]\n' +
+            'Você NÃO tem acesso aos documentos originais nesta etapa. A extração abaixo já foi ' +
+            'feita, com instrução de listar TODO evento sem seleção de relevância — aplique os ' +
+            'módulos jurídicos exclusivamente sobre esta tabela; não presuma nem infira eventos ' +
+            'que não constem dela.\n' +
+            JSON.stringify(extracao),
+        },
+      ],
+    }],
     generationConfig: {
-      temperature: Number.isFinite(temperatura) ? temperatura : TEMPERATURA_PADRAO,
+      temperature: temperaturaFinal,
       responseMimeType: 'application/json',
       // Sem esquema, `application/json` garantia JSON válido mas não a FORMA:
       // o mesmo processo devolvia 4, 5 ou 6 fatos, com CDAs em uma execução e
@@ -248,35 +355,8 @@ export async function POST(request) {
   const urlGemini = `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
 
   try {
-    // Retry só para erros transitórios ANTES do stream começar:
-    // 429 (rate limit do free tier), 503 ("high demand"), 500.
-    // Backoff: 2s, 5s. Depois disso, devolve o erro.
-    let upstream;
-    const ESPERAS_MS = [2000, 5000];
-    for (let tentativa = 0; ; tentativa++) {
-      upstream = await fetch(urlGemini, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: corpoGemini,
-      });
-
-      if (upstream.ok && upstream.body) break;
-
-      const transitorio = [429, 500, 503].includes(upstream.status);
-      if (!transitorio || tentativa >= ESPERAS_MS.length) {
-        const detalhe = await upstream.text().catch(() => '');
-        console.error('[api/gemini] Gemini respondeu erro', upstream.status, detalhe.slice(0, 600));
-        const msg =
-          upstream.status === 429
-            ? 'A IA está temporariamente sobrecarregada (limite de uso). Aguarde cerca de 1 minuto e tente de novo.'
-            : `Falha na API do Gemini (HTTP ${upstream.status}).`;
-        return json({ error: msg }, upstream.status === 429 ? 429 : 502);
-      }
-
-      console.warn(`[api/gemini] HTTP ${upstream.status} — retry ${tentativa + 1}/${ESPERAS_MS.length}`);
-      await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
-    }
+    const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal);
+    if (erro) return erro;
 
     return new Response(upstream.body, {
       status: 200,
@@ -294,6 +374,38 @@ export async function POST(request) {
     );
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// Retry só para erros transitórios: 429 (rate limit do free tier), 503 ("high
+// demand"), 500. Backoff: 2s, 5s. Compartilhado pelas duas fases — a única
+// diferença entre elas é a URL (generateContent x streamGenerateContent) e o
+// corpo, ambos montados por quem chama.
+async function fetchComRetry(url, body, signal) {
+  const ESPERAS_MS = [2000, 5000];
+  for (let tentativa = 0; ; tentativa++) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body,
+    });
+
+    if (resp.ok && resp.body) return { resp };
+
+    const transitorio = [429, 500, 503].includes(resp.status);
+    if (!transitorio || tentativa >= ESPERAS_MS.length) {
+      const detalhe = await resp.text().catch(() => '');
+      console.error('[api/gemini] Gemini respondeu erro', resp.status, detalhe.slice(0, 600));
+      const msg =
+        resp.status === 429
+          ? 'A IA está temporariamente sobrecarregada (limite de uso). Aguarde cerca de 1 minuto e tente de novo.'
+          : `Falha na API do Gemini (HTTP ${resp.status}).`;
+      return { erro: json({ error: msg }, resp.status === 429 ? 429 : 502) };
+    }
+
+    console.warn(`[api/gemini] HTTP ${resp.status} — retry ${tentativa + 1}/${ESPERAS_MS.length}`);
+    await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
   }
 }
 
