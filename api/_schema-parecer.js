@@ -161,7 +161,8 @@ export const REGRA_ENUMERACAO = `ENUMERAÇÃO OBRIGATÓRIA DE "fatos_importantes
 1. Percorra os documentos e identifique TODAS as CDAs / inscrições em dívida ativa presentes, sem exceção. Para CADA UMA, registre um item para cada marco que constar: vencimento do tributo, notificação do lançamento, inscrição em dívida ativa e termo inicial da prescrição. Se o processo tem 4 CDAs, as 4 aparecem — nunca resuma "as demais CDAs" nem selecione as mais relevantes.
 2. Registre sempre, quando constarem dos autos: ajuizamento da execução, despacho que ordena a citação, citação do executado, penhora/constrição, e intimação da Fazenda sobre não localização de devedor ou bens.
 3. Registre toda adesão e toda rescisão de parcelamento, com as datas exatas.
-4. Ordene os itens por DATA CRESCENTE, do mais antigo para o mais recente, misturando livremente as CDAs — a ordenação é pela data, nunca por documento.
-5. Todo item cita em "fonte" o documento de origem. Data que não constar de documento não entra na lista.`;
+4. Registre CADA pagamento constante do "EXTRATO DE PAGAMENTOS" da CDA (normalmente Anexo 3) e de extratos de débito, um item por pagamento, com a data, o valor e a inscrição a que se refere. Relevância mínima "alta": pagamento parcial interrompe a prescrição (art. 174, parágrafo único, IV) e é frequentemente o fato que decide a exigibilidade de uma inscrição. Nunca trate pagamento como detalhe contábil, nem o agregue com outros.
+5. Ordene os itens por DATA CRESCENTE, do mais antigo para o mais recente, misturando livremente as CDAs — a ordenação é pela data, nunca por documento.
+6. Todo item cita em "fonte" o documento de origem. Data que não constar de documento não entra na lista.`;
 
 export default ESQUEMA_PARECER;
