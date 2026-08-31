@@ -332,23 +332,18 @@ export async function POST(request) {
   // padrão de omissão de antes, só que agora na composição da saída, não na
   // leitura dos documentos.
   //
-  // A correção: o esquema desta chamada específica eleva o PISO de
-  // "fatos_importantes" para o número de eventos que a fase 1 de fato
-  // extraiu (nunca abaixo do piso original de _schema-parecer.js). É um
-  // piso, não uma igualdade exata — a fase 2 ainda pode desdobrar um evento
-  // em mais de um fato quando isso fizer sentido jurídico, só não pode
-  // devolver MENOS itens do que a extração já comprovou existir.
-  const pisoOriginal = ESQUEMA_PARECER.properties.fatos_importantes.minItems;
-  const esquemaParecerDaChamada =
-    eventos.length > pisoOriginal
-      ? {
-          ...ESQUEMA_PARECER,
-          properties: {
-            ...ESQUEMA_PARECER.properties,
-            fatos_importantes: { ...ESQUEMA_PARECER.properties.fatos_importantes, minItems: eventos.length },
-          },
-        }
-      : ESQUEMA_PARECER;
+  // TENTATIVA REVERTIDA: cheguei a elevar dinamicamente o `minItems` de
+  // "fatos_importantes" no responseSchema desta chamada para o número real
+  // de eventos extraídos. Em produção isso passou a devolver HTTP 400
+  // "Request contains an invalid argument" do Gemini em toda análise — logo
+  // após esse deploy, com timestamps que batem exatamente com o commit que
+  // introduziu essa mutação (a versão anterior, sem ela, tinha acabado de
+  // funcionar). Reveretido para não deixar a função inteira fora do ar por
+  // uma otimização não comprovada contra a API real. O piso continua fixo
+  // (ver _schema-parecer.js); o reforço abaixo, em texto no prompt, é a
+  // mitigação que sobra por enquanto — sem risco de quebrar o formato da
+  // requisição, porque é só prosa.
+  const esquemaParecerDaChamada = ESQUEMA_PARECER;
 
   const corpoGemini = JSON.stringify({
     systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
