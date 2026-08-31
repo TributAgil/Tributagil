@@ -130,13 +130,27 @@ export default function App() {
         // Numa reanálise, o(s) documento(s) complementar(es) já são indexados
         // no momento da confirmação do upload (ver NovaAnalise.jsx) — só os
         // novos, para não reprocessar o que o caso já tem.
+        //
+        // AGUARDA o registro terminar antes de indexar: `indexarCaso` chama
+        // /api/indexar-caso, que checa `documentos_caso` (via
+        // documentoJaIndexado) para decidir se já foi processado — a MESMA
+        // tabela que `registrarDocumentosIniciais` está inserindo. As duas
+        // eram disparadas em paralelo, sem ordem garantida entre elas; se a
+        // indexação chegasse para checar antes das linhas existirem, o
+        // resultado ficava inconsistente (achado real: chat funcionando
+        // logo após a análise e caindo em "sem documento" ao reabrir depois
+        // — mesma indexação, leitura da tabela em momentos diferentes da
+        // corrida). `indexarCaso` continua best-effort/fire-and-forget em
+        // relação à tela — não bloqueia a navegação do usuário, só espera o
+        // registro (uma escrita rápida no banco) antes de iniciar.
         if (!casoIdOrigem && salvo.caso_id) {
           registrarDocumentosIniciais({
             casoId: salvo.caso_id,
             userId: user?.id,
             documentos: payloadAnalise?.documentos || [],
+          }).then(() => {
+            indexarCaso({ casoId: salvo.caso_id, documentos: payloadAnalise?.documentos || [] });
           });
-          indexarCaso({ casoId: salvo.caso_id, documentos: payloadAnalise?.documentos || [] });
         }
       } else {
         console.warn('[App] Análise NÃO foi salva no histórico (ver logs de [analises]).');
