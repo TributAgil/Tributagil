@@ -130,7 +130,7 @@ export const ESQUEMA_PARECER = {
           id: { type: 'INTEGER' },
           tipo: {
             type: 'STRING',
-            enum: ['prescricao', 'decadencia', 'prescricao_intercorrente', 'cautela', 'procedimental'],
+            enum: ['prescricao', 'decadencia', 'prescricao_intercorrente', 'cautela', 'procedimental', 'suspensao_ativa'],
           },
           severidade: {
             type: 'STRING',
