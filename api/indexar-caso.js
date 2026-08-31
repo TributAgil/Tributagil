@@ -65,7 +65,7 @@ export async function POST(request) {
     return json({ error: 'Corpo da requisição inválido.' }, 400);
   }
 
-  const { casoId, userToken } = body || {};
+  const { casoId, userToken, manual } = body || {};
   const documentos = Array.isArray(body?.documentos) ? body.documentos.slice(0, MAX_DOCS) : [];
   const supabaseUrl = SUPABASE_URL_ENV || String(body?.supabaseUrl || '');
   const supabaseAnonKey = SUPABASE_ANON_ENV || String(body?.supabaseAnonKey || '');
@@ -104,7 +104,21 @@ export async function POST(request) {
 
     try {
       // 1. Pula se já indexado — não gasta NENHUMA chamada de IA neste caso.
-      const jaIndexado = await documentoJaIndexado({ supabaseUrl, headersSupabase, casoId, storagePath });
+      //    Exceção: reindexação MANUAL (botão "Tentar reindexar") reprocessa
+      //    um documento que ficou marcado indexado=true com ZERO chunks —
+      //    esse estado significa "a extração rodou e não achou nada", que
+      //    hoje é permanente por design (evita retentar um documento
+      //    GENUINAMENTE em branco a cada análise futura). Mas quando o
+      //    usuário pede reindexação explicitamente, "não retenta nunca mais"
+      //    vira uma armadilha sem saída se a causa foi transitória (erro de
+      //    extração, não documento realmente vazio) — ver 3 abaixo.
+      const jaIndexado = await documentoJaIndexado({
+        supabaseUrl,
+        headersSupabase,
+        casoId,
+        storagePath,
+        permitirRetentativaSeVazio: manual === true,
+      });
       if (jaIndexado) {
         pulados += 1;
         continue;
@@ -185,21 +199,62 @@ export async function POST(request) {
   );
 }
 
-/** Consulta `documentos_caso.indexado` para o par (caso, storage_path) — barato, sem IA. */
-async function documentoJaIndexado({ supabaseUrl, headersSupabase, casoId, storagePath }) {
+/**
+ * Consulta `documentos_caso` para o par (caso, storage_path) — barato, sem IA.
+ * `permitirRetentativaSeVazio` (reindexação manual): um documento marcado
+ * indexado=true com chunks_gerados=0 significa "a extração rodou e não
+ * achou nada" — pode ser um documento genuinamente em branco, ou pode ter
+ * sido uma falha transitória da extração (ver extrairPaginas). Sem essa
+ * exceção, esse estado é permanente por design (nunca reprocessa sozinho) e
+ * o botão "Tentar reindexar" virava um no-op silencioso para esses casos.
+ */
+async function documentoJaIndexado({ supabaseUrl, headersSupabase, casoId, storagePath, permitirRetentativaSeVazio = false }) {
   const url =
-    `${supabaseUrl}/rest/v1/documentos_caso?select=indexado` +
+    `${supabaseUrl}/rest/v1/documentos_caso?select=indexado,chunks_gerados` +
     `&caso_id=eq.${encodeURIComponent(casoId)}&storage_path=eq.${encodeURIComponent(storagePath)}&limit=1`;
   const resp = await fetch(url, { headers: headersSupabase });
   if (!resp.ok) return false; // migração pendente ou linha ainda não existe: segue e tenta indexar
   const linhas = await resp.json().catch(() => []);
-  return Array.isArray(linhas) && linhas[0]?.indexado === true;
+  const linha = Array.isArray(linhas) ? linhas[0] : null;
+  if (!linha || linha.indexado !== true) return false;
+  if (permitirRetentativaSeVazio && Number(linha.chunks_gerados) === 0) return false;
+  return true;
 }
+
+// Esquema ESTÁTICO (não construído dinamicamente por requisição — ao
+// contrário da mutação de schema que quebrou api/gemini.js hoje em produção
+// com HTTP 400. Este aqui é escrito uma vez, igual ao que já funciona em
+// _schema-parecer.js / _schema-extracao.js). `minItems: 1` é o ponto real
+// da correção: achado real em produção — para 2 documentos que o motor
+// principal extraiu com fartura de conteúdo (30+ eventos cada, no fluxo de
+// api/gemini.js), esta função devolveu `paginas: []`, sem nenhum erro HTTP.
+// Sem responseSchema, nada obrigava o modelo a de fato tentar enumerar as
+// páginas — o resultado era interpretado como "documento em branco" e
+// gravado como tal PARA SEMPRE (ver documentoJaIndexado).
+const ESQUEMA_PAGINAS = {
+  type: 'OBJECT',
+  required: ['paginas'],
+  properties: {
+    paginas: {
+      type: 'ARRAY',
+      minItems: 1,
+      items: {
+        type: 'OBJECT',
+        required: ['pagina', 'texto'],
+        properties: {
+          pagina: { type: 'INTEGER' },
+          texto: { type: 'STRING' },
+        },
+      },
+    },
+  },
+};
 
 /**
  * Pede ao Gemini o texto integral de cada página do documento, sem resumir
- * nem comentar — é extração, não análise. `responseMimeType: application/json`
- * garante um JSON estruturado e fácil de parsear.
+ * nem comentar — é extração, não análise. `responseSchema` garante que o
+ * modelo pelo menos tente devolver 1 página, em vez de poder degenerar para
+ * uma lista vazia sem nenhum sinal de erro.
  */
 async function extrairPaginas({ apiKey, mime, base64 }) {
   const GEMINI = 'https://generativelanguage.googleapis.com';
@@ -214,23 +269,34 @@ async function extrairPaginas({ apiKey, mime, base64 }) {
             text:
               'Extraia o texto integral e literal de cada página deste documento, na ordem em que aparecem, ' +
               'sem resumir, sem comentar, sem corrigir ortografia. Se o documento não tiver páginas numeradas, ' +
-              'considere cada página física do arquivo como uma unidade. Responda APENAS com um JSON no formato ' +
-              '{"paginas":[{"pagina":1,"texto":"..."}]}.',
+              'considere cada página física do arquivo como uma unidade. Se realmente não houver texto legível ' +
+              'em nenhuma página, devolva mesmo assim 1 item com "texto" vazio — nunca a lista vazia.',
           },
           { inline_data: { mime_type: mime, data: base64 } },
         ],
       },
     ],
-    generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: ESQUEMA_PAGINAS },
   });
 
-  const resp = await fetch(
-    `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo },
-  );
-  if (!resp.ok) {
-    throw new Error(`Falha na extração de texto (HTTP ${resp.status}).`);
+  // Retry só para erro transitório (429/500/503) — mesma janela curta já
+  // usada em api/gemini.js. Sem isso, um rate limit passageiro da API
+  // marcava o documento como "sem texto" para sempre (ver acima).
+  const ESPERAS_MS = [2000, 5000];
+  let resp;
+  for (let tentativa = 0; ; tentativa++) {
+    resp = await fetch(
+      `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo },
+    );
+    if (resp.ok) break;
+    const transitorio = [429, 500, 503].includes(resp.status);
+    if (!transitorio || tentativa >= ESPERAS_MS.length) {
+      throw new Error(`Falha na extração de texto (HTTP ${resp.status}).`);
+    }
+    await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
   }
+
   const data = await resp.json();
   const texto = data?.candidates?.[0]?.content?.parts?.map((p) => p?.text || '').join('') || '{}';
   let parsed;

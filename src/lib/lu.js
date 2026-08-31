@@ -70,7 +70,7 @@ export async function indexarCaso({ casoId, documentos, manual = false }) {
     const resposta = await fetch('/api/indexar-caso', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ casoId, documentos, supabaseUrl, supabaseAnonKey, userToken }),
+      body: JSON.stringify({ casoId, documentos, supabaseUrl, supabaseAnonKey, userToken, manual }),
       keepalive: true,
     });
 
