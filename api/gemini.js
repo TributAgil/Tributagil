@@ -319,9 +319,36 @@ export async function POST(request) {
   // ---- 4. FASE 2 — raciocínio jurídico (streaming) --------------------------
   // Recebe a tabela extraída como TEXTO — não mais os documentos brutos. O
   // motor (_motor-tributagil.js) e o esquema de saída (_schema-parecer.js)
-  // são exatamente os de antes desta mudança.
+  // são exatamente os de antes desta mudança, com UM ajuste dinâmico abaixo.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_GERACAO_MS);
+
+  // A extração (fase 1) já fez a curadoria de "o que é um evento" — a fase 2
+  // não deveria voltar a filtrar isso. Mas nada além do texto do prompt
+  // impedia essa segunda seleção: numa bateria de teste real, uma execução
+  // (com a tabela extraída já COMPLETA, 4 CDAs, 4 pagamentos, os 2 grupos de
+  // SISPAR) devolveu um parecer de 3 páginas que agregou pagamentos de
+  // inscrições diferentes num item só e resumiu "as demais CDAs" — o mesmo
+  // padrão de omissão de antes, só que agora na composição da saída, não na
+  // leitura dos documentos.
+  //
+  // A correção: o esquema desta chamada específica eleva o PISO de
+  // "fatos_importantes" para o número de eventos que a fase 1 de fato
+  // extraiu (nunca abaixo do piso original de _schema-parecer.js). É um
+  // piso, não uma igualdade exata — a fase 2 ainda pode desdobrar um evento
+  // em mais de um fato quando isso fizer sentido jurídico, só não pode
+  // devolver MENOS itens do que a extração já comprovou existir.
+  const pisoOriginal = ESQUEMA_PARECER.properties.fatos_importantes.minItems;
+  const esquemaParecerDaChamada =
+    eventos.length > pisoOriginal
+      ? {
+          ...ESQUEMA_PARECER,
+          properties: {
+            ...ESQUEMA_PARECER.properties,
+            fatos_importantes: { ...ESQUEMA_PARECER.properties.fatos_importantes, minItems: eventos.length },
+          },
+        }
+      : ESQUEMA_PARECER;
 
   const corpoGemini = JSON.stringify({
     systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -333,9 +360,15 @@ export async function POST(request) {
           text:
             '\n\n[TABELA DE FATOS JÁ EXTRAÍDA — FONTE DE VERDADE DESTA ANÁLISE]\n' +
             'Você NÃO tem acesso aos documentos originais nesta etapa. A extração abaixo já foi ' +
-            'feita, com instrução de listar TODO evento sem seleção de relevância — aplique os ' +
-            'módulos jurídicos exclusivamente sobre esta tabela; não presuma nem infira eventos ' +
-            'que não constem dela.\n' +
+            `feita, com instrução de listar TODO evento sem seleção de relevância — são ${eventos.length} ` +
+            'eventos. Aplique os módulos jurídicos exclusivamente sobre esta tabela; não presuma nem ' +
+            'infira eventos que não constem dela.\n' +
+            'IMPORTANTE sobre "fatos_importantes": a curadoria de relevância JÁ FOI FEITA nesta tabela — ' +
+            'sua tarefa aqui é MAPEAR, não FILTRAR. Gere um item em "fatos_importantes" para CADA evento ' +
+            'da tabela, na mesma granularidade (nunca agregue "Inscrições X e Y" num item só, nunca ' +
+            'resuma "as demais CDAs" ou "os pagamentos subsequentes" — cada evento da tabela vira um ' +
+            'item próprio). Você pode desdobrar um evento em mais de um fato quando a análise jurídica ' +
+            'exigir, mas nunca devolver menos itens do que eventos existem na tabela.\n' +
             JSON.stringify(extracao),
         },
       ],
@@ -345,8 +378,9 @@ export async function POST(request) {
       responseMimeType: 'application/json',
       // Sem esquema, `application/json` garantia JSON válido mas não a FORMA:
       // o mesmo processo devolvia 4, 5 ou 6 fatos, com CDAs em uma execução e
-      // ausentes na seguinte. Ver api/_schema-parecer.js.
-      responseSchema: ESQUEMA_PARECER,
+      // ausentes na seguinte. Ver api/_schema-parecer.js. O piso de
+      // "fatos_importantes" desta chamada é dinâmico — ver acima.
+      responseSchema: esquemaParecerDaChamada,
       ...(thinkingConfig ? { thinkingConfig } : {}),
     },
     // Sem `tools`: nada de Google Search / acesso externo.
