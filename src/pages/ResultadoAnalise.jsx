@@ -29,6 +29,7 @@ import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
+import { buscarFundamentos } from '../lib/fundamentosLegais';
 
 // Ordena a linha do tempo por data crescente. Usada na tela E nas duas
 // exportações (Word e .txt) — a promessa de "timeline cronológica" vale em
@@ -204,6 +205,31 @@ const BadgeSeveridade = ({ tipo }) => {
 };
 
 // ============================================
+// COMPONENTE: TEXTO DA LEI (apoio à referência/fundamento legal)
+// ============================================
+// A IA já cita o dispositivo ("Art. 174 do CTN", "Tema 566 do STJ"...),
+// mas só a citação — sem o texto da norma, o advogado tinha que abrir o
+// Vade Mecum para conferir. Aqui casamos essa citação com uma tabela
+// FIXA e escrita à mão (src/lib/fundamentosLegais.js) — nunca com texto
+// gerado pela IA, para não correr o risco de uma norma citada errado.
+// Se a IA citar algo fora da tabela (dispositivo incomum), simplesmente
+// não aparece nada aqui — silencioso, nunca inventa uma correspondência.
+const TextoLegal = ({ referencia }) => {
+  const encontrados = useMemo(() => buscarFundamentos(referencia), [referencia]);
+  if (encontrados.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {encontrados.map((f) => (
+        <div key={f.id} className="rounded-lg border-l-2 border-l-gold/60 bg-gold/[0.05] px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gold/80">{f.titulo}</p>
+          <p className="mt-1 text-xs leading-relaxed text-parchment/75">{f.texto}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ============================================
 // COMPONENTE: CARD DE CONCLUSÃO
 // ============================================
 const CardConclusao = ({ conclusao, expandido, onToggle, indice = 0 }) => {
@@ -279,6 +305,7 @@ const CardConclusao = ({ conclusao, expandido, onToggle, indice = 0 }) => {
               <div>
                 <p className="text-xs font-semibold text-parchment/50">Fundamento Legal</p>
                 <p className="text-sm text-parchment/80">{conclusao.fundamento_legal}</p>
+                <TextoLegal referencia={conclusao.fundamento_legal} />
               </div>
             </div>
           </div>
@@ -387,9 +414,12 @@ const CardRaciocinio = ({ raciocinio, index }) => {
           <p className="text-sm text-parchment font-medium leading-relaxed">{raciocinio.conclusao_logica}</p>
         </div>
 
-        <div className="flex items-start gap-2 pt-2 border-t border-line">
-          <Gavel size={14} className="text-parchment/40 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-parchment/50 italic">{raciocinio.referencia}</p>
+        <div className="pt-2 border-t border-line">
+          <div className="flex items-start gap-2">
+            <Gavel size={14} className="text-parchment/40 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-parchment/50 italic">{raciocinio.referencia}</p>
+          </div>
+          <TextoLegal referencia={raciocinio.referencia} />
         </div>
       </div>
     </div>
