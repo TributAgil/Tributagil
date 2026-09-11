@@ -56,24 +56,33 @@ function somarAnos(data, anos) {
   return new Date(Date.UTC(data.getUTCFullYear() + anos, data.getUTCMonth(), data.getUTCDate()));
 }
 
+const CATEGORIAS_INTERRUPTIVAS = ['requerimento_constricao', 'penhora_constricao', 'citacao'];
+
 /**
  * Módulo 4 — Prescrição Intercorrente (LEF art. 40, §§1º-4º / REsp 1.340.553/RS).
  *
  * Agrupa eventos por inscrição (eventos sem inscrição específica, como
- * despacho/citação/ajuizamento, caem no grupo "(execução)"). Para cada grupo
- * com pelo menos um evento "intimacao_nao_localizacao_bens":
- *   1. Marco = a intimação MAIS ANTIGA do grupo (suspensões subsequentes do
- *      mesmo tipo não reiniciam prazo já em curso).
- *   2. Fim da suspensão automática = marco + 1 ano (art. 40, §2º).
- *   3. Prazo final = fim da suspensão + 5 anos.
- *   4. Requerimento retroativo: qualquer "requerimento_constricao",
- *      "penhora_constricao" ou "citacao" datado DENTRO da janela [marco,
- *      prazo final] barra o reconhecimento, mesmo que o resultado do pedido
- *      só tenha sido juntado aos autos depois (item 3 do Módulo 4 no motor).
+ * despacho/citação/ajuizamento, caem no grupo "(execução)"). Para cada grupo,
+ * percorre a linha do tempo em ordem cronológica e monta um CICLO por
+ * intimação de não localização de devedor/bens:
+ *   1. Marco do ciclo = a intimação (fim da suspensão automática de 1 ano +
+ *      prazo final de +5 anos a partir daí).
+ *   2. Se um requerimento de constrição, constrição efetiva ou citação cair
+ *      DENTRO da janela do ciclo, ele o INTERROMPE — o ciclo fica encerrado,
+ *      "não configurado", e uma intimação POSTERIOR abre um ciclo novo (o
+ *      processo pode ter mais de um episódio de não localização ao longo do
+ *      tempo; tratar só a intimação mais antiga colapsaria episódios já
+ *      resolvidos com o episódio realmente em curso hoje — corrigido após
+ *      revisão externa apontar exatamente esse ponto).
+ *   3. Uma intimação que cai DENTRO de um ciclo já aberto (sem interrupção
+ *      entre elas) é mera reiteração do mesmo episódio — não abre ciclo novo.
+ *   4. No fim, no máximo um ciclo fica em aberto (sem interrupção que o
+ *      encerre) — esse é o único cujo reconhecimento depende da data atual;
+ *      todos os demais (interrompidos) são sempre "não configurado".
  *
  * @param {Array<{data:string, inscricao?:string, categoria:string, fonte?:string}>} eventos
  * @param {Date} [agora]
- * @returns {Array<object>} um resultado por grupo em que o módulo se aplica.
+ * @returns {Array<object>} um resultado por grupo em que ao menos um ciclo existe.
  */
 export function calcularPrescricaoIntercorrente(eventos, agora = new Date()) {
   const porGrupo = new Map();
@@ -85,40 +94,76 @@ export function calcularPrescricaoIntercorrente(eventos, agora = new Date()) {
 
   const resultados = [];
   for (const [inscricao, lista] of porGrupo) {
-    const intimacoes = lista
-      .filter((e) => e?.categoria === 'intimacao_nao_localizacao_bens')
+    const linha = lista
+      .filter((e) => e?.categoria === 'intimacao_nao_localizacao_bens' || CATEGORIAS_INTERRUPTIVAS.includes(e?.categoria))
       .map((e) => ({ ...e, _data: parseDataBR(e.data) }))
       .filter((e) => e._data)
-      .sort((a, b) => a._data - b._data);
+      .sort((a, b) => a._data - b._data || (a.categoria === 'intimacao_nao_localizacao_bens' ? -1 : 1));
 
-    if (intimacoes.length === 0) continue;
+    if (!linha.some((e) => e.categoria === 'intimacao_nao_localizacao_bens')) continue;
 
-    const marco = intimacoes[0];
-    const fimSuspensao = somarAnos(marco._data, 1);
-    const prazoFinal = somarAnos(fimSuspensao, 5);
+    const ciclos = [];
+    let cicloAberto = null;
 
-    const requerimentos = lista
-      .filter((e) => ['requerimento_constricao', 'penhora_constricao', 'citacao'].includes(e?.categoria))
-      .map((e) => ({ ...e, _data: parseDataBR(e.data) }))
-      .filter((e) => e._data && e._data >= marco._data && e._data <= prazoFinal)
-      .sort((a, b) => a._data - b._data);
+    for (const evento of linha) {
+      if (evento.categoria === 'intimacao_nao_localizacao_bens') {
+        if (!cicloAberto) {
+          const fimSuspensao = somarAnos(evento._data, 1);
+          cicloAberto = {
+            marco: evento,
+            fimSuspensao,
+            prazoFinal: somarAnos(fimSuspensao, 5),
+          };
+        }
+        continue;
+      }
+      // Evento interruptivo: só encerra um ciclo aberto se cair dentro da janela.
+      if (cicloAberto && evento._data >= cicloAberto.marco._data && evento._data <= cicloAberto.prazoFinal) {
+        ciclos.push({
+          status: 'interrompido',
+          marco: cicloAberto.marco,
+          fimSuspensao: cicloAberto.fimSuspensao,
+          prazoFinal: cicloAberto.prazoFinal,
+          retroativo: evento,
+        });
+        cicloAberto = null;
+      }
+    }
 
-    const retroativo = requerimentos[0] || null;
-    const reconhecida = agora.getTime() > prazoFinal.getTime() && !retroativo;
-    const diasRestantes = Math.max(0, Math.ceil((prazoFinal.getTime() - agora.getTime()) / MS_POR_DIA));
+    let reconhecidaAtual = false;
+    let cicloAtivoInfo = null;
+    if (cicloAberto) {
+      const reconhecida = agora.getTime() > cicloAberto.prazoFinal.getTime();
+      const diasRestantes = Math.max(0, Math.ceil((cicloAberto.prazoFinal.getTime() - agora.getTime()) / MS_POR_DIA));
+      cicloAtivoInfo = {
+        status: 'ativo',
+        marco: cicloAberto.marco,
+        fimSuspensao: cicloAberto.fimSuspensao,
+        prazoFinal: cicloAberto.prazoFinal,
+        reconhecida,
+        diasRestantes: reconhecida ? 0 : diasRestantes,
+      };
+      ciclos.push(cicloAtivoInfo);
+      reconhecidaAtual = reconhecida;
+    }
 
     resultados.push({
       inscricao,
       aplicavel: true,
-      dataIntimacao: marco.data,
-      fonteIntimacao: marco.fonte || '',
-      dataFimSuspensao: formatarDataBR(fimSuspensao),
-      dataPrazoFinal: formatarDataBR(prazoFinal),
-      reconhecida,
-      diasRestantes: reconhecida ? 0 : diasRestantes,
-      requerimentoRetroativo: retroativo
-        ? { data: retroativo.data, categoria: retroativo.categoria, fonte: retroativo.fonte || '' }
-        : null,
+      reconhecidaAtual,
+      ciclos: ciclos.map((c) => ({
+        status: c.status,
+        dataIntimacao: c.marco.data,
+        fonteIntimacao: c.marco.fonte || '',
+        dataFimSuspensao: formatarDataBR(c.fimSuspensao),
+        dataPrazoFinal: formatarDataBR(c.prazoFinal),
+        reconhecida: c.status === 'ativo' ? c.reconhecida : false,
+        diasRestantes: c.status === 'ativo' ? c.diasRestantes : null,
+        requerimentoRetroativo:
+          c.status === 'interrompido'
+            ? { data: c.retroativo.data, categoria: c.retroativo.categoria, fonte: c.retroativo.fonte || '' }
+            : null,
+      })),
     });
   }
   return resultados;
@@ -133,21 +178,27 @@ export function formatarMotorPrazosParaPrompt(resultados) {
   if (!Array.isArray(resultados) || resultados.length === 0) return '';
 
   const blocos = resultados.map((r) => {
-    const linhas = [
-      `- Grupo/inscrição: ${r.inscricao}`,
-      `  Intimação da Fazenda sobre não localização de devedor/bens: ${r.dataIntimacao} (fonte: ${r.fonteIntimacao || 'não informada'})`,
-      `  Fim da suspensão automática de 1 ano (art. 40, §2º, LEF): ${r.dataFimSuspensao}`,
-      `  Prazo final da prescrição intercorrente (+5 anos): ${r.dataPrazoFinal}`,
-      r.requerimentoRetroativo
-        ? `  Requerimento/citação dentro da janela, com efeito retroativo: ${r.requerimentoRetroativo.data} (${r.requerimentoRetroativo.categoria}, fonte: ${r.requerimentoRetroativo.fonte || 'não informada'}) — a prescrição intercorrente NÃO se consumou.`
-        : `  Nenhum requerimento de constrição ou citação localizado dentro da janela.`,
-      `  RESULTADO JÁ CALCULADO (não recalcule): ${r.reconhecida ? 'prescrição intercorrente RECONHECIDA' : `prescrição intercorrente NÃO configurada — restam ${r.diasRestantes} dia(s)`}.`,
-    ];
-    return linhas.join('\n');
+    const cabecalho = `- Grupo/inscrição: ${r.inscricao} (${r.ciclos.length} ciclo(s) de não localização identificado(s))`;
+    const linhasCiclos = r.ciclos.map((c, i) => {
+      const base = [
+        `  Ciclo ${i + 1}: intimação em ${c.dataIntimacao} (fonte: ${c.fonteIntimacao || 'não informada'}) — fim da suspensão de 1 ano: ${c.dataFimSuspensao} — prazo final (+5 anos): ${c.dataPrazoFinal}`,
+      ];
+      if (c.status === 'interrompido') {
+        base.push(
+          `    Interrompido por ${c.requerimentoRetroativo.categoria} em ${c.requerimentoRetroativo.data} (fonte: ${c.requerimentoRetroativo.fonte || 'não informada'}) — este ciclo NÃO configura prescrição intercorrente.`,
+        );
+      } else {
+        base.push(
+          `    Ciclo ATIVO hoje (nenhum requerimento/citação o encerrou): ${c.reconhecida ? 'prescrição intercorrente RECONHECIDA' : `prescrição intercorrente NÃO configurada — restam ${c.diasRestantes} dia(s)`}.`,
+        );
+      }
+      return base.join('\n');
+    });
+    return [cabecalho, ...linhasCiclos].join('\n');
   });
 
   return `[MÓDULO 4 — PRESCRIÇÃO INTERCORRENTE: CÁLCULO JÁ FEITO DETERMINISTICAMENTE POR CÓDIGO]
-Os números abaixo NÃO foram calculados por você — foram calculados por aritmética de data em código, sobre a tabela de eventos já extraída. Sua tarefa é usar EXATAMENTE estas datas e este resultado no item de "conclusoes" com "tipo":"prescricao_intercorrente" (um item por grupo abaixo), com "severidade":"favoravel" quando RECONHECIDA e "severidade":"desfavoravel" quando NÃO configurada — e redigir a fundamentação jurídica (premissa, aplicação, referência) ao redor deste resultado, incluindo a advertência obrigatória do Módulo 4. Não refaça a conta, e não a altere.
+Os números abaixo NÃO foram calculados por você — foram calculados por aritmética de data em código, sobre a tabela de eventos já extraída, considerando CADA episódio de não localização de devedor/bens como um ciclo próprio (uma interrupção encerra um ciclo; uma intimação posterior abre um ciclo novo). Sua tarefa é gerar um item em "conclusoes" com "tipo":"prescricao_intercorrente" PARA CADA CICLO listado abaixo (não apenas um por grupo) — "severidade":"favoravel" só para o ciclo ATIVO quando RECONHECIDA, "severidade":"desfavoravel" para todo ciclo interrompido e para o ciclo ativo quando NÃO configurada — e redigir a fundamentação jurídica ao redor deste resultado (incluindo a advertência obrigatória do Módulo 4 quando houver ciclo ativo). Não refaça a conta, e não a altere.
 
 ${blocos.join('\n\n')}`;
 }
@@ -159,6 +210,16 @@ ${blocos.join('\n\n')}`;
  * navegador (ver api/gemini.js: roda sobre uma ramificação separada do
  * stream, depois que a resposta já foi encaminhada ao cliente).
  */
+// LIMITE CONHECIDO: ESQUEMA_PARECER não tem um campo que ligue cada item de
+// "conclusoes" a um grupo/inscrição específico (ver api/_schema-parecer.js)
+// — então esta validação compara CONTAGENS de severidade esperada x
+// encontrada (multiset), não item a item por grupo. Isso pega divergências
+// reais (módulo não aplicado, número de ciclos errado, contagem de
+// favoravel/desfavoravel errada), mas não pega o caso específico — raro,
+// exige múltiplos grupos com resultados de tipos diferentes — de dois itens
+// corretos na CONTAGEM global porém trocados entre os grupos errados.
+// Corrigir isso por completo exigiria um campo de correlação no schema do
+// parecer, fora do escopo desta validação (só log, não bloqueante).
 export function validarConclusoesModulo4(resultadosMotor, conclusoes) {
   const divergencias = [];
   const aplicaveis = (resultadosMotor || []).filter((r) => r.aplicavel);
@@ -168,22 +229,31 @@ export function validarConclusoesModulo4(resultadosMotor, conclusoes) {
     (c) => c?.tipo === 'prescricao_intercorrente',
   );
 
+  const ciclosEsperados = aplicaveis.flatMap((r) => r.ciclos);
+  const esperadoFavoravel = ciclosEsperados.filter((c) => c.status === 'ativo' && c.reconhecida).length;
+  const esperadoDesfavoravel = ciclosEsperados.length - esperadoFavoravel;
+
   if (itensIntercorrente.length === 0) {
     divergencias.push(
-      `Motor determinístico aplicável a ${aplicaveis.length} grupo(s) (Módulo 4), mas o parecer não retornou nenhuma conclusão com tipo "prescricao_intercorrente".`,
+      `Motor determinístico calculou ${ciclosEsperados.length} ciclo(s) de Módulo 4 em ${aplicaveis.length} grupo(s), mas o parecer não retornou nenhuma conclusão com tipo "prescricao_intercorrente".`,
     );
     return divergencias;
   }
 
-  for (const r of aplicaveis) {
-    const esperada = r.reconhecida ? 'favoravel' : 'desfavoravel';
-    const bateu = itensIntercorrente.some((c) => c?.severidade === esperada);
-    if (!bateu) {
-      divergencias.push(
-        `Grupo "${r.inscricao}": motor calculou severidade "${esperada}" (prazo final ${r.dataPrazoFinal}${r.requerimentoRetroativo ? `, requerimento retroativo em ${r.requerimentoRetroativo.data}` : ''}), mas nenhum item "prescricao_intercorrente" do parecer usou essa severidade.`,
-      );
-    }
+  if (itensIntercorrente.length !== ciclosEsperados.length) {
+    divergencias.push(
+      `Motor determinístico calculou ${ciclosEsperados.length} ciclo(s) de Módulo 4, mas o parecer retornou ${itensIntercorrente.length} item(ns) "prescricao_intercorrente" — número de ciclos não bate (ex.: um episódio de não localização interrompido foi omitido, ou um ciclo foi duplicado).`,
+    );
   }
+
+  const foundFavoravel = itensIntercorrente.filter((c) => c?.severidade === 'favoravel').length;
+  const foundDesfavoravel = itensIntercorrente.filter((c) => c?.severidade === 'desfavoravel').length;
+  if (foundFavoravel !== esperadoFavoravel || foundDesfavoravel !== esperadoDesfavoravel) {
+    divergencias.push(
+      `Severidades de "prescricao_intercorrente" não batem com o motor: esperado ${esperadoFavoravel} favorável/${esperadoDesfavoravel} desfavorável, parecer trouxe ${foundFavoravel} favorável/${foundDesfavoravel} desfavorável.`,
+    );
+  }
+
   return divergencias;
 }
 

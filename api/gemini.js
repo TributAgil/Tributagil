@@ -563,9 +563,11 @@ async function estornarCredito(supabaseUrl, supabaseAnonKey, userToken, motivo) 
 // streamGenerateContent), faz o parse do parecer final e compara as
 // conclusões do Módulo 4 contra o resultado do motor determinístico.
 // Só loga — nunca lança para fora do .catch() que a chama.
-async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
-  if (!motorPrazos || motorPrazos.length === 0) return;
-
+async function validarParecerPosGeracao(stream, { motorPrazos, metadata, supabaseUrl, supabaseAnonKey, userToken }) {
+  // IMPORTANTE: mesmo sem Módulo 4 aplicável (motorPrazos vazio), a leitura
+  // do stream até o fim + confirmar_credito() no fim desta função sempre
+  // rodam — é o que fecha a reserva de estorno de TODA análise bem
+  // sucedida, não só das que passam pelo motor de prazos.
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let bruto = '';
@@ -598,12 +600,41 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
     return;
   }
 
-  const divergencias = validarConclusoesModulo4(motorPrazos, parecer?.conclusoes);
+  const divergencias = motorPrazos && motorPrazos.length > 0
+    ? validarConclusoesModulo4(motorPrazos, parecer?.conclusoes)
+    : [];
   if (divergencias.length > 0) {
     console.error(
       '[api/gemini] DIVERGÊNCIA Módulo 4 (motor determinístico x parecer gerado)',
-      { casoId: metadata?.caso_id, analiseId: metadata?.analise_id, divergencias },
+      // caso_id/analise_id vêm de `metadata`, que é enviado pelo cliente e
+      // NUNCA verificado no servidor — só serve para achar o log certo
+      // manualmente, nunca como identificador confiável para automação.
+      { casoIdDeclaradoPeloCliente: metadata?.caso_id, analiseIdDeclaradoPeloCliente: metadata?.analise_id, divergencias },
     );
+  }
+
+  // Parecer bem formado = análise entregue com sucesso -> fecha a reserva de
+  // estorno deste consumo (ver README, RPC confirmar_credito). Sem isto, uma
+  // análise que teve sucesso deixaria a reserva aberta, disponível para um
+  // estorno indevido depois — best-effort: se falhar, a reserva expira
+  // sozinha no próximo consumir_credito() do mesmo usuário, que não lê nem
+  // depende deste valor além de incrementá-lo.
+  try {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/confirmar_credito`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: '{}',
+    });
+    if (!resp.ok && resp.status !== 404) {
+      console.error('[api/gemini] Falha ao confirmar sucesso do crédito (reserva de estorno pode ficar aberta):', resp.status);
+    }
+  } catch (err) {
+    console.error('[api/gemini] Erro de rede ao confirmar sucesso do crédito:', err);
   }
 }
 

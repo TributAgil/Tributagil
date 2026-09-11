@@ -30,6 +30,11 @@ import { gerarEmbedding } from './_embeddings.js';
 import { chatbotLiberadoParaPerfil } from './_chatbot-acesso.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
+// Supabase: SOMENTE do ambiente do servidor — NUNCA aceitos do corpo da
+// requisição. Ver o mesmo comentário, mais detalhado, em api/gemini.js: um
+// fallback para body.supabaseUrl permite que o cliente aponte para o
+// PRÓPRIO projeto Supabase dele, passe na checagem de auth trivialmente e
+// vire um proxy de IA aberto (embeddings + chat Gemini de graça).
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
@@ -86,16 +91,18 @@ export async function POST(request) {
   const { casoId, analiseId, userToken } = body || {};
   const pergunta = String(body?.pergunta || '').trim();
   const historico = Array.isArray(body?.historico) ? body.historico.slice(-6) : [];
-  const supabaseUrl = SUPABASE_URL_ENV || String(body?.supabaseUrl || '');
-  const supabaseAnonKey = SUPABASE_ANON_ENV || String(body?.supabaseAnonKey || '');
+  const supabaseUrl = SUPABASE_URL_ENV;
+  const supabaseAnonKey = SUPABASE_ANON_ENV;
 
+  if (!SUPABASE_URL_RE.test(supabaseUrl) || !supabaseAnonKey) {
+    console.error('[api/lu] SUPABASE_URL/SUPABASE_ANON_KEY ausentes ou inválidas nas Environment Variables da Vercel.');
+    return json({ error: 'Configuração do servidor ausente. Contate o suporte.' }, 500);
+  }
   if (!casoId) return json({ error: 'Informe o caso (casoId).' }, 400);
   if (!analiseId) return json({ error: 'Informe a consulta (analiseId).' }, 400);
   if (!pergunta) return json({ error: 'Escreva uma pergunta.' }, 400);
   if (pergunta.length > 2000) return json({ error: 'Pergunta muito longa (máx. 2000 caracteres).' }, 400);
-  if (!SUPABASE_URL_RE.test(supabaseUrl) || !supabaseAnonKey || !userToken) {
-    return json({ error: 'Sessão ausente. Faça login novamente.' }, 401);
-  }
+  if (!userToken) return json({ error: 'Sessão ausente. Faça login novamente.' }, 401);
 
   // ---- Autenticação -----------------------------------------------------
   try {

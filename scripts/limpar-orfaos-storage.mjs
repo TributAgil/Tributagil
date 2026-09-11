@@ -26,7 +26,13 @@ const BUCKET = 'documentos';
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const diasArg = args.find((a) => a.startsWith('--dias='));
-const DIAS_GRACA = diasArg ? Number(diasArg.split('=')[1]) : 7;
+// 30 dias (não 7): um advogado pode enviar documentos e só voltar para
+// concluir/submeter a análise depois de alguns dias (juntando mais provas,
+// por exemplo) — o vínculo a um caso só é criado quando a análise É SALVA,
+// não no upload. Um prazo curto demais apagaria um caso em preparo antes de
+// virar órfão "de verdade" (abandonado), causando falha na leitura sem
+// perda de crédito, mas com frustração real. Ajustado após revisão externa.
+const DIAS_GRACA = diasArg ? Number(diasArg.split('=')[1]) : 30;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error('Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY antes de rodar este script.');
@@ -64,14 +70,24 @@ async function coletarRecursivo(prefixo, acumulador) {
   }
 }
 
+// Pagina em lotes de 1000 (teto da API de Storage) — sem isto, uma pasta
+// (de usuário ou de análise) com mais de 1000 objetos era varrida só
+// parcialmente, deixando órfãos antigos de fora da limpeza sem aviso.
 async function listarPasta(prefixo) {
-  const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${BUCKET}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ prefix: prefixo, limit: 1000, sortBy: { column: 'name', order: 'asc' } }),
-  });
-  if (!resp.ok) throw new Error(`Falha ao listar "${prefixo}": HTTP ${resp.status}`);
-  return resp.json();
+  const LOTE = 1000;
+  const todos = [];
+  for (let offset = 0; ; offset += LOTE) {
+    const resp = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${BUCKET}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prefix: prefixo, limit: LOTE, offset, sortBy: { column: 'name', order: 'asc' } }),
+    });
+    if (!resp.ok) throw new Error(`Falha ao listar "${prefixo}" (offset ${offset}): HTTP ${resp.status}`);
+    const pagina = await resp.json();
+    todos.push(...pagina);
+    if (pagina.length < LOTE) break;
+  }
+  return todos;
 }
 
 async function pathsComCasoVinculado(paths) {
