@@ -228,123 +228,26 @@ $$;
 grant execute on function public.consumir_credito() to authenticated;
 ```
 
-**Estorno automático — com reserva, não um crédito incondicional.** A
-primeira versão de `estornar_credito()` incrementava `creditos_bonus` para
-qualquer usuário autenticado que a chamasse, sem checar se havia um consumo
-real por trás — permitia mintar crédito infinito chamando
-`supabase.rpc('estornar_credito')` direto do client, em loop (achado em
-auditoria externa). A correção introduz uma RESERVA
-(`perfis.estornos_disponiveis`): só existe 1 unidade de reserva quando
-`consumir_credito()` de fato debitou 1 crédito, e ela só pode ser consumida
-UMA VEZ — por um estorno (`estornar_credito`, chamado pelo backend quando a
-fase de geração falha por motivo do sistema antes de começar a transmitir)
-ou por uma confirmação de sucesso (`confirmar_credito`, chamada pelo backend
-quando o parecer é entregue com sucesso — fecha a reserva sem devolver
-crédito). Sem reserva aberta, `estornar_credito()` falha com
-`NADA_A_ESTORNAR`. Nenhuma das duas cobre uma falha NO MEIO de um stream já
-iniciado (ver api/gemini.js) — para esse caso raro, o caminho manual abaixo
-continua existindo.
+**Cobrança na entrada, estorno 100% manual — decisão deliberada.** Uma
+variante "cobrar só pós-sucesso da extração" com estorno automático chegou a
+ir para produção, mas foi revertida por dois motivos: (1) abria um vetor de
+abuso de custo real (a fase de extração já gasta Gemini de verdade antes de
+decidir se cobra, então dava pra rodar extrações de graça repetidamente sem
+nunca consumir crédito); (2) a primeira versão do estorno automático
+(`estornar_credito()`) incrementava `creditos_bonus` para qualquer usuário
+autenticado que a chamasse, sem vínculo com um consumo real — permitia
+mintar crédito infinito chamando `supabase.rpc('estornar_credito')` direto
+do client, em loop (achado em auditoria externa). Consertar isso exigiria um
+mecanismo de reserva por consumo, mais complexo e com mais superfície de
+erro do que o problema original justificava. Voltamos ao modelo simples:
+crédito debitado na entrada da requisição (como sempre foi), e toda falha do
+SISTEMA (não do usuário) passa por avaliação humana do suporte antes de
+qualquer estorno — ver "Botão de solicitação de estorno" logo abaixo.
 
-```sql
-alter table public.perfis
-  add column if not exists estornos_disponiveis integer not null default 0;
-
--- consumir_credito() ganha mais uma linha: incrementa a reserva junto do débito.
-create or replace function public.consumir_credito()
-returns table (creditos_restantes integer, plano text)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_user_id uuid := auth.uid();
-  v_perfil  public.perfis%rowtype;
-begin
-  if v_user_id is null then
-    raise exception 'NAO_AUTENTICADO';
-  end if;
-
-  select * into v_perfil from public.perfis where id = v_user_id for update;
-  if not found then
-    raise exception 'PERFIL_NAO_ENCONTRADO';
-  end if;
-
-  if (v_perfil.creditos_bonus + v_perfil.creditos_disponiveis) <= 0 then
-    raise exception 'SEM_CREDITOS';
-  end if;
-
-  if v_perfil.creditos_bonus > 0 then
-    update public.perfis
-       set creditos_bonus = creditos_bonus - 1, estornos_disponiveis = estornos_disponiveis + 1, updated_at = now()
-     where id = v_user_id;
-  else
-    update public.perfis
-       set creditos_disponiveis = creditos_disponiveis - 1, estornos_disponiveis = estornos_disponiveis + 1, updated_at = now()
-     where id = v_user_id;
-  end if;
-
-  select * into v_perfil from public.perfis where id = v_user_id;
-  return query select (v_perfil.creditos_disponiveis + v_perfil.creditos_bonus), v_perfil.plano;
-end;
-$$;
-
-create or replace function public.estornar_credito()
-returns table (creditos_restantes integer, plano text)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_user_id uuid := auth.uid();
-  v_perfil  public.perfis%rowtype;
-begin
-  if v_user_id is null then
-    raise exception 'NAO_AUTENTICADO';
-  end if;
-
-  select * into v_perfil from public.perfis where id = v_user_id for update;
-  if not found then
-    raise exception 'PERFIL_NAO_ENCONTRADO';
-  end if;
-
-  if v_perfil.estornos_disponiveis <= 0 then
-    raise exception 'NADA_A_ESTORNAR';
-  end if;
-
-  update public.perfis
-     set creditos_bonus = creditos_bonus + 1, estornos_disponiveis = estornos_disponiveis - 1, updated_at = now()
-   where id = v_user_id
-   returning * into v_perfil;
-
-  return query select (v_perfil.creditos_disponiveis + v_perfil.creditos_bonus), v_perfil.plano;
-end;
-$$;
-
-create or replace function public.confirmar_credito()
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_user_id uuid := auth.uid();
-begin
-  if v_user_id is null then
-    raise exception 'NAO_AUTENTICADO';
-  end if;
-
-  update public.perfis
-     set estornos_disponiveis = greatest(estornos_disponiveis - 1, 0), updated_at = now()
-   where id = v_user_id;
-end;
-$$;
-
-grant execute on function public.estornar_credito() to authenticated;
-grant execute on function public.confirmar_credito() to authenticated;
-```
-
-**Estorno manual (casos fora do automático acima):** ação do suporte, após
-avaliar o e-mail recebido pelo botão "Sinalização Automática de Erro":
+**Estorno manual:** ação do suporte, após avaliar o e-mail recebido (pelo
+botão "Sinalização Automática de Erro" durante uma falha ao vivo, ou pelo
+botão "Solicitar estorno" no Histórico, disponível por até 5 dias após a
+análise — ver `src/components/ModalSolicitarEstorno.jsx`):
 
 ```sql
 update public.perfis

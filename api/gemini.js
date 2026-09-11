@@ -140,7 +140,6 @@ export async function POST(request) {
 
   // ---- 1b. AUTENTICAÇÃO: valida o JWT do usuário no Supabase Auth ----------
   // Impede que o endpoint seja usado como proxy de IA anônimo.
-  let usuarioId;
   try {
     const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
@@ -148,44 +147,30 @@ export async function POST(request) {
     if (!authResp.ok) {
       return json({ error: 'Sessão inválida ou expirada. Faça login novamente.' }, 401);
     }
-    const authUser = await authResp.json().catch(() => ({}));
-    usuarioId = authUser?.id;
   } catch (err) {
     console.error('[api/gemini] Falha ao validar sessão:', err);
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
-  // ---- 1c. CRÉDITOS (pré-checagem, só leitura) -----------------------------
-  // Recusa ANTES de gastar Gemini se o saldo já está zerado. O CONSUMO
-  // atômico de fato só acontece depois que a extração (fase 1) tiver sucesso
-  // (ver "CRÉDITOS: consumo" abaixo) — cobrança pós-sucesso, não mais na
-  // entrada da requisição, para não cobrar por falhas de leitura/OCR/sessão.
-  // Sem esta pré-checagem, um usuário sem créditos gastaria Gemini de graça
-  // na fase 1 indefinidamente, já que o consumo real só ocorre mais adiante.
-  // Fail-open (não bloqueia) se a tabela ainda não existir — mesma
-  // convenção do restante do sistema de créditos.
-  if (usuarioId) {
-    try {
-      const saldoResp = await fetch(
-        `${supabaseUrl}/rest/v1/perfis?id=eq.${encodeURIComponent(usuarioId)}&select=creditos_disponiveis,creditos_bonus`,
-        { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` } },
-      );
-      if (saldoResp.ok) {
-        const linhas = await saldoResp.json().catch(() => []);
-        const perfil = Array.isArray(linhas) ? linhas[0] : null;
-        if (perfil) {
-          const saldo = Number(perfil.creditos_disponiveis || 0) + Number(perfil.creditos_bonus || 0);
-          if (saldo <= 0) {
-            return json(
-              { error: 'Você não possui créditos disponíveis. Renove seu plano ou adquira créditos avulsos para continuar.' },
-              402,
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[api/gemini] Falha ao pré-checar saldo de créditos (seguindo sem bloquear):', err);
-    }
+  // ---- 1c. CRÉDITOS: consome 1 crédito de análise de forma atômica ---------
+  // RPC `consumir_credito` (SECURITY DEFINER, ver README) — decrementa o saldo
+  // do usuário chamador (auth.uid() vem do próprio userToken) e falha com
+  // "SEM_CREDITOS" se o saldo já estiver zerado. Cobrança na ENTRADA da
+  // requisição (decisão deliberada, ver README seção "Créditos" — não é
+  // cobrança pós-sucesso: essa variante foi tentada, corrigia a injustiça de
+  // cobrar por falha do sistema, mas abria um vetor de abuso de custo real
+  // — extração podia rodar de graça repetidamente sem nunca consumir
+  // crédito. Revertido). Uma falha do SISTEMA (não do usuário) é tratada por
+  // pedido manual de estorno — ver ModalSolicitarEstorno.jsx /
+  // BotaoSinalizarErro.jsx, sempre com aprovação humana do suporte.
+  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
+  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
+  try {
+    const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
+    if (resultadoConsumo?.erro) return resultadoConsumo.erro;
+  } catch (err) {
+    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
+    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
   }
 
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
@@ -313,24 +298,6 @@ export async function POST(request) {
     );
   }
 
-  // ---- 3b. CRÉDITOS (consumo real, pós-sucesso da extração) ----------------
-  // RPC `consumir_credito` (SECURITY DEFINER, ver README) — decrementa o saldo
-  // do usuário chamador (auth.uid() vem do próprio userToken) e falha com
-  // "SEM_CREDITOS" se o saldo já estiver zerado. Cobrança pós-sucesso: só
-  // chega aqui depois que a extração (custo real de Gemini já incorrido) foi
-  // validada — falhas de sessão/Storage/OCR nunca chegam a este ponto e
-  // nunca descontam crédito. Se a fase 2 falhar a partir daqui, o crédito é
-  // estornado automaticamente (ver bloco de erro da fase 2, abaixo).
-  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
-  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
-  try {
-    const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
-    if (resultadoConsumo?.erro) return resultadoConsumo.erro;
-  } catch (err) {
-    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
-    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
-  }
-
   // ---- 4. FASE 2 — raciocínio jurídico (streaming) --------------------------
   // Recebe a tabela extraída como TEXTO — não mais os documentos brutos. O
   // motor (_motor-tributagil.js) e o esquema de saída (_schema-parecer.js)
@@ -448,32 +415,17 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
 
   try {
     const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal);
-    if (erro) {
-      // ESTORNO AUTOMÁTICO: o crédito já foi consumido no passo 3b (a
-      // extração, que já custou Gemini de verdade, teve sucesso), mas a
-      // fase 2 nem chegou a começar a transmitir — falha do sistema, não do
-      // usuário. Não cobre falha NO MEIO de um stream já iniciado (ver
-      // comentário abaixo, junto da validação pós-geração): esse caso raro
-      // continua dependendo do fluxo manual de "Sinalização de Erro".
-      await estornarCredito(supabaseUrl, supabaseAnonKey, userToken, 'fase 2 não iniciou o stream');
-      return erro;
-    }
+    if (erro) return erro;
 
-    // Validação pós-geração (Módulo 4) + guarda de estorno por stream vazio:
-    // tee() ramifica o stream em duas cópias independentes — uma segue para
+    // Validação pós-geração (Módulo 4): tee() ramifica o stream em duas
+    // cópias independentes — uma segue para
     // o navegador SEM NENHUMA alteração (zero latência, zero risco de
     // quebrar a resposta), a outra é consumida aqui em paralelo, só para
     // comparar o parecer final contra o resultado do motor determinístico.
     // Roda "fire and forget": qualquer erro nela fica só em log, nunca
     // afeta a resposta já enviada.
     const [paraCliente, paraValidacao] = upstream.body.tee();
-    validarParecerPosGeracao(paraValidacao, {
-      motorPrazos,
-      metadata,
-      supabaseUrl,
-      supabaseAnonKey,
-      userToken,
-    }).catch((err) => {
+    validarParecerPosGeracao(paraValidacao, { motorPrazos, metadata }).catch((err) => {
       console.error('[api/gemini] Falha na validação pós-geração (não afeta a resposta ao usuário):', err);
     });
 
@@ -487,7 +439,6 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
   } catch (err) {
     const abortado = err?.name === 'AbortError';
     console.error('[api/gemini] Erro na geração:', err);
-    await estornarCredito(supabaseUrl, supabaseAnonKey, userToken, abortado ? 'timeout na fase 2' : 'erro de conexão na fase 2');
     return json(
       { error: abortado ? 'Tempo limite excedido ao aguardar a IA.' : 'Erro ao conectar com a IA.' },
       abortado ? 504 : 502,
@@ -497,7 +448,7 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
   }
 }
 
-// ---- Créditos: consumo e estorno --------------------------------------------
+// ---- Créditos: consumo --------------------------------------------------
 
 async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
   const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/consumir_credito`, {
@@ -534,40 +485,16 @@ async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
   return { erro: json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502) };
 }
 
-// RPC `estornar_credito` (ver README) — devolve 1 crédito de bônus ao
-// usuário. Chamada só quando o crédito já foi consumido (passo 3b) e a fase
-// 2 falha por motivo do SISTEMA (conexão/timeout/erro do Gemini antes de
-// transmitir), nunca por engano do usuário. Best-effort: se falhar, sobra o
-// caminho manual de sempre (botão "Sinalização de Erro" -> suporte).
-async function estornarCredito(supabaseUrl, supabaseAnonKey, userToken, motivo) {
-  try {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/estornar_credito`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${userToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: '{}',
-    });
-    if (!resp.ok && resp.status !== 404) {
-      console.error('[api/gemini] Falha ao estornar crédito automaticamente:', resp.status, motivo);
-    }
-  } catch (err) {
-    console.error('[api/gemini] Erro de rede ao estornar crédito automaticamente:', err, motivo);
-  }
-}
-
 // Validação pós-geração: acumula o texto do stream (mesmo formato SSE de
 // streamGenerateContent), faz o parse do parecer final e compara as
 // conclusões do Módulo 4 contra o resultado do motor determinístico.
-// Só loga — nunca lança para fora do .catch() que a chama.
-async function validarParecerPosGeracao(stream, { motorPrazos, metadata, supabaseUrl, supabaseAnonKey, userToken }) {
-  // IMPORTANTE: mesmo sem Módulo 4 aplicável (motorPrazos vazio), a leitura
-  // do stream até o fim + confirmar_credito() no fim desta função sempre
-  // rodam — é o que fecha a reserva de estorno de TODA análise bem
-  // sucedida, não só das que passam pelo motor de prazos.
+// Só loga — nunca lança para fora do .catch() que a chama. Estorno de
+// crédito NÃO é automático (ver README, seção "Créditos") — é sempre
+// pedido manual do usuário (ModalSolicitarEstorno.jsx / BotaoSinalizarErro.jsx),
+// avaliado pelo suporte, então esta função não toca em crédito nenhum.
+async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
+  if (!motorPrazos || motorPrazos.length === 0) return;
+
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let bruto = '';
@@ -611,30 +538,6 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata, supabas
       // manualmente, nunca como identificador confiável para automação.
       { casoIdDeclaradoPeloCliente: metadata?.caso_id, analiseIdDeclaradoPeloCliente: metadata?.analise_id, divergencias },
     );
-  }
-
-  // Parecer bem formado = análise entregue com sucesso -> fecha a reserva de
-  // estorno deste consumo (ver README, RPC confirmar_credito). Sem isto, uma
-  // análise que teve sucesso deixaria a reserva aberta, disponível para um
-  // estorno indevido depois — best-effort: se falhar, a reserva expira
-  // sozinha no próximo consumir_credito() do mesmo usuário, que não lê nem
-  // depende deste valor além de incrementá-lo.
-  try {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/confirmar_credito`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${userToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: '{}',
-    });
-    if (!resp.ok && resp.status !== 404) {
-      console.error('[api/gemini] Falha ao confirmar sucesso do crédito (reserva de estorno pode ficar aberta):', resp.status);
-    }
-  } catch (err) {
-    console.error('[api/gemini] Erro de rede ao confirmar sucesso do crédito:', err);
   }
 }
 

@@ -19,6 +19,7 @@ import {
   LogOut,
   History,
   FilePlus2,
+  Undo2,
 } from 'lucide-react';
 import {
   listarAnalises,
@@ -30,6 +31,18 @@ import { excluirCasoCompleto } from '../lib/casos';
 import Logo from '../components/Logo';
 import { removerDocumentos } from '../lib/storageDocumentos';
 import RodapeLegal from '../components/RodapeLegal';
+import ModalSolicitarEstorno from '../components/ModalSolicitarEstorno';
+
+// Janela para solicitar estorno de uma análise já concluída — combinado com
+// o produto (ver conversa/decisão do estorno manual). Passado esse prazo, o
+// item de menu nem aparece.
+const DIAS_LIMITE_ESTORNO = 5;
+function dentroDoPrazoDeEstorno(createdAt) {
+  if (!createdAt) return false;
+  const criado = new Date(createdAt).getTime();
+  if (Number.isNaN(criado)) return false;
+  return Date.now() - criado <= DIAS_LIMITE_ESTORNO * 24 * 60 * 60 * 1000;
+}
 
 // ============================================
 // HELPERS
@@ -47,7 +60,7 @@ function formatarDataHora(iso) {
 // ============================================
 // COMPONENTE: CARD DE ANÁLISE (histórico real)
 // ============================================
-const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir, onReanalisar }) => {
+const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir, onReanalisar, onSolicitarEstorno }) => {
   const [menuAberto, setMenuAberto] = useState(false);
 
   return (
@@ -106,6 +119,15 @@ const CardAnalise = ({ item, onReabrir, onBaixar, onExcluir, onReanalisar }) => 
                 >
                   <Download size={14} /> Baixar parecer
                 </button>
+                {dentroDoPrazoDeEstorno(item.created_at) && (
+                  <button
+                    onClick={() => { onSolicitarEstorno(item); setMenuAberto(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-parchment/80 hover:bg-white/5 transition-colors"
+                    title="Disponível até 5 dias após a análise. Sujeito a aprovação do suporte."
+                  >
+                    <Undo2 size={14} /> Solicitar estorno
+                  </button>
+                )}
                 <div className="border-t border-line my-1" />
                 <button
                   onClick={() => { onExcluir(item); setMenuAberto(false); }}
@@ -257,6 +279,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
   const [busca, setBusca] = useState('');
   const [filtroResultado, setFiltroResultado] = useState('todos');
   const [modalLGPD, setModalLGPD] = useState(null);
+  const [modalEstorno, setModalEstorno] = useState(null);
   const [toast, setToast] = useState(null);
   const [exportando, setExportando] = useState(false);
 
@@ -529,6 +552,7 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
                 onBaixar={handleBaixar}
                 onReanalisar={onReanalisar}
                 onExcluir={(it) => setModalLGPD({ tipo: 'excluir_item', item: it })}
+                onSolicitarEstorno={(it) => setModalEstorno(it)}
               />
             ))}
           </div>
@@ -540,6 +564,12 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
         onFechar={() => setModalLGPD(null)}
         onConfirmar={confirmarExclusao}
         tipo={modalLGPD?.tipo}
+      />
+
+      <ModalSolicitarEstorno
+        item={modalEstorno}
+        user={user}
+        onFechar={() => setModalEstorno(null)}
       />
 
       <RodapeLegal />
