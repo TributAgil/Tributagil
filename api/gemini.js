@@ -80,11 +80,17 @@ const THINKING_LEVEL_PADRAO = 'high';       // GEMINI_THINKING_LEVEL: 'high' | '
 const TIMEOUT_EXTRACAO_MS = 130_000;
 const TIMEOUT_GERACAO_MS = 130_000;
 const MAX_DOCS = 20;
-// Abaixo disso, com documentos de verdade anexados, a extração falhou — ver
-// validarExtracao(). Não é um número mágico: é o piso do próprio
-// ESQUEMA_EXTRACAO (minItems), mantido igual aqui para a mensagem de erro
-// citar o mesmo número que o esquema exige.
-const EXTRACAO_MIN_EVENTOS = 4;
+// Piso de eventos abaixo do qual a extração é tratada como degenerada MESMO
+// sem `alerta_ilegivel` — não existe processo de execução fiscal real com 0
+// ou 1 evento datado, então isso só pode ser falha de leitura silenciosa.
+// Antes disto, o gate era `eventos.length < 4` incondicional (calcado no
+// minItems do ESQUEMA_EXTRACAO) — rejeitava (com 422, DEPOIS de já cobrar 1
+// crédito) um processo simples e legítimo com só 2-3 eventos (ex.: sem
+// ajuizamento ainda). O sinal correto de falha de leitura é
+// `alerta_ilegivel` (o próprio modelo diz quando não conseguiu ler um
+// documento) — esta constante é só a rede de segurança para quando nem isso
+// veio preenchido.
+const EXTRACAO_EVENTOS_DEGENERADO = 1;
 // Tabelado em 12 MB — igual ao teto do frontend (prepararDocumentos.js) e ao
 // de api/indexar-caso.js, pela mesma limitação de espaço/tempo de
 // processamento da IA. Mantendo os três alinhados, o backend não rejeita
@@ -282,12 +288,17 @@ export async function POST(request) {
   }
 
   // A fase de extração pode sinalizar documento ilegível sem travar tudo —
-  // mas se sobrar praticamente nada extraído com documentos de verdade
-  // anexados, é mais seguro travar aqui do que deixar a fase 2 raciocinar
-  // sobre uma tabela vazia e produzir um parecer com base fática inexistente.
+  // mas travamos aqui quando (a) o próprio modelo sinalizou ilegibilidade
+  // (`alerta_ilegivel`, o sinal confiável de falha de leitura) OU (b) a
+  // contagem é degenerada (0-1 eventos, incompatível com QUALQUER processo
+  // real, mesmo o mais simples). Uma contagem baixa mas plausível (2-3
+  // eventos, sem alerta) NÃO bloqueia — é tratada como processo simples
+  // legítimo, não como falha de extração. Ver comentário de
+  // EXTRACAO_EVENTOS_DEGENERADO acima para o porquê da mudança.
   const eventos = Array.isArray(extracao?.eventos) ? extracao.eventos : [];
-  if (docParts.length > 0 && eventos.length < EXTRACAO_MIN_EVENTOS) {
-    console.error('[api/gemini] Extração insuficiente:', eventos.length, 'eventos —', extracao?.alerta_ilegivel || '(sem alerta)');
+  const extracaoDegenerada = docParts.length > 0 && eventos.length <= EXTRACAO_EVENTOS_DEGENERADO;
+  if (docParts.length > 0 && (extracao?.alerta_ilegivel || extracaoDegenerada)) {
+    console.error('[api/gemini] Extração insuficiente:', eventos.length, 'eventos —', extracao?.alerta_ilegivel || '(sem alerta, contagem degenerada)');
     return json(
       {
         error:
