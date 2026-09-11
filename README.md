@@ -754,26 +754,58 @@ security definer
 set search_path = public
 as $$
 declare
-  v_agora    timestamptz := clock_timestamp();
-  v_janela   interval := (p_janela_ms || ' milliseconds')::interval;
-  v_contagem integer;
-  v_reset    timestamptz;
-  v_total    bigint;
+  v_agora     timestamptz := clock_timestamp();
+  -- Nunca confia cegamente no que o chamador manda: esta RPC está liberada
+  -- pro role `anon` (obrigatório — roda antes do login), ou seja, é
+  -- alcançável por QUALQUER UM com a anon key (pública, embutida no
+  -- bundle). Sem clamps, um chamador direto (fora do backend) podia mandar
+  -- p_janela_ms gigantesco — empurrando `reset_em` pra um futuro tão
+  -- distante que a linha nunca ficava elegível pra limpeza — e uma
+  -- p_chave diferente a cada chamada, inserindo linhas permanentes sem
+  -- limite: o atacante não contornava o rate limit, usava a própria
+  -- função de defesa como vetor de flood contra o banco inteiro. Achado
+  -- em auditoria.
+  v_limite    integer := least(greatest(coalesce(p_limite, 1), 1), 1000);
+  v_janela_ms integer := least(greatest(coalesce(p_janela_ms, 1000), 1000), 3600000); -- 1s a 1h
+  v_janela    interval;
+  v_chave     text := left(coalesce(p_chave, ''), 200);
+  v_contagem  integer;
+  v_reset     timestamptz;
+  v_total     bigint;
+  v_existe    boolean;
 begin
+  if v_chave = '' then
+    return query select true, 0::bigint;
+    return;
+  end if;
+
+  v_janela := (v_janela_ms || ' milliseconds')::interval;
+
+  select exists(select 1 from public.rate_limit_baldes where chave = v_chave) into v_existe;
+  select count(*) into v_total from public.rate_limit_baldes;
+
+  -- Teto rígido: acima de 20 mil linhas, só atualiza chaves JÁ existentes
+  -- — nunca cria uma nova. Limita o estrago máximo de um flood de chaves
+  -- novas sem afetar usuários legítimos (cujas chaves já estão rastreadas).
+  if not v_existe and v_total >= 20000 then
+    return query select true, 0::bigint;
+    return;
+  end if;
+
   insert into public.rate_limit_baldes as b (chave, contagem, reset_em)
-  values (p_chave, 1, v_agora + v_janela)
+  values (v_chave, 1, v_agora + v_janela)
   on conflict (chave) do update
     set contagem = case when b.reset_em <= v_agora then 1 else b.contagem + 1 end,
         reset_em = case when b.reset_em <= v_agora then v_agora + v_janela else b.reset_em end
   returning b.contagem, b.reset_em into v_contagem, v_reset;
 
-  -- Limpeza oportunista (mesmo padrão do antigo limiter em memória).
-  select count(*) into v_total from public.rate_limit_baldes;
+  -- Limpeza oportunista — agora sempre eficaz: com o clamp acima, reset_em
+  -- nunca fica mais de 1h no futuro.
   if v_total > 5000 then
     delete from public.rate_limit_baldes where reset_em < v_agora;
   end if;
 
-  if v_contagem <= p_limite then
+  if v_contagem <= v_limite then
     return query select true, 0::bigint;
   else
     return query select false, greatest(0, extract(epoch from (v_reset - v_agora)) * 1000)::bigint;
