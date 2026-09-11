@@ -45,13 +45,18 @@
 
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
-import { ESQUEMA_PARECER } from './_schema-parecer.js';
+import { ESQUEMA_PARECER, REGRA_ENUMERACAO } from './_schema-parecer.js';
 import { ESQUEMA_EXTRACAO, PROMPT_EXTRACAO } from './_schema-extracao.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 
-// URL/anon key do Supabase: preferimos o ambiente do servidor; o corpo da
-// request é só fallback (são valores públicos, mas não devem ser a fonte da verdade).
+// URL/anon key do Supabase: SOMENTE do ambiente do servidor — NUNCA aceitos
+// do corpo da requisição. Havia um fallback para body.supabaseUrl/
+// body.supabaseAnonKey "para quando a env não estivesse setada"; isso permitia
+// que um cliente apontasse para o PRÓPRIO projeto Supabase dele, passasse na
+// checagem de auth trivialmente (é o projeto dele) e pulasse o consumo de
+// crédito (RPC `consumir_credito` ausente lá = fail-open) — abuso de custo e
+// de receita reais, não só um proxy de IA aberto. Achado em auditoria.
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
@@ -114,20 +119,18 @@ export async function POST(request) {
     return json({ error: 'Corpo da requisição inválido — envie um JSON.' }, 400);
   }
 
-  const { prompt, userToken } = body || {};
+  const { userToken, metadata } = body || {};
   const documentos = Array.isArray(body?.documentos) ? body.documentos : [];
 
-  // URL/anon key: ambiente do servidor tem prioridade; corpo é só fallback.
-  const supabaseUrl = SUPABASE_URL_ENV || String(body?.supabaseUrl || '');
-  const supabaseAnonKey = SUPABASE_ANON_ENV || String(body?.supabaseAnonKey || '');
+  // Supabase: só o que o servidor conhece. Ver comentário no topo do arquivo.
+  const supabaseUrl = SUPABASE_URL_ENV;
+  const supabaseAnonKey = SUPABASE_ANON_ENV;
 
-  if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-    return json({ error: 'O campo "prompt" é obrigatório.' }, 400);
+  if (!SUPABASE_URL_RE.test(supabaseUrl) || !supabaseAnonKey) {
+    console.error('[api/gemini] SUPABASE_URL/SUPABASE_ANON_KEY ausentes ou inválidas nas Environment Variables da Vercel.');
+    return json({ error: 'Configuração do servidor ausente. Contate o suporte.' }, 500);
   }
-  if (!SUPABASE_URL_RE.test(supabaseUrl)) {
-    return json({ error: 'Configuração do Supabase ausente ou inválida.' }, 500);
-  }
-  if (!supabaseAnonKey || !userToken) {
+  if (!userToken) {
     return json({ error: 'Sessão ausente. Faça login novamente.' }, 401);
   }
   if (documentos.length > MAX_DOCS) {
@@ -345,12 +348,51 @@ export async function POST(request) {
   // requisição, porque é só prosa.
   const esquemaParecerDaChamada = ESQUEMA_PARECER;
 
+  // Instrução de formatação da fase 2 — construída INTEIRAMENTE no servidor.
+  // Antes vinha do cliente (CerebroTributario.jsx montava e mandava como
+  // `prompt` em texto livre): expunha REGRA_ENUMERACAO no bundle público E
+  // permitia que qualquer um alterasse as instruções que pilotam o
+  // raciocínio jurídico da própria análise, sem o servidor perceber — a
+  // requisição continuava "válida" porque só valida token/créditos, não o
+  // conteúdo do prompt. Achado em auditoria.
+  const promptRaciocinio = `Execute a análise pericial completa conforme suas instruções de sistema (Motor TributÁgil), usando EXCLUSIVAMENTE os documentos anexados nesta mensagem. Não invente dados, não use conhecimento externo e não faça buscas.
+
+Retorne APENAS um objeto JSON com esta estrutura:
+{
+  "metadata": {
+    "processo": "número do processo, se houver",
+    "parte_autora": "exequente / Fisco / credor",
+    "parte_reu": "executado / contribuinte / devedor",
+    "valor_causa": "valor da execução/causa, com R$ e separadores",
+    "local": "comarca, vara e/ou tribunal (ex.: '2ª Vara de Execuções Fiscais — Comarca de São Paulo/SP')"
+  },
+  "conclusoes": [
+    { "id": 1, "tipo": "prescricao|decadencia|prescricao_intercorrente|cautela|procedimental", "severidade": "favoravel|atencao|neutro|desfavoravel", "titulo": "...", "resumo": "...", "fundamento_legal": "...", "confianca": 0 a 100 }
+  ],
+  "fatos_importantes": [
+    { "id": 1, "categoria": "cronologica|processual|tributaria", "data": "DD/MM/AAAA", "descricao": "...", "fonte": "nome do documento anexado", "relevancia": "critica|alta|media|baixa" }
+  ],
+  "raciocinio": [
+    { "id": 1, "premissa": "regra jurídica (DIREITO)", "aplicacao": "aplicação ao caso concreto (FATO)", "conclusao_logica": "conclusão / pedido", "referencia": "CTN/LEF/Súmula/REsp" }
+  ],
+  "recomendacoes": ["ação estratégica 1", "ação estratégica 2"]
+}
+
+${REGRA_ENUMERACAO}
+
+Em "metadata", extraia cada campo EXATAMENTE dos documentos anexados. Se algum não constar nos documentos, escreva exatamente "Não identificado" (nunca invente).
+Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima, seguindo o mapeamento das [REGRAS DE SAÍDA — JSON] do Motor TributÁgil. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
+Neutralidade de resultado: rode os Módulos 2, 3 e 4 até o fim. Se NENHUM prazo foi ultrapassado, ainda assim retorne "conclusoes" com "severidade":"desfavoravel", a frase "Não foi identificada causa de extinção do crédito tributário por decadência ou prescrição até a presente data. O crédito permanece exigível." e o tempo restante até o próximo prazo. Se algum prazo foi ultrapassado, use "severidade":"favoravel" e a frase "O crédito tributário encontra-se inexigível, impondo-se seu imediato cancelamento / extinção da execução fiscal.".
+Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, preencha "alerta_dados_insuficientes" com "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir." e devolva os demais campos vazios. Caso contrário, "alerta_dados_insuficientes" DEVE ser string vazia ("").
+
+Metadados da requisição: ${JSON.stringify(metadata ?? {})}`;
+
   const corpoGemini = JSON.stringify({
     systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
     contents: [{
       role: 'user',
       parts: [
-        { text: prompt },
+        { text: promptRaciocinio },
         {
           text:
             '\n\n[TABELA DE FATOS JÁ EXTRAÍDA — FONTE DE VERDADE DESTA ANÁLISE]\n' +

@@ -15,7 +15,8 @@
 //
 // O QUE ISSO NÃO GARANTE: o CONTEÚDO. Nenhum esquema obriga o modelo a
 // enxergar a 4ª CDA. Quem faz esse trabalho é a regra de enumeração fechada
-// no prompt (ver `REGRA_ENUMERACAO` abaixo, usada em CerebroTributario.jsx)
+// no prompt (ver `REGRA_ENUMERACAO` abaixo, montada em api/gemini.js — não
+// mais no cliente, para não expor a regra nem deixá-la alterável no navegador)
 // somada a `GEMINI_TEMPERATURE=0`. Os três se reforçam; nenhum basta sozinho.
 //
 // SOBRE O ALERTA DE DADOS INSUFICIENTES: o contrato antigo mandava o modelo

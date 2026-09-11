@@ -1,6 +1,6 @@
 // src/pages/CerebroTributario.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import {
   Brain,
   FileSearch,
@@ -19,7 +19,6 @@ import {
 import RodapeLegal from '../components/RodapeLegal';
 import BotaoSinalizarErro from '../components/BotaoSinalizarErro';
 import Logo from '../components/Logo';
-import { REGRA_ENUMERACAO } from '../../api/_schema-parecer.js';
 
 // Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
 // muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
@@ -328,40 +327,12 @@ const CerebroTributario = ({ payload, user, onConcluido, onErro }) => {
     // 2. Chamada real (streaming) ao backend.
     const processarComIA = async () => {
       try {
-        // As regras jurídicas ficam no system instruction "Motor TributÁgil"
-        // (backend). Aqui só definimos o FORMATO da resposta.
-        const promptEngenharia = `Execute a análise pericial completa conforme suas instruções de sistema (Motor TributÁgil), usando EXCLUSIVAMENTE os documentos anexados nesta mensagem. Não invente dados, não use conhecimento externo e não faça buscas.
-
-Retorne APENAS um objeto JSON com esta estrutura:
-{
-  "metadata": {
-    "processo": "número do processo, se houver",
-    "parte_autora": "exequente / Fisco / credor",
-    "parte_reu": "executado / contribuinte / devedor",
-    "valor_causa": "valor da execução/causa, com R$ e separadores",
-    "local": "comarca, vara e/ou tribunal (ex.: '2ª Vara de Execuções Fiscais — Comarca de São Paulo/SP')"
-  },
-  "conclusoes": [
-    { "id": 1, "tipo": "prescricao|decadencia|prescricao_intercorrente|cautela|procedimental", "severidade": "favoravel|atencao|neutro|desfavoravel", "titulo": "...", "resumo": "...", "fundamento_legal": "...", "confianca": 0 a 100 }
-  ],
-  "fatos_importantes": [
-    { "id": 1, "categoria": "cronologica|processual|tributaria", "data": "DD/MM/AAAA", "descricao": "...", "fonte": "nome do documento anexado", "relevancia": "critica|alta|media|baixa" }
-  ],
-  "raciocinio": [
-    { "id": 1, "premissa": "regra jurídica (DIREITO)", "aplicacao": "aplicação ao caso concreto (FATO)", "conclusao_logica": "conclusão / pedido", "referencia": "CTN/LEF/Súmula/REsp" }
-  ],
-  "recomendacoes": ["ação estratégica 1", "ação estratégica 2"]
-}
-
-${REGRA_ENUMERACAO}
-
-Em "metadata", extraia cada campo EXATAMENTE dos documentos anexados. Se algum não constar nos documentos, escreva exatamente "Não identificado" (nunca invente).
-Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima, seguindo o mapeamento das [REGRAS DE SAÍDA — JSON] do Motor TributÁgil. Toda data e todo fato precisa citar em "fonte" o documento anexado de origem.
-Neutralidade de resultado: rode os Módulos 2, 3 e 4 até o fim. Se NENHUM prazo foi ultrapassado, ainda assim retorne "conclusoes" com "severidade":"desfavoravel", a frase "Não foi identificada causa de extinção do crédito tributário por decadência ou prescrição até a presente data. O crédito permanece exigível." e o tempo restante até o próximo prazo. Se algum prazo foi ultrapassado, use "severidade":"favoravel" e a frase "O crédito tributário encontra-se inexigível, impondo-se seu imediato cancelamento / extinção da execução fiscal.".
-Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, preencha "alerta_dados_insuficientes" com "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir." e devolva os demais campos vazios. Caso contrário, "alerta_dados_insuficientes" DEVE ser string vazia ("").
-
-Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
-
+        // As regras jurídicas E o formato da resposta ficam inteiramente no
+        // servidor agora (system instruction "Motor TributÁgil" +
+        // REGRA_ENUMERACAO, montados em api/gemini.js). O cliente não monta
+        // mais o prompt nem o envia — evita expor a regra de enumeração no
+        // bundle público e evita que o texto que pilota o raciocínio jurídico
+        // da análise possa ser alterado no navegador antes de sair.
         const documentos = (payload?.documentos ?? []).map((d) => ({
           nome: d.nome,
           mime_type: d.mime_type,
@@ -380,10 +351,8 @@ Metadados da requisição: ${JSON.stringify(payload?.metadata ?? {})}`;
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt: promptEngenharia,
             documentos,
-            supabaseUrl,
-            supabaseAnonKey,
+            metadata: payload?.metadata ?? {},
             userToken,
           }),
           signal: abortController.signal,
