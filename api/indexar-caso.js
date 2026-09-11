@@ -60,7 +60,7 @@ export async function POST(request) {
     return json({ error: acesso.motivo || 'Indexação não disponível para este perfil.' }, 403);
   }
 
-  const rl = rateLimit(`indexar-caso:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
+  const rl = await rateLimit(`indexar-caso:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) return json({ error: 'Muitas requisições. Aguarde um minuto.' }, 429);
 
   let body;

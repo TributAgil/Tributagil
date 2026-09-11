@@ -109,7 +109,7 @@ export async function POST(request) {
   }
 
   // ---- 0. Rate limit por IP -------------------------------------------------
-  const rl = rateLimit(`gemini:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
+  const rl = await rateLimit(`gemini:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) {
     return json(
       { error: 'Muitas análises em sequência. Aguarde um minuto e tente de novo.' },

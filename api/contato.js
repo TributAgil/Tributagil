@@ -33,7 +33,7 @@ export default async function handler(req) {
   }
 
   // Rate limit: 5 mensagens por minuto por IP.
-  const rl = rateLimit(`contato:${ipDoRequest(req)}`, 5, 60_000);
+  const rl = await rateLimit(`contato:${ipDoRequest(req)}`, 5, 60_000);
   if (!rl.ok) {
     return json({ error: 'Muitas mensagens em sequência. Aguarde um minuto.' }, 429);
   }

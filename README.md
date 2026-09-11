@@ -726,6 +726,78 @@ using (
 > Enquanto a tabela não existir, a tela de Histórico simplesmente mostra o estado
 > "nenhuma análise ainda" — nada quebra.
 
+## Rate limit compartilhado entre instâncias
+
+`api/_ratelimit.js` chamava um `Map` em memória do processo — sob escala, a
+Vercel sobe várias instâncias da mesma function, cada uma com seu próprio
+`Map`, então o limite efetivo virava (limite × nº de instâncias) e zerava a
+cada cold start (achado em auditoria externa). A contagem agora vive numa
+tabela no Supabase, checada por uma RPC atômica (`insert ... on conflict do
+update`, sem `select ... for update` separado — um único statement, já
+protegido pelo lock implícito da constraint):
+
+```sql
+create table if not exists public.rate_limit_baldes (
+  chave     text primary key,
+  contagem  integer not null default 1,
+  reset_em  timestamptz not null
+);
+
+alter table public.rate_limit_baldes enable row level security;
+-- Sem nenhuma policy: RLS bloqueia todo acesso direto — só a RPC abaixo
+-- (SECURITY DEFINER) acessa a tabela.
+
+create or replace function public.rate_limit_checar(p_chave text, p_limite integer, p_janela_ms integer)
+returns table (ok boolean, retry_ms bigint)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_agora    timestamptz := clock_timestamp();
+  v_janela   interval := (p_janela_ms || ' milliseconds')::interval;
+  v_contagem integer;
+  v_reset    timestamptz;
+  v_total    bigint;
+begin
+  insert into public.rate_limit_baldes as b (chave, contagem, reset_em)
+  values (p_chave, 1, v_agora + v_janela)
+  on conflict (chave) do update
+    set contagem = case when b.reset_em <= v_agora then 1 else b.contagem + 1 end,
+        reset_em = case when b.reset_em <= v_agora then v_agora + v_janela else b.reset_em end
+  returning b.contagem, b.reset_em into v_contagem, v_reset;
+
+  -- Limpeza oportunista (mesmo padrão do antigo limiter em memória).
+  select count(*) into v_total from public.rate_limit_baldes;
+  if v_total > 5000 then
+    delete from public.rate_limit_baldes where reset_em < v_agora;
+  end if;
+
+  if v_contagem <= p_limite then
+    return query select true, 0::bigint;
+  else
+    return query select false, greatest(0, extract(epoch from (v_reset - v_agora)) * 1000)::bigint;
+  end if;
+end;
+$$;
+
+grant execute on function public.rate_limit_checar(text, integer, integer) to anon, authenticated;
+```
+
+**Por que não Upstash/Vercel KV:** seria o "padrão de mercado", mas exige
+adicionar uma dependência nova ao `package.json` — e este projeto não roda
+`yarn install` localmente (sem yarn instalado, só o `yarn.lock`; instalar
+localmente arriscaria divergir o lockfile do que a Vercel espera, a mesma
+classe de problema que já quebrou o build uma vez). A RPC no Supabase reusa
+infraestrutura já confiada pelo projeto, sem tocar em `package.json`.
+
+**Fail-open:** se a chamada à RPC falhar (rede, migração pendente), o rate
+limit simplesmente não bloqueia — é defesa em profundidade, não a única
+barreira contra abuso (créditos e demais checagens continuam valendo).
+
+Sem esta migração, `api/_ratelimit.js` volta sozinho ao comportamento
+"sem bloquear" (RPC ausente = fail-open) — não quebra nada, só não limita.
+
 ## Testes (opcional)
 
 O projeto já tem `vitest.config.ts` e `src/test/`. Para habilitar:

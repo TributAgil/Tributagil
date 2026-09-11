@@ -76,7 +76,7 @@ export async function POST(request) {
     return json({ error: acesso.motivo || 'O Lu não está disponível para o seu plano.' }, 403);
   }
 
-  const rl = rateLimit(`lu:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
+  const rl = await rateLimit(`lu:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) {
     return json({ error: 'Muitas perguntas em sequência. Aguarde um minuto.' }, 429);
   }
