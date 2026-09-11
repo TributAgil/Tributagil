@@ -62,11 +62,23 @@ export const ESQUEMA_EXTRACAO = {
 
     eventos: {
       type: 'ARRAY',
-      // Piso propositalmente alto: um processo de execução fiscal com N
-      // inscrições tem, no mínimo, ~4 eventos por inscrição (vencimento,
-      // notificação, inscrição em DA, ajuizamento é comum a todas) — abaixo
-      // disso é sinal de extração incompleta, não de processo simples.
-      minItems: 4,
+      // Piso baixo DE PROPÓSITO (1, não vazio) — só garante que o array não
+      // venha vazio; NÃO tenta adivinhar quão complexo é um processo que o
+      // schema nunca viu. Chegou a ser 4 (pensado pra empurrar cobertura em
+      // casos complexos), mas isso é uma constraint ESTRUTURAL mandada ao
+      // Gemini junto do responseSchema — um processo simples de verdade
+      // (poucos eventos reais) podia fazer o modelo ou recusar a geração,
+      // ou inventar um evento pra "completar a cota" (violando a
+      // Tolerância zero para invenção do prompt). Já houve um incidente
+      // confirmado de HTTP 400 por causa de um minItems dinâmico demais no
+      // schema do parecer (ver TENTATIVA REVERTIDA em api/gemini.js) — não
+      // repetir o padrão de apertar isso pelo lado do schema. Quem decide
+      // "esta extração está suspeita" agora é o backend
+      // (api/gemini.js: EXTRACAO_EVENTOS_DEGENERADO + alerta_ilegivel), não
+      // mais um número fixo aqui. A cobertura em casos complexos continua
+      // sendo trabalho do texto do prompt abaixo (DISCIPLINA DE COBERTURA),
+      // que é específico ao caso — algo que um número fixo nunca poderia ser.
+      minItems: 1,
       description:
         'TODO evento datado encontrado nos documentos, sem seleção de relevância — a seleção do que é "importante" acontece em uma etapa POSTERIOR, que você não está executando agora. Um item por evento. Nunca agregue vários eventos numa descrição só ("as demais CDAs", "os pagamentos subsequentes") — cada um é um item.',
       items: {
