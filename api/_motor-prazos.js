@@ -98,7 +98,10 @@ export function calcularPrescricaoIntercorrente(eventos, agora = new Date()) {
       .filter((e) => e?.categoria === 'intimacao_nao_localizacao_bens' || CATEGORIAS_INTERRUPTIVAS.includes(e?.categoria))
       .map((e) => ({ ...e, _data: parseDataBR(e.data) }))
       .filter((e) => e._data)
-      .sort((a, b) => a._data - b._data || (a.categoria === 'intimacao_nao_localizacao_bens' ? -1 : 1));
+      .sort((a, b) => {
+        const prioridade = (e) => (e.categoria === 'intimacao_nao_localizacao_bens' ? 0 : 1);
+        return a._data - b._data || prioridade(a) - prioridade(b);
+      });
 
     if (!linha.some((e) => e.categoria === 'intimacao_nao_localizacao_bens')) continue;
 

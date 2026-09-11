@@ -52,7 +52,8 @@ export async function rateLimit(chave, limite, janelaMs) {
     const linha = Array.isArray(linhas) ? linhas[0] : linhas;
     if (!linha) return { ok: true };
 
-    return linha.ok ? { ok: true } : { ok: false, retryMs: Number(linha.retry_ms) || janelaMs };
+    const retryMs = Number(linha.retry_ms);
+    return linha.ok ? { ok: true } : { ok: false, retryMs: Number.isFinite(retryMs) ? retryMs : janelaMs };
   } catch (err) {
     console.warn('[_ratelimit] Erro de rede ao checar rate limit — seguindo sem bloquear:', err?.message);
     return { ok: true };

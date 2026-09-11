@@ -504,7 +504,12 @@ async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
 // pedido manual do usuário (ModalSolicitarEstorno.jsx / BotaoSinalizarErro.jsx),
 // avaliado pelo suporte, então esta função não toca em crédito nenhum.
 async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
-  if (!motorPrazos || motorPrazos.length === 0) return;
+  if (!motorPrazos || motorPrazos.length === 0) {
+    // Nada a validar, mas o branch do tee() ainda precisa ser drenado —
+    // sem isso, esta cópia do stream nunca é liberada.
+    await stream.cancel().catch(() => {});
+    return;
+  }
 
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -514,6 +519,7 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
     if (done) break;
     bruto += decoder.decode(value, { stream: true });
   }
+  bruto += decoder.decode(); // flush final de bytes multibyte pendentes
 
   let textoJson = '';
   for (const linha of bruto.split('\n')) {
