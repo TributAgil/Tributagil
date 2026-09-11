@@ -96,6 +96,8 @@ export const ESQUEMA_EXTRACAO = {
               'ajuizamento',
               'despacho',
               'citacao',
+              'intimacao_nao_localizacao_bens',
+              'requerimento_constricao',
               'penhora_constricao',
               'prevencao',
               'outro',
@@ -131,6 +133,8 @@ export const PROMPT_EXTRACAO = `Você é o módulo de EXTRAÇÃO do TributÁgil 
   * "ANEXO DE OCORRÊNCIAS COM POSSÍVEL IMPACTO NO PRAZO DA PRESCRIÇÃO" (histórico SISPAR, por inscrição). Percorra TODA linha, mesmo repetida entre inscrições diferentes. Traduza o rótulo cru para a categoria certa, sem descartar nenhuma linha: "CADASTR SOLIC NEGOC SISPAR" = mero pedido, categoria "outro"; "CADASTR DESP DEFERIDO SISPAR" = parcelamento_adesao; "DESISTENCIA PARC SISPAR" = parcelamento_desistencia; "RESCISAO PARC. SISPAR" = parcelamento_rescisao; "INCLUSAO DE PAGAMENTO" = pagamento (se não houver valor separado no anexo, registre com valor "" e cite a data — o valor exato normalmente está no Anexo 3 da CDA, como evento próprio).
   * "ANEXO DE PROTESTOS": todo protesto extrajudicial (categoria "protesto") e toda anuência/cancelamento (categoria "protesto_cancelamento").
 - Extratos de débito (e-CAC/REGULARIZE/SEFAZ), declarações (DCTF, PGDAS-D, GFIP, DIRPF), comprovantes (DARF, DAS, GARE), acórdãos (DRJ/CARF), informações de prevenção.
+- Certidões/intimações de não localização do devedor ou de bens penhoráveis (art. 40, LEF): categoria "intimacao_nao_localizacao_bens", com a data em que a Fazenda tomou ciência — é o marco que dispara a contagem da prescrição intercorrente, mesmo sem decisão judicial expressa declarando a suspensão.
+- Pedidos de constrição patrimonial protocolados pela Fazenda (Sisbajud, Renajud, Infojud, pedido de penhora): categoria "requerimento_constricao", com a data do PROTOCOLO do pedido (não a data em que o resultado foi juntado aos autos, se for diferente — registre ambas como eventos separados quando as duas datas constarem: o protocolo como "requerimento_constricao", o resultado efetivo como "penhora_constricao").
 
 [DISCIPLINA DE COBERTURA — o motivo desta chamada existir]
 - Se o processo tem N inscrições/CDAs, TODAS as N aparecem, com os mesmos tipos de evento cada uma. Nunca resuma "as demais inscrições seguem o mesmo padrão" — repita o evento para cada uma, mesmo que a data e o valor sejam idênticos entre inscrições.

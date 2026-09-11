@@ -226,11 +226,46 @@ end;
 $$;
 
 grant execute on function public.consumir_credito() to authenticated;
+
+-- Estorno automático de 1 crédito (sempre para o bônus). Chamada pelo
+-- backend (/api/gemini) quando o crédito já foi consumido (extração com
+-- sucesso) mas a fase de geração falha por motivo do SISTEMA — timeout,
+-- erro de conexão, erro do Gemini antes de começar a transmitir. Não cobre
+-- uma falha NO MEIO de um stream já iniciado (ver api/gemini.js) nem
+-- reembolsa créditos além do saldo consumido nesta chamada; para esse caso
+-- raro, o caminho manual abaixo continua existindo.
+create or replace function public.estornar_credito()
+returns table (creditos_restantes integer, plano text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_perfil  public.perfis%rowtype;
+begin
+  if v_user_id is null then
+    raise exception 'NAO_AUTENTICADO';
+  end if;
+
+  update public.perfis
+     set creditos_bonus = creditos_bonus + 1, updated_at = now()
+   where id = v_user_id
+   returning * into v_perfil;
+
+  if not found then
+    raise exception 'PERFIL_NAO_ENCONTRADO';
+  end if;
+
+  return query select (v_perfil.creditos_disponiveis + v_perfil.creditos_bonus), v_perfil.plano;
+end;
+$$;
+
+grant execute on function public.estornar_credito() to authenticated;
 ```
 
-**Estorno (crédito perdido por falha do sistema):** é sempre uma ação manual
-do suporte, após avaliar o e-mail recebido pelo botão "Sinalização Automática
-de Erro" — nunca automática:
+**Estorno manual (casos fora do automático acima):** ação do suporte, após
+avaliar o e-mail recebido pelo botão "Sinalização Automática de Erro":
 
 ```sql
 update public.perfis
@@ -632,21 +667,79 @@ Onde os arquivos das análises são guardados. No painel do Supabase:
    primeiro segmento do caminho é o `auth.uid()`):
 
 ```sql
-create policy "docs: acesso à própria pasta"
-on storage.objects for all
+-- Migração de uma instalação existente: a policy antiga liberava UPDATE e
+-- DELETE irrestritos na própria pasta (`for all`). Isso permitia que o
+-- próprio usuário apagasse ou sobrescrevesse, diretamente pela API de
+-- Storage, um documento já vinculado a um caso salvo (`documentos_caso`) —
+-- driblando a garantia antifraude/probatória de `documentos_caso` ser
+-- insert-only (ver seção "Histórico versionado + antifraude" acima), já que
+-- aquela regra só existe na tabela, não no arquivo físico no bucket. Um
+-- documento comprometido a um caso precisa ser imutável nos dois lugares,
+-- não só no banco. Rode o DROP abaixo antes de criar as três policies novas.
+drop policy if exists "docs: acesso à própria pasta" on storage.objects;
+
+-- Leitura e upload: qualquer arquivo dentro da própria pasta, sem restrição
+-- (upload de um documento novo sempre precisa poder criar um objeto novo).
+create policy "docs: leitura própria pasta"
+on storage.objects for select
 to authenticated
 using (
   bucket_id = 'documentos'
   and (storage.foldername(name))[1] = auth.uid()::text
-)
+);
+
+create policy "docs: upload própria pasta"
+on storage.objects for insert
+to authenticated
 with check (
   bucket_id = 'documentos'
   and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Update/delete: só em arquivos ÓRFÃOS — que ainda NÃO têm uma linha
+-- correspondente em `documentos_caso` (ou seja, foram enviados mas ainda não
+-- comprometidos a um caso salvo). Cobre o fluxo normal de "removi um arquivo
+-- antes de enviar a análise" (NovaAnalise.jsx) e "cancelei o upload"
+-- (App.jsx) sem abrir brecha para apagar/sobrescrever prova já vinculada a
+-- um caso — a única porta para isso passa a ser `excluir_caso_completo`
+-- (RPC) + a limpeza feita pelo backend com service_role (ver
+-- `scripts/limpar-orfaos-storage.mjs`), nunca o client direto.
+create policy "docs: update só de órfãos"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'documentos'
+  and (storage.foldername(name))[1] = auth.uid()::text
+  and not exists (
+    select 1 from public.documentos_caso dc
+    where dc.storage_path = storage.objects.name and dc.user_id = auth.uid()
+  )
+);
+
+create policy "docs: delete só de órfãos"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'documentos'
+  and (storage.foldername(name))[1] = auth.uid()::text
+  and not exists (
+    select 1 from public.documentos_caso dc
+    where dc.storage_path = storage.objects.name and dc.user_id = auth.uid()
+  )
 );
 ```
 
 > Sem o bucket, o upload na tela "Nova Análise" mostra o erro
 > `O bucket "documentos" não existe no Supabase`.
+
+> **LGPD — minimização de dados de uploads órfãos:** um arquivo enviado mas
+> nunca comprometido a um caso (ex.: usuário fechou a aba no meio do envio)
+> fica retido indefinidamente no bucket, sem base legal para permanecer ali
+> depois de um prazo razoável. `scripts/limpar-orfaos-storage.mjs` (rodado
+> manualmente ou via cron externo, nunca pela Vercel) varre o bucket com a
+> `SERVICE_ROLE_KEY` e apaga os objetos sem linha em `documentos_caso` há
+> mais de `DIAS_GRACA` dias — mesma chave de uso local-only do
+> `seed-legislacao.mjs`, nunca em variável de ambiente da Vercel.
 
 > Enquanto a tabela não existir, a tela de Histórico simplesmente mostra o estado
 > "nenhuma análise ainda" — nada quebra.

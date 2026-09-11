@@ -47,6 +47,7 @@ import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { ESQUEMA_PARECER, REGRA_ENUMERACAO } from './_schema-parecer.js';
 import { ESQUEMA_EXTRACAO, PROMPT_EXTRACAO } from './_schema-extracao.js';
+import { calcularPrescricaoIntercorrente, formatarMotorPrazosParaPrompt, validarConclusoesModulo4 } from './_motor-prazos.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 
@@ -139,6 +140,7 @@ export async function POST(request) {
 
   // ---- 1b. AUTENTICAÇÃO: valida o JWT do usuário no Supabase Auth ----------
   // Impede que o endpoint seja usado como proxy de IA anônimo.
+  let usuarioId;
   try {
     const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
@@ -146,52 +148,44 @@ export async function POST(request) {
     if (!authResp.ok) {
       return json({ error: 'Sessão inválida ou expirada. Faça login novamente.' }, 401);
     }
+    const authUser = await authResp.json().catch(() => ({}));
+    usuarioId = authUser?.id;
   } catch (err) {
     console.error('[api/gemini] Falha ao validar sessão:', err);
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
-  // ---- 1c. CRÉDITOS: consome 1 crédito de análise de forma atômica ---------
-  // RPC `consumir_credito` (SECURITY DEFINER, ver README) — decrementa o saldo
-  // do usuário chamador (auth.uid() vem do próprio userToken) e falha com
-  // "SEM_CREDITOS" se o saldo já estiver zerado. É a barreira REAL contra
-  // fraude: o cliente nunca decrementa o próprio saldo, só este backend.
-  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
-  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
-  try {
-    const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/consumir_credito`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${userToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: '{}',
-    });
-
-    if (!rpcResp.ok) {
-      if (rpcResp.status === 404) {
-        console.warn('[api/gemini] RPC consumir_credito ausente — sistema de créditos ainda não migrado, seguindo sem bloquear.');
-      } else {
-        const detalhe = await rpcResp.json().catch(() => ({}));
-        const msg = String(detalhe?.message || detalhe?.hint || '');
-        if (/SEM_CREDITOS/i.test(msg)) {
-          return json(
-            { error: 'Você não possui créditos disponíveis. Renove seu plano ou adquira créditos avulsos para continuar.' },
-            402,
-          );
+  // ---- 1c. CRÉDITOS (pré-checagem, só leitura) -----------------------------
+  // Recusa ANTES de gastar Gemini se o saldo já está zerado. O CONSUMO
+  // atômico de fato só acontece depois que a extração (fase 1) tiver sucesso
+  // (ver "CRÉDITOS: consumo" abaixo) — cobrança pós-sucesso, não mais na
+  // entrada da requisição, para não cobrar por falhas de leitura/OCR/sessão.
+  // Sem esta pré-checagem, um usuário sem créditos gastaria Gemini de graça
+  // na fase 1 indefinidamente, já que o consumo real só ocorre mais adiante.
+  // Fail-open (não bloqueia) se a tabela ainda não existir — mesma
+  // convenção do restante do sistema de créditos.
+  if (usuarioId) {
+    try {
+      const saldoResp = await fetch(
+        `${supabaseUrl}/rest/v1/perfis?id=eq.${encodeURIComponent(usuarioId)}&select=creditos_disponiveis,creditos_bonus`,
+        { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` } },
+      );
+      if (saldoResp.ok) {
+        const linhas = await saldoResp.json().catch(() => []);
+        const perfil = Array.isArray(linhas) ? linhas[0] : null;
+        if (perfil) {
+          const saldo = Number(perfil.creditos_disponiveis || 0) + Number(perfil.creditos_bonus || 0);
+          if (saldo <= 0) {
+            return json(
+              { error: 'Você não possui créditos disponíveis. Renove seu plano ou adquira créditos avulsos para continuar.' },
+              402,
+            );
+          }
         }
-        if (/PERFIL_NAO_ENCONTRADO/i.test(msg)) {
-          return json({ error: 'Perfil de créditos não encontrado. Contate o suporte.' }, 402);
-        }
-        console.error('[api/gemini] Falha ao consumir crédito:', rpcResp.status, msg);
-        return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
       }
+    } catch (err) {
+      console.warn('[api/gemini] Falha ao pré-checar saldo de créditos (seguindo sem bloquear):', err);
     }
-  } catch (err) {
-    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
-    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
   }
 
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
@@ -319,6 +313,24 @@ export async function POST(request) {
     );
   }
 
+  // ---- 3b. CRÉDITOS (consumo real, pós-sucesso da extração) ----------------
+  // RPC `consumir_credito` (SECURITY DEFINER, ver README) — decrementa o saldo
+  // do usuário chamador (auth.uid() vem do próprio userToken) e falha com
+  // "SEM_CREDITOS" se o saldo já estiver zerado. Cobrança pós-sucesso: só
+  // chega aqui depois que a extração (custo real de Gemini já incorrido) foi
+  // validada — falhas de sessão/Storage/OCR nunca chegam a este ponto e
+  // nunca descontam crédito. Se a fase 2 falhar a partir daqui, o crédito é
+  // estornado automaticamente (ver bloco de erro da fase 2, abaixo).
+  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
+  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
+  try {
+    const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
+    if (resultadoConsumo?.erro) return resultadoConsumo.erro;
+  } catch (err) {
+    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
+    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
+  }
+
   // ---- 4. FASE 2 — raciocínio jurídico (streaming) --------------------------
   // Recebe a tabela extraída como TEXTO — não mais os documentos brutos. O
   // motor (_motor-tributagil.js) e o esquema de saída (_schema-parecer.js)
@@ -347,6 +359,14 @@ export async function POST(request) {
   // mitigação que sobra por enquanto — sem risco de quebrar o formato da
   // requisição, porque é só prosa.
   const esquemaParecerDaChamada = ESQUEMA_PARECER;
+
+  // Módulo 4 (Prescrição Intercorrente) calculado deterministicamente em
+  // código sobre a tabela extraída — ver api/_motor-prazos.js para o porquê
+  // do escopo ser só este módulo. `anexoMotorPrazos` vira parte do prompt
+  // (texto), igual à tabela de eventos; `motorPrazos` é reaproveitado depois
+  // da geração para a validação pós-geração (não bloqueante, ver abaixo).
+  const motorPrazos = calcularPrescricaoIntercorrente(eventos);
+  const anexoMotorPrazos = formatarMotorPrazosParaPrompt(motorPrazos);
 
   // Instrução de formatação da fase 2 — construída INTEIRAMENTE no servidor.
   // Antes vinha do cliente (CerebroTributario.jsx montava e mandava como
@@ -385,7 +405,8 @@ Distribua o conteúdo de FATO / DIREITO / CONCLUSÃO-PEDIDO nos campos acima, se
 Neutralidade de resultado: rode os Módulos 2, 3 e 4 até o fim. Se NENHUM prazo foi ultrapassado, ainda assim retorne "conclusoes" com "severidade":"desfavoravel", a frase "Não foi identificada causa de extinção do crédito tributário por decadência ou prescrição até a presente data. O crédito permanece exigível." e o tempo restante até o próximo prazo. Se algum prazo foi ultrapassado, use "severidade":"favoravel" e a frase "O crédito tributário encontra-se inexigível, impondo-se seu imediato cancelamento / extinção da execução fiscal.".
 Se faltar qualquer data essencial ou os documentos estiverem ilegíveis, preencha "alerta_dados_insuficientes" com "[ALERTA DE DADOS INSUFICIENTES] Necessário informar a data exata de <dado> para prosseguir." e devolva os demais campos vazios. Caso contrário, "alerta_dados_insuficientes" DEVE ser string vazia ("").
 
-Metadados da requisição: ${JSON.stringify(metadata ?? {})}`;
+Metadados da requisição: ${JSON.stringify(metadata ?? {})}
+${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
 
   const corpoGemini = JSON.stringify({
     systemInstruction: { parts: [{ text: MOTOR_TRIBUTAGIL }] },
@@ -427,9 +448,36 @@ Metadados da requisição: ${JSON.stringify(metadata ?? {})}`;
 
   try {
     const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal);
-    if (erro) return erro;
+    if (erro) {
+      // ESTORNO AUTOMÁTICO: o crédito já foi consumido no passo 3b (a
+      // extração, que já custou Gemini de verdade, teve sucesso), mas a
+      // fase 2 nem chegou a começar a transmitir — falha do sistema, não do
+      // usuário. Não cobre falha NO MEIO de um stream já iniciado (ver
+      // comentário abaixo, junto da validação pós-geração): esse caso raro
+      // continua dependendo do fluxo manual de "Sinalização de Erro".
+      await estornarCredito(supabaseUrl, supabaseAnonKey, userToken, 'fase 2 não iniciou o stream');
+      return erro;
+    }
 
-    return new Response(upstream.body, {
+    // Validação pós-geração (Módulo 4) + guarda de estorno por stream vazio:
+    // tee() ramifica o stream em duas cópias independentes — uma segue para
+    // o navegador SEM NENHUMA alteração (zero latência, zero risco de
+    // quebrar a resposta), a outra é consumida aqui em paralelo, só para
+    // comparar o parecer final contra o resultado do motor determinístico.
+    // Roda "fire and forget": qualquer erro nela fica só em log, nunca
+    // afeta a resposta já enviada.
+    const [paraCliente, paraValidacao] = upstream.body.tee();
+    validarParecerPosGeracao(paraValidacao, {
+      motorPrazos,
+      metadata,
+      supabaseUrl,
+      supabaseAnonKey,
+      userToken,
+    }).catch((err) => {
+      console.error('[api/gemini] Falha na validação pós-geração (não afeta a resposta ao usuário):', err);
+    });
+
+    return new Response(paraCliente, {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -439,12 +487,123 @@ Metadados da requisição: ${JSON.stringify(metadata ?? {})}`;
   } catch (err) {
     const abortado = err?.name === 'AbortError';
     console.error('[api/gemini] Erro na geração:', err);
+    await estornarCredito(supabaseUrl, supabaseAnonKey, userToken, abortado ? 'timeout na fase 2' : 'erro de conexão na fase 2');
     return json(
       { error: abortado ? 'Tempo limite excedido ao aguardar a IA.' : 'Erro ao conectar com a IA.' },
       abortado ? 504 : 502,
     );
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ---- Créditos: consumo e estorno --------------------------------------------
+
+async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
+  const rpcResp = await fetch(`${supabaseUrl}/rest/v1/rpc/consumir_credito`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: '{}',
+  });
+
+  if (rpcResp.ok) return {};
+  if (rpcResp.status === 404) {
+    console.warn('[api/gemini] RPC consumir_credito ausente — sistema de créditos ainda não migrado, seguindo sem bloquear.');
+    return {};
+  }
+
+  const detalhe = await rpcResp.json().catch(() => ({}));
+  const msg = String(detalhe?.message || detalhe?.hint || '');
+  if (/SEM_CREDITOS/i.test(msg)) {
+    return {
+      erro: json(
+        { error: 'Você não possui créditos disponíveis. Renove seu plano ou adquira créditos avulsos para continuar.' },
+        402,
+      ),
+    };
+  }
+  if (/PERFIL_NAO_ENCONTRADO/i.test(msg)) {
+    return { erro: json({ error: 'Perfil de créditos não encontrado. Contate o suporte.' }, 402) };
+  }
+  console.error('[api/gemini] Falha ao consumir crédito:', rpcResp.status, msg);
+  return { erro: json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502) };
+}
+
+// RPC `estornar_credito` (ver README) — devolve 1 crédito de bônus ao
+// usuário. Chamada só quando o crédito já foi consumido (passo 3b) e a fase
+// 2 falha por motivo do SISTEMA (conexão/timeout/erro do Gemini antes de
+// transmitir), nunca por engano do usuário. Best-effort: se falhar, sobra o
+// caminho manual de sempre (botão "Sinalização de Erro" -> suporte).
+async function estornarCredito(supabaseUrl, supabaseAnonKey, userToken, motivo) {
+  try {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/estornar_credito`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: '{}',
+    });
+    if (!resp.ok && resp.status !== 404) {
+      console.error('[api/gemini] Falha ao estornar crédito automaticamente:', resp.status, motivo);
+    }
+  } catch (err) {
+    console.error('[api/gemini] Erro de rede ao estornar crédito automaticamente:', err, motivo);
+  }
+}
+
+// Validação pós-geração: acumula o texto do stream (mesmo formato SSE de
+// streamGenerateContent), faz o parse do parecer final e compara as
+// conclusões do Módulo 4 contra o resultado do motor determinístico.
+// Só loga — nunca lança para fora do .catch() que a chama.
+async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
+  if (!motorPrazos || motorPrazos.length === 0) return;
+
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let bruto = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bruto += decoder.decode(value, { stream: true });
+  }
+
+  let textoJson = '';
+  for (const linha of bruto.split('\n')) {
+    const l = linha.trim();
+    if (!l.startsWith('data:')) continue;
+    const payload = l.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      const evento = JSON.parse(payload);
+      const partes = evento?.candidates?.[0]?.content?.parts || [];
+      for (const p of partes) textoJson += p.text || '';
+    } catch {
+      // Chunk parcial/incompleto — ignora, o acumulado final é o que importa.
+    }
+  }
+
+  let parecer;
+  try {
+    parecer = JSON.parse(textoJson);
+  } catch (err) {
+    console.warn('[api/gemini] Validação pós-geração: não foi possível parsear o parecer final.', err?.message);
+    return;
+  }
+
+  const divergencias = validarConclusoesModulo4(motorPrazos, parecer?.conclusoes);
+  if (divergencias.length > 0) {
+    console.error(
+      '[api/gemini] DIVERGÊNCIA Módulo 4 (motor determinístico x parecer gerado)',
+      { casoId: metadata?.caso_id, analiseId: metadata?.analise_id, divergencias },
+    );
   }
 }
 
