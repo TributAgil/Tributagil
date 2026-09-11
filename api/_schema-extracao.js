@@ -99,6 +99,7 @@ export const ESQUEMA_EXTRACAO = {
               'intimacao_nao_localizacao_bens',
               'requerimento_constricao',
               'penhora_constricao',
+              'compensacao',
               'prevencao',
               'outro',
             ],
@@ -135,6 +136,7 @@ export const PROMPT_EXTRACAO = `Você é o módulo de EXTRAÇÃO do TributÁgil 
 - Extratos de débito (e-CAC/REGULARIZE/SEFAZ), declarações (DCTF, PGDAS-D, GFIP, DIRPF), comprovantes (DARF, DAS, GARE), acórdãos (DRJ/CARF), informações de prevenção.
 - Certidões/intimações de não localização do devedor ou de bens penhoráveis (art. 40, LEF): categoria "intimacao_nao_localizacao_bens", com a data em que a Fazenda tomou ciência — é o marco que dispara a contagem da prescrição intercorrente, mesmo sem decisão judicial expressa declarando a suspensão.
 - Pedidos de constrição patrimonial protocolados pela Fazenda (Sisbajud, Renajud, Infojud, pedido de penhora): categoria "requerimento_constricao", com a data do PROTOCOLO do pedido (não a data em que o resultado foi juntado aos autos, se for diferente — registre ambas como eventos separados quando as duas datas constarem: o protocolo como "requerimento_constricao", o resultado efetivo como "penhora_constricao").
+- Compensação tributária (declaração de compensação/DCOMP, extrato com débito extinto "por compensação", homologação expressa ou tácita): categoria "compensacao". Nunca confunda com pagamento — extraia a data da declaração de compensação e, se constar, a data de homologação, como eventos distintos.
 
 [DISCIPLINA DE COBERTURA — o motivo desta chamada existir]
 - Se o processo tem N inscrições/CDAs, TODAS as N aparecem, com os mesmos tipos de evento cada uma. Nunca resuma "as demais inscrições seguem o mesmo padrão" — repita o evento para cada uma, mesmo que a data e o valor sejam idênticos entre inscrições.
