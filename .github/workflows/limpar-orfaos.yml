@@ -1,0 +1,26 @@
+name: Limpar uploads órfãos do Storage (LGPD)
+
+# Diariamente às 02:00 (horário de Brasília, UTC-3) = 05:00 UTC.
+# Apaga do bucket `documentos` arquivos enviados mas nunca vinculados a um
+# caso salvo, depois do prazo de graça padrão do script (7 dias) — ver
+# scripts/limpar-orfaos-storage.mjs.
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Rodar limpeza
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/limpar-orfaos-storage.mjs
