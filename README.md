@@ -228,26 +228,133 @@ $$;
 grant execute on function public.consumir_credito() to authenticated;
 ```
 
-**Cobrança na entrada, estorno 100% manual — decisão deliberada.** Uma
-variante "cobrar só pós-sucesso da extração" com estorno automático chegou a
-ir para produção, mas foi revertida por dois motivos: (1) abria um vetor de
-abuso de custo real (a fase de extração já gasta Gemini de verdade antes de
-decidir se cobra, então dava pra rodar extrações de graça repetidamente sem
-nunca consumir crédito); (2) a primeira versão do estorno automático
+**Cobrança na entrada, estorno automático via estados — histórico da
+decisão.** Uma variante "cobrar só pós-sucesso da extração" com estorno
+automático chegou a ir para produção, mas foi revertida: (1) abria um vetor
+de abuso de custo real (a fase de extração já gasta Gemini de verdade antes
+de decidir se cobra); (2) a primeira versão do estorno automático
 (`estornar_credito()`) incrementava `creditos_bonus` para qualquer usuário
-autenticado que a chamasse, sem vínculo com um consumo real — permitia
-mintar crédito infinito chamando `supabase.rpc('estornar_credito')` direto
-do client, em loop (achado em auditoria externa). Consertar isso exigiria um
-mecanismo de reserva por consumo, mais complexo e com mais superfície de
-erro do que o problema original justificava. Voltamos ao modelo simples:
-crédito debitado na entrada da requisição (como sempre foi), e toda falha do
-SISTEMA (não do usuário) passa por avaliação humana do suporte antes de
-qualquer estorno — ver "Botão de solicitação de estorno" logo abaixo.
+que a chamasse, sem vínculo com um consumo real — mint de crédito infinito
+(achado em auditoria externa). Voltamos à cobrança na entrada — mas o
+estorno 100% manual que veio junto criou um problema mais sutil, também
+achado em auditoria externa: **débito não é a mesma coisa que entrega**. Se
+a fase 2 morresse depois do débito (timeout, erro do Gemini), o crédito
+ficava consumido, nada entregue, e um reenvio do mesmo arquivo esbarrava
+num status booleano ("concluida") que não diferenciava "paguei e recebi" de
+"paguei e não recebi" — ficava bloqueado até 5 minutos sem alternativa.
 
-**Estorno manual:** ação do suporte, após avaliar o e-mail recebido (pelo
-botão "Sinalização Automática de Erro" durante uma falha ao vivo, ou pelo
-botão "Solicitar estorno" no Histórico, disponível por até 5 dias após a
-análise — ver `src/components/ModalSolicitarEstorno.jsx`):
+A correção final: `idempotencia_analises.status` vira uma máquina de
+estados (`em_andamento` → `debitado` → `entregue` **ou** `falhou`), presa à
+MESMA linha que registrou o débito real (`usuario_id` + `chave`), não a um
+contador genérico reabastecível como a primeira tentativa:
+
+- **`debitado`**: crédito já saiu, resultado ainda desconhecido. Um reenvio
+  do mesmo arquivo nesta janela **retoma sem cobrar de novo** — o crédito já
+  foi debitado numa tentativa anterior da mesma submissão.
+- **`entregue`**: `validarParecerPosGeracao` (api/gemini.js) leu o stream
+  até o fim e confirmou um parecer bem formado. Fecha a cobrança.
+- **`falhou`**: a fase 2 morreu (timeout, erro do Gemini, stream truncado)
+  OU o pipeline inteiro não chegou a "começou a transmitir com sucesso".
+  Dispara o estorno automático NA MESMA transação — `idempotencia_falhar_e_estornar`
+  só credita de volta se a linha estiver `debitado` (guarda atômica, por
+  `usuario_id`), então chamar de novo, ou pra chave de outro usuário, não
+  faz nada. É esta guarda — presa a um débito real e específico — que evita
+  repetir o mint da primeira tentativa.
+
+```sql
+alter table public.idempotencia_analises add column if not exists usuario_id uuid;
+
+create or replace function public.idempotencia_reclamar(p_chave text, p_usuario_id uuid, p_janela_ms integer)
+returns table (acao text) -- 'cobrar' | 'retomar' | 'bloquear'
+language plpgsql security definer set search_path = public as $$
+declare
+  v_agora timestamptz := clock_timestamp();
+  v_janela interval := (least(greatest(coalesce(p_janela_ms,60000),1000),3600000) || ' milliseconds')::interval;
+  v_chave text := left(coalesce(p_chave,''), 200);
+  v_existente public.idempotencia_analises%rowtype;
+begin
+  if v_chave = '' then return query select 'cobrar'::text; return; end if;
+  select * into v_existente from public.idempotencia_analises where chave = v_chave for update;
+  if not found then
+    insert into public.idempotencia_analises (chave, usuario_id, status, criado_em) values (v_chave, p_usuario_id, 'em_andamento', v_agora);
+    return query select 'cobrar'::text; return;
+  end if;
+  if v_existente.criado_em < v_agora - v_janela then
+    update public.idempotencia_analises set status='em_andamento', criado_em=v_agora, usuario_id=p_usuario_id where chave=v_chave;
+    return query select 'cobrar'::text; return;
+  end if;
+  if v_existente.status = 'debitado' then return query select 'retomar'::text; return; end if;
+  if v_existente.status = 'falhou' then
+    update public.idempotencia_analises set status='em_andamento', criado_em=v_agora, usuario_id=p_usuario_id where chave=v_chave;
+    return query select 'cobrar'::text; return;
+  end if;
+  return query select 'bloquear'::text; -- 'em_andamento' (corrida) ou 'entregue'
+end;
+$$;
+
+create or replace function public.idempotencia_marcar_debitado(p_chave text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.idempotencia_analises set status = 'debitado'
+   where chave = left(coalesce(p_chave,''), 200) and usuario_id = auth.uid();
+end;
+$$;
+
+create or replace function public.idempotencia_confirmar_entrega(p_chave text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.idempotencia_analises set status = 'entregue'
+   where chave = left(coalesce(p_chave,''), 200) and usuario_id = auth.uid() and status = 'debitado';
+end;
+$$;
+
+-- Só apaga se ainda 'em_andamento' (credito nunca chegou a debitar: SEM_CREDITOS,
+-- erro de rede) — libera retry imediato, sem nada pra estornar.
+create or replace function public.idempotencia_liberar(p_chave text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.idempotencia_analises
+   where chave = left(coalesce(p_chave,''), 200) and usuario_id = auth.uid() and status = 'em_andamento';
+end;
+$$;
+
+create or replace function public.idempotencia_falhar_e_estornar(p_chave text)
+returns table (estornado boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_user uuid := auth.uid();
+  v_chave text := left(coalesce(p_chave,''), 200);
+  v_linhas integer;
+begin
+  if v_user is null then raise exception 'NAO_AUTENTICADO'; end if;
+  update public.idempotencia_analises set status = 'falhou'
+   where chave = v_chave and usuario_id = v_user and status = 'debitado';
+  get diagnostics v_linhas = row_count;
+  if v_linhas = 0 then return query select false; return; end if;
+  update public.perfis set creditos_bonus = creditos_bonus + 1, updated_at = now() where id = v_user;
+  return query select true;
+end;
+$$;
+
+grant execute on function public.idempotencia_reclamar(text, uuid, integer) to authenticated;
+grant execute on function public.idempotencia_marcar_debitado(text) to authenticated;
+grant execute on function public.idempotencia_confirmar_entrega(text) to authenticated;
+grant execute on function public.idempotencia_liberar(text) to authenticated;
+grant execute on function public.idempotencia_falhar_e_estornar(text) to authenticated;
+```
+
+**O que ainda não é coberto automaticamente:** o servidor confirma
+`entregue` quando termina de LER o stream inteiro vindo do Gemini — não
+quando o NAVEGADOR efetivamente recebe cada byte. Uma queda de rede entre o
+servidor e o cliente, depois do servidor já ter confirmado entrega, ainda
+cai no caminho manual abaixo. É um resíduo bem mais estreito do que antes
+(a maioria das falhas reais — timeout, erro do Gemini, stream truncado —
+agora se resolve sozinha).
+
+**Estorno manual (só para o resíduo acima):** ação do suporte, após avaliar
+o e-mail recebido (pelo botão "Sinalização Automática de Erro" durante uma
+falha ao vivo, ou pelo botão "Solicitar estorno" no Histórico, disponível
+por até 5 dias após a análise — ver `src/components/ModalSolicitarEstorno.jsx`):
 
 ```sql
 update public.perfis
