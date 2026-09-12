@@ -102,13 +102,13 @@ async function main() {
   const usuarioB = await criarUsuarioDescartavel('b');
 
   try {
-    const storagePath = `${usuarioA.id}/teste-rls/documento.txt`;
+    const storagePath = `${usuarioA.id}/teste-rls/documento.pdf`;
     const conteudoSecreto = `SEGREDO-DE-A-${Math.random().toString(36).slice(2)}`;
 
     console.log('Subindo documento como A...');
     const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`, {
       method: 'POST',
-      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioA.token}`, 'Content-Type': 'text/plain' },
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioA.token}`, 'Content-Type': 'application/pdf' },
       body: conteudoSecreto,
     });
     if (!uploadResp.ok) {
@@ -133,7 +133,7 @@ async function main() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        documentos: [{ nome: 'documento.txt', mime_type: 'text/plain', storage_path: storagePath }],
+        documentos: [{ nome: 'documento.pdf', mime_type: 'application/pdf', storage_path: storagePath }],
         metadata: {},
         userToken: usuarioB.token,
       }),
