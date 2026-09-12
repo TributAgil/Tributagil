@@ -103,12 +103,44 @@ const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
 // No runtime Node da Vercel o `export default` só aceita `(req, res)`.
 // Um método HTTP nomeado recebe `Request` e devolve `Response` (com streaming).
+//
+// Wrapper fino só pra observabilidade: mede a duração total e loga UMA linha
+// estruturada (JSON) por requisição, não importa por qual caminho ela saiu —
+// sucesso ou qualquer um dos vários `return` de erro espalhados pelo corpo
+// real (`processarAnalise`, abaixo). A Vercel já indexa `console.log` de
+// JSON nos logs da function, pesquisável por campo (usuarioId, analiseId,
+// fase, etc.) — sem precisar de Sentry nem de nenhuma dependência nova pra
+// responder "qual usuário/documento causou esse custo".
 export async function POST(request) {
+  const inicio = Date.now();
+  const ctx = {};
+  let resposta;
+  try {
+    resposta = await processarAnalise(request, ctx);
+    return resposta;
+  } finally {
+    console.log(JSON.stringify({
+      evento: 'api_gemini',
+      usuarioId: ctx.usuarioId || null,
+      analiseId: ctx.analiseId || null,
+      casoId: ctx.casoId || null,
+      numDocumentos: ctx.numDocumentos ?? null,
+      bytesTotal: ctx.bytesTotal ?? null,
+      fase: ctx.fase || null,
+      tokensExtracao: ctx.tokensExtracao ?? null,
+      httpStatus: resposta?.status ?? null,
+      duracaoMs: Date.now() - inicio,
+    }));
+  }
+}
+
+async function processarAnalise(request, ctx) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return json({ error: 'GEMINI_API_KEY não configurada nas Environment Variables da Vercel.' }, 500);
   }
 
+  ctx.fase = 'rate_limit';
   // ---- 0. Rate limit por IP -------------------------------------------------
   const rl = await rateLimit(`gemini:${ipDoRequest(request)}`, RL_LIMITE, RL_JANELA_MS);
   if (!rl.ok) {
@@ -129,6 +161,9 @@ export async function POST(request) {
 
   const { userToken, metadata } = body || {};
   const documentos = Array.isArray(body?.documentos) ? body.documentos : [];
+  ctx.numDocumentos = documentos.length;
+  ctx.analiseId = metadata?.analise_id || null;
+  ctx.casoId = metadata?.caso_id || null;
 
   // Supabase: só o que o servidor conhece. Ver comentário no topo do arquivo.
   const supabaseUrl = SUPABASE_URL_ENV;
@@ -147,6 +182,7 @@ export async function POST(request) {
 
   // ---- 1b. AUTENTICAÇÃO: valida o JWT do usuário no Supabase Auth ----------
   // Impede que o endpoint seja usado como proxy de IA anônimo.
+  ctx.fase = 'autenticacao';
   let usuarioId;
   try {
     const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -157,6 +193,7 @@ export async function POST(request) {
     }
     const authUser = await authResp.json().catch(() => ({}));
     usuarioId = authUser?.id;
+    ctx.usuarioId = usuarioId || null;
   } catch (err) {
     console.error('[api/gemini] Falha ao validar sessão:', err);
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
@@ -177,6 +214,7 @@ export async function POST(request) {
       ? `analise:${usuarioId}:${hashDocumentos(documentos)}`
       : null;
 
+  ctx.fase = 'idempotencia';
   if (chaveIdempotencia) {
     try {
       const permitido = await idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia);
@@ -204,6 +242,7 @@ export async function POST(request) {
   // BotaoSinalizarErro.jsx, sempre com aprovação humana do suporte.
   // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
   // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
+  ctx.fase = 'creditos';
   try {
     const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
     if (resultadoConsumo?.erro) {
@@ -224,6 +263,7 @@ export async function POST(request) {
   }
 
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
+  ctx.fase = 'download_storage';
   const docParts = [];
   let bytesTotal = 0;
 
@@ -251,6 +291,7 @@ export async function POST(request) {
         return json({ error: `Um documento excede ${mb(MAX_BYTES_POR_DOC)} MB.` }, 413);
       }
       bytesTotal += buffer.byteLength;
+      ctx.bytesTotal = bytesTotal;
       if (bytesTotal > MAX_BYTES_TOTAL) {
         return json(
           { error: `Total de documentos excede ${mb(MAX_BYTES_TOTAL)} MB. Reduza a quantidade ou o tamanho.` },
@@ -295,6 +336,7 @@ export async function POST(request) {
   // ---- 3. FASE 1 — extração (sem streaming) ---------------------------------
   // Lista todo evento datado dos documentos, sem julgamento jurídico. Ver
   // cabeçalho do arquivo e api/_schema-extracao.js para o porquê.
+  ctx.fase = 'extracao';
   let extracao;
   try {
     const corpoExtracao = JSON.stringify({
@@ -320,6 +362,7 @@ export async function POST(request) {
     if (respostaExtracao.erro) return respostaExtracao.erro;
 
     const corpo = await respostaExtracao.resp.json();
+    ctx.tokensExtracao = corpo?.usageMetadata?.totalTokenCount ?? null;
     const textoJson = corpo?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
     extracao = JSON.parse(textoJson);
   } catch (err) {
@@ -354,6 +397,7 @@ export async function POST(request) {
   }
 
   // ---- 4. FASE 2 — raciocínio jurídico (streaming) --------------------------
+  ctx.fase = 'geracao';
   // Recebe a tabela extraída como TEXTO — não mais os documentos brutos. O
   // motor (_motor-tributagil.js) e o esquema de saída (_schema-parecer.js)
   // são exatamente os de antes desta mudança, com UM ajuste dinâmico abaixo.
@@ -484,6 +528,7 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
       console.error('[api/gemini] Falha na validação pós-geração (não afeta a resposta ao usuário):', err);
     });
 
+    ctx.fase = 'streaming_ao_cliente';
     return new Response(paraCliente, {
       status: 200,
       headers: {
