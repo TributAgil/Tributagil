@@ -1,0 +1,29 @@
+name: Teste de isolamento entre usuários (RLS)
+
+# Prova, com usuários descartáveis, que um usuário nunca consegue ler o
+# Storage de outro — nem direto, nem via /api/gemini. Isolamento entre
+# clientes é obrigação legal (LGPD): um bug aqui é vazamento com
+# consequência jurídica, não só um erro de produto. Roda em todo push/PR
+# pra main e falha o CI se o isolamento quebrar.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Testar isolamento entre usuários
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: node scripts/teste-rls-isolamento.mjs

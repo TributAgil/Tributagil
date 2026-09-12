@@ -932,6 +932,38 @@ verdade.
 
 Sem esta migração, o app segue igual, sem a proteção (RPC ausente = fail-open).
 
+## Teste de isolamento entre usuários (RLS) em CI
+
+Isolamento entre clientes é obrigação legal (LGPD), não só boa prática — a
+policy estar escrita certa hoje não garante que ela continua funcionando
+depois do próximo commit. `scripts/teste-rls-isolamento.mjs` prova isso com
+usuários **descartáveis**: cria dois (A e B), sobe um documento como A, e
+tenta lê-lo como B tanto direto no Storage quanto via `/api/gemini` de
+verdade (a função é invocada localmente pelo próprio script, sem precisar
+de um deploy no ar) — falha alto (`process.exit(1)`) se B conseguir ler
+qualquer coisa de A.
+
+Roda contra o Supabase de **produção** (não existe projeto de staging
+separado) — seguro porque os dois usuários são criados e apagados dentro
+do próprio teste, nunca tocam em dado de usuário real. A
+`SERVICE_ROLE_KEY` só cria/apaga esses dois usuários (Admin API); a
+chamada a `/api/gemini` usa exclusivamente o token de sessão de cada
+usuário de teste — o mesmo caminho de um usuário real.
+
+Wired em `.github/workflows/teste-rls-isolamento.yml`, rodando em todo
+push/PR pra `main`. Precisa de três secrets no repositório: `SUPABASE_URL`
+e `SUPABASE_SERVICE_ROLE_KEY` (já existentes, usados também pela limpeza
+de órfãos) e `SUPABASE_ANON_KEY` (a chave `anon` pública do projeto —
+não é segredo, mas fica como secret aqui por conveniência de não expor
+nenhuma configuração de infra no workflow).
+
+```bash
+SUPABASE_URL=https://xxxx.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=eyJ... \
+SUPABASE_ANON_KEY=eyJ... \
+node scripts/teste-rls-isolamento.mjs
+```
+
 ## Testes (opcional)
 
 O projeto já tem `vitest.config.ts` e `src/test/`. Para habilitar:
