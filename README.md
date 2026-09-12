@@ -313,9 +313,14 @@ create policy "documentos_caso: inserção própria" on public.documentos_caso f
 > tabelas, inclusive o TEXTO EXTRAÍDO dos documentos que fica em
 > `documento_chunks`.
 
-Sem essas tabelas, o app **não quebra**: a barra de créditos simplesmente não
-aparece, `/api/gemini` segue sem bloquear por créditos, e cada análise nova é
-salva sem versionamento (como antes desta funcionalidade).
+Sem essas tabelas, a barra de créditos simplesmente não aparece e cada
+análise nova é salva sem versionamento (como antes desta funcionalidade) —
+mas `/api/gemini` **recusa** a análise (503) em vez de servir de graça sem
+contabilizar. Essa é a única parte do sistema que é fail-closed, não
+fail-open: cobrança é onde "nunca quebra" vira "serve grátis bem na hora em
+que o banco já está sob pressão" — pior que pedir pra tentar de novo (achado
+em auditoria externa). Rate limit e leitura de saldo pra exibição continuam
+fail-open de propósito — são camadas diferentes, não a mesma regra.
 
 ## Chatbot "Lu" (RAG restrito por caso)
 

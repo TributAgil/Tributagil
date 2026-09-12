@@ -240,8 +240,11 @@ async function processarAnalise(request, ctx) {
   // crédito. Revertido). Uma falha do SISTEMA (não do usuário) é tratada por
   // pedido manual de estorno — ver ModalSolicitarEstorno.jsx /
   // BotaoSinalizarErro.jsx, sempre com aprovação humana do suporte.
-  // Se a migração de créditos ainda não foi aplicada (função/tabela ausente),
-  // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
+  // FAIL-CLOSED, não fail-open: cobrança é a única parte deste sistema onde
+  // "nunca quebra" não se aplica — ver comentário dentro de consumirCredito()
+  // (o caso de RPC ausente, 404) para o porquê. Rate limit e leitura de
+  // saldo pra exibição continuam fail-open de propósito (são coisas
+  // diferentes disfarçadas da mesma frase — achado em auditoria externa).
   ctx.fase = 'creditos';
   try {
     const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
@@ -613,8 +616,15 @@ async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
 
   if (rpcResp.ok) return {};
   if (rpcResp.status === 404) {
-    console.warn('[api/gemini] RPC consumir_credito ausente — sistema de créditos ainda não migrado, seguindo sem bloquear.');
-    return {};
+    // FAIL-CLOSED deliberado (revertido do fail-open original): a migração
+    // de créditos já está aplicada e estável nesta produção — um 404 aqui
+    // não é mais "instalação nova sem a migração", é sinal de algo errado
+    // (schema fora do ar, incidente do Postgrest). Cobrança é a única parte
+    // do sistema onde "nunca quebra" pode significar "serve de graça, sem
+    // contabilizar, bem na hora em que o banco já está sob pressão" — pior
+    // que recusar e pedir pra tentar de novo. Achado em auditoria externa.
+    console.error('[api/gemini] RPC consumir_credito respondeu 404 (função ausente do schema) — recusando por segurança, não seguindo sem bloquear.');
+    return { erro: json({ error: 'Não foi possível validar seus créditos agora. Tente novamente em instantes.' }, 503) };
   }
 
   const detalhe = await rpcResp.json().catch(() => ({}));
