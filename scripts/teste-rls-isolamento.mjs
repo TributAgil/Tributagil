@@ -54,22 +54,38 @@ const adminHeaders = {
 
 async function criarUsuarioDescartavel(rotulo) {
   const email = `teste-rls-${rotulo}-${Date.now()}-${Math.random().toString(36).slice(2)}@teste.tributagil.invalid`;
-  const senha = `Teste${Math.random().toString(36).slice(2)}!9Aa`;
 
   const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
     method: 'POST',
     headers: adminHeaders,
-    body: JSON.stringify({ email, password: senha, email_confirm: true }),
+    body: JSON.stringify({ email, email_confirm: true }),
   });
   if (!resp.ok) throw new Error(`Falha ao criar usuário de teste "${rotulo}": HTTP ${resp.status} — ${await resp.text()}`);
   const usuario = await resp.json();
 
-  const loginResp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+  // Sem senha/login por grant_type=password: o projeto tem hCaptcha exigido
+  // nesse fluxo (proteção real contra bot, não deve ser contornada nem
+  // desligada só pra este teste). Em vez disso, gera um magic link pela API
+  // de admin (fluxo privilegiado, não sujeito a captcha) e troca o
+  // token_hash por uma sessão de verdade via /auth/v1/verify — mesmo
+  // resultado (um access_token real do usuário de teste), sem tocar na
+  // proteção de captcha do login público.
+  const linkResp = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({ type: 'magiclink', email }),
+  });
+  if (!linkResp.ok) throw new Error(`Falha ao gerar magic link pro usuário de teste "${rotulo}": HTTP ${linkResp.status} — ${await linkResp.text()}`);
+  const linkData = await linkResp.json();
+  const hashedToken = linkData.hashed_token;
+  if (!hashedToken) throw new Error(`generate_link não retornou hashed_token pro usuário de teste "${rotulo}".`);
+
+  const loginResp = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
     method: 'POST',
     headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: senha }),
+    body: JSON.stringify({ type: 'magiclink', token_hash: hashedToken }),
   });
-  if (!loginResp.ok) throw new Error(`Falha ao logar usuário de teste "${rotulo}": HTTP ${loginResp.status} — ${await loginResp.text()}`);
+  if (!loginResp.ok) throw new Error(`Falha ao trocar o magic link por sessão do usuário de teste "${rotulo}": HTTP ${loginResp.status} — ${await loginResp.text()}`);
   const sessao = await loginResp.json();
 
   return { id: usuario.id, email, token: sessao.access_token };
