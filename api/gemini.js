@@ -43,6 +43,7 @@
 // Runtime: Node. `maxDuration` configurado em vercel.json (300s, dividido
 // entre as duas fases — ver TIMEOUT_EXTRACAO_MS / TIMEOUT_RACIOCINIO_MS).
 
+import { createHash } from 'node:crypto';
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { ESQUEMA_PARECER, REGRA_ENUMERACAO } from './_schema-parecer.js';
@@ -146,6 +147,7 @@ export async function POST(request) {
 
   // ---- 1b. AUTENTICAÇÃO: valida o JWT do usuário no Supabase Auth ----------
   // Impede que o endpoint seja usado como proxy de IA anônimo.
+  let usuarioId;
   try {
     const authResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` },
@@ -153,9 +155,40 @@ export async function POST(request) {
     if (!authResp.ok) {
       return json({ error: 'Sessão inválida ou expirada. Faça login novamente.' }, 401);
     }
+    const authUser = await authResp.json().catch(() => ({}));
+    usuarioId = authUser?.id;
   } catch (err) {
     console.error('[api/gemini] Falha ao validar sessão:', err);
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
+  }
+
+  // ---- 1c2. IDEMPOTÊNCIA: impede cobrar 2 créditos pela MESMA submissão ----
+  // Chave = hash(usuário + arquivos enviados), calculada aqui no servidor —
+  // nunca confiada ao cliente. Cobre tanto duplo-clique (o botão "Analisar"
+  // trava por estado do React, que tem uma corrida real: dois cliques antes
+  // do primeiro re-render podem passar os dois) quanto reenvio depois de uma
+  // queda de rede (usuário não viu a resposta e tenta de novo com os mesmos
+  // arquivos). Janela de 5 min — cobre qualquer duplo-clique/retry real sem
+  // travar para sempre um reenvio deliberado dos mesmos arquivos depois.
+  // Fail-open se a RPC não existir (migração pendente) ou não houver
+  // usuarioId (sessão não pôde ser lida) — mesma filosofia do resto do app.
+  const chaveIdempotencia =
+    usuarioId && documentos.length > 0
+      ? `analise:${usuarioId}:${hashDocumentos(documentos)}`
+      : null;
+
+  if (chaveIdempotencia) {
+    try {
+      const permitido = await idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia);
+      if (permitido === false) {
+        return json(
+          { error: 'Esta análise já foi enviada há poucos instantes. Aguarde a resposta anterior ou tente novamente em alguns minutos.' },
+          409,
+        );
+      }
+    } catch (err) {
+      console.warn('[api/gemini] Falha ao checar idempotência (seguindo sem bloquear):', err?.message);
+    }
   }
 
   // ---- 1c. CRÉDITOS: consome 1 crédito de análise de forma atômica ---------
@@ -173,9 +206,20 @@ export async function POST(request) {
   // falha ABERTO (não bloqueia) para não quebrar instalações existentes.
   try {
     const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
-    if (resultadoConsumo?.erro) return resultadoConsumo.erro;
+    if (resultadoConsumo?.erro) {
+      // Nada foi cobrado — libera a chave de idempotência pra um reenvio
+      // legítimo não ficar preso esperando a janela expirar (ex.: usuário
+      // sem crédito, compra mais e tenta de novo com os mesmos arquivos).
+      if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'falhou');
+      return resultadoConsumo.erro;
+    }
+    // Crédito debitado com sucesso — a partir daqui, um reenvio com os
+    // mesmos arquivos dentro da janela é bloqueado (é exatamente o que a
+    // idempotência existe para evitar: cobrar de novo pela mesma submissão).
+    if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'concluida');
   } catch (err) {
     console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
+    if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'falhou').catch(() => {});
     return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
   }
 
@@ -456,6 +500,55 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
     );
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ---- Idempotência de submissão --------------------------------------------
+
+// Hash estável da lista de documentos (por storage_path, que já é único por
+// upload) — mesmos arquivos, mesma chave, não importa a ordem em que
+// chegaram no array.
+function hashDocumentos(documentos) {
+  const paths = documentos
+    .map((d) => String(d?.storage_path || ''))
+    .filter(Boolean)
+    .sort();
+  return createHash('sha256').update(paths.join('|')).digest('hex');
+}
+
+async function idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, chave) {
+  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/idempotencia_reclamar`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_chave: chave, p_janela_ms: 300_000 }),
+  });
+  if (!resp.ok) {
+    if (resp.status !== 404) console.warn(`[api/gemini] RPC idempotencia_reclamar falhou (HTTP ${resp.status})`);
+    return true; // fail-open
+  }
+  const linhas = await resp.json().catch(() => null);
+  const linha = Array.isArray(linhas) ? linhas[0] : linhas;
+  return linha ? linha.permitido !== false : true;
+}
+
+async function idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chave, status) {
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/rpc/idempotencia_marcar`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${userToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ p_chave: chave, p_status: status }),
+    });
+  } catch (err) {
+    console.warn('[api/gemini] Falha ao marcar idempotência (não bloqueia):', err?.message);
   }
 }
 

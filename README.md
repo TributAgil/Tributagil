@@ -830,6 +830,108 @@ barreira contra abuso (créditos e demais checagens continuam valendo).
 Sem esta migração, `api/_ratelimit.js` volta sozinho ao comportamento
 "sem bloquear" (RPC ausente = fail-open) — não quebra nada, só não limita.
 
+## Idempotência de submissão (evita cobrar 2 créditos pela mesma análise)
+
+O botão "Analisar" trava por estado do React (`analisando`) — mas isso tem
+uma corrida real: dois cliques que cheguem antes do primeiro re-render do
+botão desabilitado podem os dois chamar `/api/gemini`. O mesmo vale para o
+usuário reenviar depois que a conexão caiu antes de ver a resposta, com os
+mesmos arquivos. Como a cobrança é na entrada da requisição (ver seção
+"Créditos" acima), cada uma dessas chamadas cobraria 1 crédito — 2 créditos
+por uma única intenção do usuário.
+
+A chave de idempotência é calculada **no servidor** (nunca confiada ao
+cliente): hash de `usuário + lista de storage_path dos documentos
+enviados`, ordenada. Mesmos arquivos, mesmo usuário → mesma chave, não
+importa em que ordem chegaram no array nem quantas vezes a requisição foi
+disparada.
+
+```sql
+create table if not exists public.idempotencia_analises (
+  chave     text primary key,
+  status    text not null default 'em_andamento',
+  criado_em timestamptz not null default now()
+);
+
+alter table public.idempotencia_analises enable row level security;
+-- Sem nenhuma policy: só as RPCs abaixo (SECURITY DEFINER) acessam.
+
+-- Reclama a chave: true = pode prosseguir; false = já existe uma submissão
+-- idêntica em andamento ou concluída dentro da janela. Uma chave 'falhou'
+-- (nada foi cobrado) ou mais velha que a janela é reaproveitada — nunca
+-- bloqueia um reenvio legítimo depois de resolvido o problema.
+create or replace function public.idempotencia_reclamar(p_chave text, p_janela_ms integer)
+returns table (permitido boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_agora     timestamptz := clock_timestamp();
+  v_janela_ms integer := least(greatest(coalesce(p_janela_ms, 60000), 1000), 3600000);
+  v_janela    interval := (v_janela_ms || ' milliseconds')::interval;
+  v_chave     text := left(coalesce(p_chave, ''), 200);
+  v_existente public.idempotencia_analises%rowtype;
+begin
+  if v_chave = '' then
+    return query select true;
+    return;
+  end if;
+
+  select * into v_existente from public.idempotencia_analises where chave = v_chave for update;
+
+  if not found then
+    insert into public.idempotencia_analises (chave, status, criado_em) values (v_chave, 'em_andamento', v_agora);
+    return query select true;
+    return;
+  end if;
+
+  if v_existente.status = 'falhou' or v_existente.criado_em < v_agora - v_janela then
+    update public.idempotencia_analises set status = 'em_andamento', criado_em = v_agora where chave = v_chave;
+    return query select true;
+    return;
+  end if;
+
+  return query select false;
+end;
+$$;
+
+-- Fecha o ciclo: 'concluida' = crédito já debitado (bloqueia reenvio até a
+-- janela expirar); 'falhou' = nada foi cobrado, libera reenvio imediato.
+create or replace function public.idempotencia_marcar(p_chave text, p_status text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_status not in ('concluida', 'falhou') then
+    return;
+  end if;
+  update public.idempotencia_analises
+     set status = p_status
+   where chave = left(coalesce(p_chave, ''), 200);
+end;
+$$;
+
+grant execute on function public.idempotencia_reclamar(text, integer) to authenticated;
+grant execute on function public.idempotencia_marcar(text, text) to authenticated;
+```
+
+**Fluxo em `api/gemini.js`:** logo após validar a sessão, reclama a chave
+(janela de 5 minutos); se recusada, HTTP 409 antes de gastar Gemini ou
+crédito nenhum. Se o consumo de crédito falhar (sem saldo, erro de rede),
+marca `'falhou'` — libera reenvio imediato. Se o crédito for debitado com
+sucesso, marca `'concluida'` — é esse o momento exato que a idempotência
+protege; falhas depois disso (extração, geração) já não afetam o crédito e
+seguem o fluxo normal de estorno manual.
+
+Concedida só a `authenticated` (não `anon`, diferente do rate limit) — este
+endpoint sempre roda depois do login, então a RPC pode exigir uma sessão de
+verdade.
+
+Sem esta migração, o app segue igual, sem a proteção (RPC ausente = fail-open).
+
 ## Testes (opcional)
 
 O projeto já tem `vitest.config.ts` e `src/test/`. Para habilitar:
