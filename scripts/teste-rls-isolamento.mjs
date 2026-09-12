@@ -111,7 +111,9 @@ async function main() {
       headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioA.token}`, 'Content-Type': 'text/plain' },
       body: conteudoSecreto,
     });
-    assert.ok(uploadResp.ok, `Upload como A falhou (HTTP ${uploadResp.status}) — deveria funcionar, é a própria pasta de A.`);
+    if (!uploadResp.ok) {
+      throw new Error(`Upload como A falhou (HTTP ${uploadResp.status}) — deveria funcionar, é a própria pasta de A. Corpo: ${await uploadResp.text()}`);
+    }
 
     console.log('Sanity check: A consegue ler o próprio documento...');
     const leituraA = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`, {
