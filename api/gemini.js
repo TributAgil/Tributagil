@@ -199,26 +199,38 @@ async function processarAnalise(request, ctx) {
     return json({ error: 'Não foi possível validar sua sessão.' }, 502);
   }
 
-  // ---- 1c2. IDEMPOTÊNCIA: impede cobrar 2 créditos pela MESMA submissão ----
+  // ---- 1c2. IDEMPOTÊNCIA: estados debitado/entregue/falhou, não booleano ---
   // Chave = hash(usuário + arquivos enviados), calculada aqui no servidor —
-  // nunca confiada ao cliente. Cobre tanto duplo-clique (o botão "Analisar"
-  // trava por estado do React, que tem uma corrida real: dois cliques antes
-  // do primeiro re-render podem passar os dois) quanto reenvio depois de uma
-  // queda de rede (usuário não viu a resposta e tenta de novo com os mesmos
-  // arquivos). Janela de 5 min — cobre qualquer duplo-clique/retry real sem
-  // travar para sempre um reenvio deliberado dos mesmos arquivos depois.
+  // nunca confiada ao cliente. "Já cobrado" NÃO é estado terminal: cobrar e
+  // entregar são coisas diferentes, e tratá-las como uma coisa só (como a
+  // versão anterior fazia, com um booleano "concluida") significava que uma
+  // fase 2 morta depois do débito (timeout de 300s, erro do Gemini) deixava
+  // o crédito consumido, nada entregue, e um reenvio do mesmo arquivo
+  // simplesmente travado por até 5 minutos sem alternativa — o mesmo custo
+  // que o fail-open antigo dava, só que transferido do caixa pro suporte.
+  // Achado em auditoria externa.
+  //
+  // Por isso a RPC devolve uma AÇÃO, não um booleano:
+  //   'cobrar'   — chave nova, expirada, ou já estornada: cobra de verdade.
+  //   'retomar'  — já debitado nesta janela, ainda sem resultado (a
+  //                tentativa anterior pode ter morrido sem nunca chegar a um
+  //                estado terminal): roda de novo SEM cobrar outra vez.
+  //   'bloquear' — corrida real de duplo-clique (em_andamento) ou já
+  //                entregue com sucesso: recusa.
   // Fail-open se a RPC não existir (migração pendente) ou não houver
-  // usuarioId (sessão não pôde ser lida) — mesma filosofia do resto do app.
+  // usuarioId — mesma filosofia do resto do app (diferente de crédito, que é
+  // fail-closed; isto aqui é só o guarda de duplicata, não a cobrança em si).
   const chaveIdempotencia =
     usuarioId && documentos.length > 0
       ? `analise:${usuarioId}:${hashDocumentos(documentos)}`
       : null;
 
   ctx.fase = 'idempotencia';
+  let acaoIdempotencia = 'cobrar';
   if (chaveIdempotencia) {
     try {
-      const permitido = await idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia);
-      if (permitido === false) {
+      acaoIdempotencia = await idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, usuarioId, chaveIdempotencia);
+      if (acaoIdempotencia === 'bloquear') {
         return json(
           { error: 'Esta análise já foi enviada há poucos instantes. Aguarde a resposta anterior ou tente novamente em alguns minutos.' },
           409,
@@ -237,34 +249,43 @@ async function processarAnalise(request, ctx) {
   // cobrança pós-sucesso: essa variante foi tentada, corrigia a injustiça de
   // cobrar por falha do sistema, mas abria um vetor de abuso de custo real
   // — extração podia rodar de graça repetidamente sem nunca consumir
-  // crédito. Revertido). Uma falha do SISTEMA (não do usuário) é tratada por
-  // pedido manual de estorno — ver ModalSolicitarEstorno.jsx /
-  // BotaoSinalizarErro.jsx, sempre com aprovação humana do suporte.
-  // FAIL-CLOSED, não fail-open: cobrança é a única parte deste sistema onde
-  // "nunca quebra" não se aplica — ver comentário dentro de consumirCredito()
-  // (o caso de RPC ausente, 404) para o porquê. Rate limit e leitura de
-  // saldo pra exibição continuam fail-open de propósito (são coisas
-  // diferentes disfarçadas da mesma frase — achado em auditoria externa).
+  // crédito. Revertido). FAIL-CLOSED, não fail-open: cobrança é a única
+  // parte deste sistema onde "nunca quebra" não se aplica — ver comentário
+  // dentro de consumirCredito() (o caso de RPC ausente, 404). Rate limit e
+  // leitura de saldo pra exibição continuam fail-open de propósito (são
+  // coisas diferentes disfarçadas da mesma frase — achado em auditoria).
+  //
+  // Se a idempotência já mandou 'retomar', pula a cobrança inteira — o
+  // crédito já foi debitado numa tentativa anterior desta MESMA submissão.
   ctx.fase = 'creditos';
-  try {
-    const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
-    if (resultadoConsumo?.erro) {
-      // Nada foi cobrado — libera a chave de idempotência pra um reenvio
-      // legítimo não ficar preso esperando a janela expirar (ex.: usuário
-      // sem crédito, compra mais e tenta de novo com os mesmos arquivos).
-      if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'falhou');
-      return resultadoConsumo.erro;
+  if (acaoIdempotencia !== 'retomar') {
+    try {
+      const resultadoConsumo = await consumirCredito(supabaseUrl, supabaseAnonKey, userToken);
+      if (resultadoConsumo?.erro) {
+        // Nada foi cobrado — libera a chave pra um reenvio legítimo não
+        // ficar preso esperando a janela expirar (ex.: usuário sem
+        // crédito, compra mais e tenta de novo com os mesmos arquivos).
+        if (chaveIdempotencia) await idempotenciaLiberar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia).catch(() => {});
+        return resultadoConsumo.erro;
+      }
+      // Crédito debitado com sucesso — a partir daqui, se a fase 2 morrer,
+      // o caminho de volta é o estorno automático (ver validarParecerPosGeracao
+      // e o catch/erro da fase 2 abaixo), não mais um pedido manual do usuário.
+      if (chaveIdempotencia) await idempotenciaMarcarDebitado(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia);
+    } catch (err) {
+      console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
+      if (chaveIdempotencia) await idempotenciaLiberar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia).catch(() => {});
+      return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
     }
-    // Crédito debitado com sucesso — a partir daqui, um reenvio com os
-    // mesmos arquivos dentro da janela é bloqueado (é exatamente o que a
-    // idempotência existe para evitar: cobrar de novo pela mesma submissão).
-    if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'concluida');
-  } catch (err) {
-    console.error('[api/gemini] Erro de rede ao consumir crédito:', err);
-    if (chaveIdempotencia) await idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia, 'falhou').catch(() => {});
-    return json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502);
   }
 
+  // A partir daqui o crédito já foi debitado (ou retomado de uma tentativa
+  // anterior que já debitou) — todo o resto roda dentro desta função
+  // encapsulada só pra poder checar, num único lugar, se deu tudo certo ou
+  // se é caso de estornar automaticamente (ver a checagem logo depois desta
+  // chamada), sem precisar espalhar a chamada de estorno em cada `return`
+  // de erro que já existia mais abaixo.
+  const respostaPipeline = await (async () => {
   // ---- 2. Baixa cada doc do Storage e embute como inline_data --------------
   ctx.fase = 'download_storage';
   const docParts = [];
@@ -519,15 +540,25 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
     const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal);
     if (erro) return erro;
 
-    // Validação pós-geração (Módulo 4): tee() ramifica o stream em duas
-    // cópias independentes — uma segue para
-    // o navegador SEM NENHUMA alteração (zero latência, zero risco de
-    // quebrar a resposta), a outra é consumida aqui em paralelo, só para
-    // comparar o parecer final contra o resultado do motor determinístico.
-    // Roda "fire and forget": qualquer erro nela fica só em log, nunca
-    // afeta a resposta já enviada.
+    // Validação pós-geração + confirmação de entrega: tee() ramifica o
+    // stream em duas cópias independentes — uma segue para o navegador SEM
+    // NENHUMA alteração (zero latência, zero risco de quebrar a resposta),
+    // a outra é consumida aqui em paralelo até o fim, pra (a) comparar o
+    // parecer final contra o Módulo 4 quando aplicável e (b) confirmar
+    // 'entregue' (parecer bem formado) ou disparar o estorno automático
+    // (stream truncado/malformado) — é este resultado, não o "começou a
+    // transmitir" do `return` logo abaixo, que decide se o crédito fica
+    // cobrado de verdade. Roda "fire and forget": qualquer erro nela fica
+    // só em log, nunca afeta a resposta já enviada.
     const [paraCliente, paraValidacao] = upstream.body.tee();
-    validarParecerPosGeracao(paraValidacao, { motorPrazos, metadata }).catch((err) => {
+    validarParecerPosGeracao(paraValidacao, {
+      motorPrazos,
+      metadata,
+      supabaseUrl,
+      supabaseAnonKey,
+      userToken,
+      chaveIdempotencia,
+    }).catch((err) => {
       console.error('[api/gemini] Falha na validação pós-geração (não afeta a resposta ao usuário):', err);
     });
 
@@ -549,6 +580,22 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
   } finally {
     clearTimeout(timer);
   }
+  })();
+
+  // Estorno automático: se a idempotência foi usada e o resultado NÃO foi
+  // "começou a transmitir com sucesso" (status 200 == chegou em
+  // 'streaming_ao_cliente'), o crédito já debitado nesta chamada (ou numa
+  // tentativa anterior, se veio de 'retomar') volta pro usuário — nunca fica
+  // preso esperando ele perceber e pedir estorno manual. Um sucesso real
+  // (entrega de verdade, não só "começou a transmitir") ainda é confirmado
+  // à parte por validarParecerPosGeracao(), que lê o stream até o fim.
+  if (chaveIdempotencia && respostaPipeline?.status !== 200) {
+    await idempotenciaFalharEEstornar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia).catch((err) => {
+      console.error('[api/gemini] Falha ao estornar crédito automaticamente:', err?.message);
+    });
+  }
+
+  return respostaPipeline;
 }
 
 // ---- Idempotência de submissão --------------------------------------------
@@ -564,7 +611,11 @@ function hashDocumentos(documentos) {
   return createHash('sha256').update(paths.join('|')).digest('hex');
 }
 
-async function idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, chave) {
+// Devolve a AÇÃO decidida pela RPC ('cobrar' | 'retomar' | 'bloquear') — ver
+// comentário no ponto de chamada. Fail-open ('cobrar') se a RPC não existir
+// ou a chamada falhar: isto é só o guarda de duplicata, não a cobrança em
+// si (que continua fail-closed em consumirCredito).
+async function idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, usuarioId, chave) {
   const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/idempotencia_reclamar`, {
     method: 'POST',
     headers: {
@@ -572,32 +623,53 @@ async function idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, cha
       Authorization: `Bearer ${userToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ p_chave: chave, p_janela_ms: 300_000 }),
+    body: JSON.stringify({ p_chave: chave, p_usuario_id: usuarioId, p_janela_ms: 300_000 }),
   });
   if (!resp.ok) {
     if (resp.status !== 404) console.warn(`[api/gemini] RPC idempotencia_reclamar falhou (HTTP ${resp.status})`);
-    return true; // fail-open
+    return 'cobrar';
   }
   const linhas = await resp.json().catch(() => null);
   const linha = Array.isArray(linhas) ? linhas[0] : linhas;
-  return linha ? linha.permitido !== false : true;
+  return linha?.acao || 'cobrar';
 }
 
-async function idempotenciaMarcar(supabaseUrl, supabaseAnonKey, userToken, chave, status) {
-  try {
-    await fetch(`${supabaseUrl}/rest/v1/rpc/idempotencia_marcar`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${userToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({ p_chave: chave, p_status: status }),
-    });
-  } catch (err) {
-    console.warn('[api/gemini] Falha ao marcar idempotência (não bloqueia):', err?.message);
-  }
+async function idempotenciaRpc(nome, supabaseUrl, supabaseAnonKey, userToken, params) {
+  await fetch(`${supabaseUrl}/rest/v1/rpc/${nome}`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${userToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(params),
+  });
+}
+
+// Chave nunca chegou a debitar (SEM_CREDITOS, erro de rede) — libera pra
+// retry imediato em vez de deixar presa em 'em_andamento' até a janela
+// expirar. Só apaga se ainda estiver 'em_andamento' e for do próprio
+// usuário (ver migração).
+function idempotenciaLiberar(supabaseUrl, supabaseAnonKey, userToken, chave) {
+  return idempotenciaRpc('idempotencia_liberar', supabaseUrl, supabaseAnonKey, userToken, { p_chave: chave });
+}
+
+// Crédito debitado com sucesso nesta chamada.
+function idempotenciaMarcarDebitado(supabaseUrl, supabaseAnonKey, userToken, chave) {
+  return idempotenciaRpc('idempotencia_marcar_debitado', supabaseUrl, supabaseAnonKey, userToken, { p_chave: chave });
+}
+
+// Parecer entregue com sucesso — fecha a cobrança desta submissão.
+function idempotenciaConfirmarEntrega(supabaseUrl, supabaseAnonKey, userToken, chave) {
+  return idempotenciaRpc('idempotencia_confirmar_entrega', supabaseUrl, supabaseAnonKey, userToken, { p_chave: chave });
+}
+
+// Estorno automático — só devolve crédito se a chave ESTIVER 'debitado' (a
+// guarda atômica vive na RPC, ver migração); chamar de novo pra mesma chave,
+// ou pra uma chave de outro usuário, não faz nada.
+function idempotenciaFalharEEstornar(supabaseUrl, supabaseAnonKey, userToken, chave) {
+  return idempotenciaRpc('idempotencia_falhar_e_estornar', supabaseUrl, supabaseAnonKey, userToken, { p_chave: chave });
 }
 
 // ---- Créditos: consumo --------------------------------------------------
@@ -644,21 +716,18 @@ async function consumirCredito(supabaseUrl, supabaseAnonKey, userToken) {
   return { erro: json({ error: 'Não foi possível validar seus créditos agora. Tente novamente.' }, 502) };
 }
 
-// Validação pós-geração: acumula o texto do stream (mesmo formato SSE de
-// streamGenerateContent), faz o parse do parecer final e compara as
-// conclusões do Módulo 4 contra o resultado do motor determinístico.
-// Só loga — nunca lança para fora do .catch() que a chama. Estorno de
-// crédito NÃO é automático (ver README, seção "Créditos") — é sempre
-// pedido manual do usuário (ModalSolicitarEstorno.jsx / BotaoSinalizarErro.jsx),
-// avaliado pelo suporte, então esta função não toca em crédito nenhum.
-async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
-  if (!motorPrazos || motorPrazos.length === 0) {
-    // Nada a validar, mas o branch do tee() ainda precisa ser drenado —
-    // sem isso, esta cópia do stream nunca é liberada.
-    await stream.cancel().catch(() => {});
-    return;
-  }
-
+// Validação pós-geração + confirmação de entrega: acumula o texto do
+// stream inteiro (mesmo formato SSE de streamGenerateContent), faz o parse
+// do parecer final, compara as conclusões do Módulo 4 contra o resultado do
+// motor determinístico, e é ESTA função — não o "começou a transmitir" do
+// caminho principal — que decide se a cobrança fica confirmada
+// ('entregue') ou estornada automaticamente ('falhou', ver
+// idempotencia_falhar_e_estornar). Sempre lê o stream até o fim agora
+// (antes cancelava cedo quando não havia Módulo 4 pra validar) — o custo é
+// manter esta cópia do stream viva um pouco mais; o ganho é a única forma
+// confiável de saber se a IA de fato terminou de gerar um parecer válido.
+// Erros aqui só viram log — nunca lançam pra fora do .catch() que chama.
+async function validarParecerPosGeracao(stream, { motorPrazos, metadata, supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia }) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let bruto = '';
@@ -688,7 +757,15 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
   try {
     parecer = JSON.parse(textoJson);
   } catch (err) {
-    console.warn('[api/gemini] Validação pós-geração: não foi possível parsear o parecer final.', err?.message);
+    // Stream truncado ou malformado: a IA não terminou de gerar um parecer
+    // válido, mesmo que o navegador já tenha recebido parte dele. Isto é
+    // exatamente o caso "cobrei e não entreguei" — estorna automaticamente.
+    console.warn('[api/gemini] Validação pós-geração: não foi possível parsear o parecer final — estornando.', err?.message);
+    if (chaveIdempotencia) {
+      await idempotenciaFalharEEstornar(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia).catch((e) => {
+        console.error('[api/gemini] Falha ao estornar crédito automaticamente (pós-geração):', e?.message);
+      });
+    }
     return;
   }
 
@@ -703,6 +780,15 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata }) {
       // manualmente, nunca como identificador confiável para automação.
       { casoIdDeclaradoPeloCliente: metadata?.caso_id, analiseIdDeclaradoPeloCliente: metadata?.analise_id, divergencias },
     );
+  }
+
+  // Parecer bem formado: a análise foi entregue de verdade. Fecha a
+  // cobrança desta submissão — daqui pra frente, um reenvio do mesmo
+  // arquivo é bloqueado (já entregue), não retomado nem recobrado.
+  if (chaveIdempotencia) {
+    await idempotenciaConfirmarEntrega(supabaseUrl, supabaseAnonKey, userToken, chaveIdempotencia).catch((err) => {
+      console.error('[api/gemini] Falha ao confirmar entrega:', err?.message);
+    });
   }
 }
 
