@@ -1,95 +1,280 @@
 // src/pages/CerebroTributario.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Brain, 
-  FileSearch, 
-  Sparkles, 
-  Scale, 
-  Gavel, 
-  CheckCircle2, 
+import { supabase } from '../lib/supabase';
+import {
+  Brain,
+  FileSearch,
+  Sparkles,
+  Scale,
+  Gavel,
+  CheckCircle2,
   Zap,
   Activity,
   ShieldCheck,
-  Clock
+  Clock,
+  AlertTriangle,
+  ArrowLeft,
+  Coins,
 } from 'lucide-react';
+import RodapeLegal from '../components/RodapeLegal';
+import BotaoSinalizarErro from '../components/BotaoSinalizarErro';
+import Logo from '../components/Logo';
+
+// Tempo mínimo que a tela de andamento fica visível, mesmo que a IA responda
+// muito rápido — garante que o usuário SEMPRE veja o feedback de processamento.
+const TEMPO_MINIMO_VISIVEL_MS = 2600;
 
 // ============================================
 // CONFIGURAÇÃO DOS ESTÁGIOS DE PROCESSAMENTO
 // ============================================
 const ESTAGIOS = [
-  { id: 1, min: 0, max: 20, frase: 'Enviando documentos para a Inteligência Artificial...', icone: FileSearch, cor: 'emerald', detalhe: 'Conexão segura com o backend estabelecida' },
-  { id: 2, min: 20, max: 40, frase: 'IA analisando variáveis fiscais e carimbos...', icone: Sparkles, cor: 'teal', detalhe: 'Leitura de Fato Gerador e Notificações em andamento' },
-  { id: 3, min: 40, max: 60, frase: 'Identificando datas e marcos processuais...', icone: Clock, cor: 'cyan', detalhe: 'Extração de timelines' },
-  { id: 4, min: 60, max: 80, frase: 'Rodando motores de cálculo (CTN/LEF)...', icone: Scale, cor: 'blue', detalhe: 'Aplicação de regras de Decadência e Prescrição' },
-  { id: 5, min: 80, max: 99, frase: 'Estruturando silogismos jurídicos e recomendações...', icone: Gavel, cor: 'indigo', detalhe: 'Aguardando finalização do modelo Gemini' },
-  { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, cor: 'emerald', detalhe: 'Parecer pronto para revisão' },
+  { id: 1, min: 0, max: 20, frase: 'Enviando documentos para a Inteligência Artificial...', icone: FileSearch, detalhe: 'Conexão segura com o backend estabelecida' },
+  { id: 2, min: 20, max: 40, frase: 'IA analisando variáveis fiscais e carimbos...', icone: Sparkles, detalhe: 'Leitura de Fato Gerador e Notificações em andamento' },
+  { id: 3, min: 40, max: 60, frase: 'Identificando datas e marcos processuais...', icone: Clock, detalhe: 'Extração de timelines' },
+  { id: 4, min: 60, max: 80, frase: 'Rodando motores de cálculo (CTN/LEF)...', icone: Scale, detalhe: 'Aplicação de regras de Decadência e Prescrição' },
+  { id: 5, min: 80, max: 99, frase: 'Estruturando silogismos jurídicos e recomendações...', icone: Gavel, detalhe: 'Aguardando finalização do modelo Gemini' },
+  { id: 6, min: 100, max: 100, frase: 'Análise Concluída!', icone: CheckCircle2, detalhe: 'Parecer pronto para revisão' },
 ];
 
-const COR_CLASSES = {
-  emerald: { text: 'text-emerald-500', bg: 'bg-emerald-500', glow: 'shadow-emerald-500/30', light: 'bg-emerald-50' },
-  teal: { text: 'text-teal-500', bg: 'bg-teal-500', glow: 'shadow-teal-500/30', light: 'bg-teal-50' },
-  cyan: { text: 'text-cyan-500', bg: 'bg-cyan-500', glow: 'shadow-cyan-500/30', light: 'bg-cyan-50' },
-  blue: { text: 'text-blue-500', bg: 'bg-blue-500', glow: 'shadow-blue-500/30', light: 'bg-blue-50' },
-  indigo: { text: 'text-indigo-500', bg: 'bg-indigo-500', glow: 'shadow-indigo-500/30', light: 'bg-indigo-50' },
-};
+// ============================================
+// HELPERS DE STREAMING / PARSING (fora do componente: são puros e estáveis)
+// ============================================
+
+/**
+ * Lê um corpo de resposta em formato SSE (`data: {...}\n\n`) vindo do /api/gemini,
+ * acumula os fragmentos de texto e devolve o texto completo gerado pela IA.
+ */
+async function lerStreamGemini(body, { signal } = {}) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let texto = '';
+
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const linhas = buffer.split('\n');
+      buffer = linhas.pop() ?? ''; // última linha pode estar incompleta
+
+      for (const linha of linhas) {
+        const t = linha.trim();
+        if (!t.startsWith('data:')) continue;
+        const dados = t.slice(5).trim();
+        if (!dados || dados === '[DONE]') continue;
+        try {
+          const obj = JSON.parse(dados);
+          // Concatena o texto de TODAS as parts (modelos com "thinking" podem
+          // devolver mais de uma part por chunk).
+          const partes = obj?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(partes)) {
+            for (const p of partes) if (typeof p?.text === 'string') texto += p.text;
+          }
+          const motivo = obj?.candidates?.[0]?.finishReason;
+          if (motivo && motivo !== 'STOP' && motivo !== 'MAX_TOKENS') {
+            throw new Error(`A IA interrompeu a geração (motivo: ${motivo}).`);
+          }
+        } catch (e) {
+          // Ignora apenas fragmentos JSON parciais; re-lança erros reais.
+          if (e instanceof SyntaxError) continue;
+          throw e;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  return texto;
+}
+
+/**
+ * Extrai um objeto JSON de um texto que pode vir "sujo" (com ```json ... ```,
+ * texto antes/depois, etc.).
+ */
+function extrairJson(texto) {
+  const limpo = texto.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const inicio = limpo.indexOf('{');
+  const fim = limpo.lastIndexOf('}');
+  if (inicio === -1 || fim === -1 || fim <= inicio) {
+    const e = new Error('A IA não retornou um JSON válido.');
+    e.textoBruto = limpo;
+    throw e;
+  }
+  try {
+    return JSON.parse(limpo.slice(inicio, fim + 1));
+  } catch (err) {
+    err.textoBruto = limpo;
+    throw err;
+  }
+}
 
 // ============================================
-// COMPONENTES MENORES MANTIDOS (VISUAL)
+// COMPONENTES VISUAIS AUXILIARES
 // ============================================
+
+/* Poeira dourada de fundo: deriva devagar em vez de piscar. É o único
+   movimento em loop fora do núcleo — fica atrás de tudo, bem discreto. */
 const Particula = ({ delay, x, y, tamanho }) => (
-  <div className="absolute rounded-full bg-emerald-400/20 animate-pulse" style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms`, animationDuration: '3s' }} />
+  <div
+    className="absolute rounded-full bg-gold/25 anim-drift"
+    style={{ left: `${x}%`, top: `${y}%`, width: tamanho, height: tamanho, animationDelay: `${delay}ms` }}
+  />
 );
 
-const BarraProgresso = ({ progresso, cor, concluido }) => {
-  const c = COR_CLASSES[cor];
-  return (
-    <div className="relative w-full">
-      <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full ${c.bg} rounded-full transition-all duration-500 ease-out relative`} style={{ width: `${progresso}%` }}>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+/**
+ * NÚCLEO — a balança da marca "pesando" o caso enquanto a IA trabalha.
+ * Dois anéis de pontos orbitam em sentidos opostos (processamento), um halo
+ * respira atrás, e a balança oscila até achar o fiel. Ao concluir, tudo para
+ * e um selo bate no lugar (`anim-seal`) — o veredito chegou.
+ */
+const NucleoAnalise = ({ concluido }) => (
+  <div className="relative mx-auto mb-6 h-32 w-32">
+    {/* halo difuso */}
+    <div
+      className={`absolute inset-3 rounded-full bg-gold/15 blur-2xl ${concluido ? '' : 'anim-breathe'}`}
+    />
+
+    {!concluido && (
+      <>
+        {/* anéis orbitais em sentidos opostos */}
+        <div className="absolute inset-0 anim-orbit">
+          <span className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-gold" />
+          <span className="absolute left-1/2 bottom-0 h-1 w-1 -translate-x-1/2 rounded-full bg-gold/50" />
         </div>
-      </div>
-      <div className="flex justify-between mt-2">
-        {ESTAGIOS.slice(0, -1).map((est) => (
-          <div key={est.id} className={`flex flex-col items-center transition-all duration-300 ${progresso >= est.min ? 'opacity-100' : 'opacity-30'}`}>
-            <div className={`w-2 h-2 rounded-full ${progresso >= est.max ? c.bg : 'bg-slate-300'}`} />
-            <span className="text-[10px] text-slate-400 mt-1 hidden sm:block">{est.min}%</span>
-          </div>
-        ))}
-        <div className={`flex flex-col items-center transition-all duration-300 ${progresso >= 100 ? 'opacity-100' : 'opacity-30'}`}>
-          <div className={`w-2 h-2 rounded-full ${progresso >= 100 ? c.bg : 'bg-slate-300'}`} />
-          <span className="text-[10px] text-slate-400 mt-1 hidden sm:block">100%</span>
+        <div className="absolute inset-4 anim-orbit-rev">
+          <span className="absolute left-0 top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-gold/60" />
         </div>
-      </div>
+        {/* aro tênue que delimita a órbita */}
+        <div className="absolute inset-0 rounded-full border border-gold/10" />
+        <div className="absolute inset-4 rounded-full border border-gold/[0.07]" />
+      </>
+    )}
+
+    <div className="absolute inset-0 grid place-items-center">
+      {concluido ? (
+        <div className="anim-seal grid h-24 w-24 place-items-center rounded-full border-2 border-gold bg-gold/15">
+          <CheckCircle2 size={44} className="text-gold" />
+        </div>
+      ) : (
+        <Logo variant="mark" size="xl" showWordmark={false} animated />
+      )}
     </div>
-  );
-};
+  </div>
+);
+
+/**
+ * TRILHA DE ETAPAS — substitui os pontinhos soltos por um caminho visível.
+ * Cada nó tem três estados (concluído / atual / pendente); ao ser vencido,
+ * o nó recebe o selo. É aqui que o usuário lê "onde estamos" sem precisar
+ * decifrar porcentagem.
+ */
+const TrilhaEtapas = ({ progresso, estagioAtual }) => (
+  <ol className="flex items-start justify-between gap-1">
+    {ESTAGIOS.map((est, idx) => {
+      const Icone = est.icone;
+      const vencido = progresso >= est.max;
+      const atual = !vencido && idx === estagioAtual;
+
+      return (
+        <li key={est.id} className="relative flex min-w-0 flex-1 flex-col items-center">
+          {/* trilho ligando ao nó anterior */}
+          {idx > 0 && (
+            <span
+              aria-hidden="true"
+              className={`absolute right-1/2 top-4 h-px w-full transition-colors duration-700 ${
+                vencido || atual ? 'bg-gold/45' : 'bg-line'
+              }`}
+            />
+          )}
+
+          <span
+            className={`relative grid h-8 w-8 place-items-center rounded-full border transition-all duration-500 ${
+              vencido
+                ? 'border-gold bg-gold text-ink'
+                : atual
+                  ? 'border-gold bg-gold/10 text-gold'
+                  : 'border-line bg-ink-800 text-parchment/25'
+            }`}
+          >
+            {vencido ? (
+              <CheckCircle2 size={15} className="anim-seal" />
+            ) : (
+              <Icone size={15} className={atual ? 'anim-breathe' : ''} />
+            )}
+            {/* halo pulsante só no nó atual */}
+            {atual && (
+              <span className="absolute inset-0 animate-ping rounded-full border border-gold/40" style={{ animationDuration: '2.2s' }} />
+            )}
+          </span>
+
+          <span
+            className={`mt-1.5 hidden text-center text-[10px] leading-tight transition-colors duration-500 sm:block ${
+              vencido || atual ? 'text-parchment/60' : 'text-parchment/25'
+            }`}
+          >
+            {est.id === ESTAGIOS.length ? 'Parecer' : `Etapa ${est.id}`}
+          </span>
+        </li>
+      );
+    })}
+  </ol>
+);
+
+const BarraProgresso = ({ progresso }) => (
+  <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-ink-700">
+    <div
+      className="relative h-full rounded-full bg-gradient-to-r from-gold-soft to-gold transition-[width] duration-700 ease-decide"
+      style={{ width: `${progresso}%` }}
+    >
+      <div className="absolute inset-0 anim-shimmer bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+    </div>
+  </div>
+);
 
 const LogProcessamento = ({ logs }) => (
-  <div className="bg-slate-900 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-48 overflow-y-auto">
-    <div className="flex items-center gap-2 text-slate-500 mb-2 border-b border-slate-800 pb-2">
-      <Activity size={12} />
+  <div className="anim-scan max-h-44 overflow-y-auto rounded-xl bg-ink-900 p-4 font-mono text-xs">
+    <div className="mb-2 flex items-center gap-2 border-b border-line pb-2 text-parchment/40">
+      <Activity size={12} className="anim-breathe" />
       <span>console.log — Cérebro Tributário v2.1 (Conectado via API)</span>
     </div>
-    {logs.map((log, idx) => (
-      <div key={idx} className={`flex items-start gap-2 transition-all duration-300 ${idx === logs.length - 1 ? 'text-emerald-400' : 'text-slate-400'}`}>
-        <span className="text-slate-600 flex-shrink-0">[{log.tempo}]</span>
-        <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-emerald-400' : ''}>{log.mensagem}</span>
-      </div>
-    ))}
-    <div className="animate-pulse text-emerald-500">_</div>
+    <div className="space-y-1.5">
+      {logs.map((log, idx) => (
+        <div
+          key={idx}
+          className={`anim-log-in flex items-start gap-2 ${idx === logs.length - 1 ? 'text-gold' : 'text-parchment/50'}`}
+        >
+          <span className="flex-shrink-0 text-parchment/30">[{log.tempo}]</span>
+          <span className={log.tipo === 'erro' ? 'text-red-400' : log.tipo === 'sucesso' ? 'text-gold' : ''}>
+            {log.mensagem}
+          </span>
+        </div>
+      ))}
+    </div>
+    <div className="anim-breathe mt-1 text-gold">_</div>
   </div>
 );
 
 // ============================================
 // COMPONENTE PRINCIPAL: CÉREBRO TRIBUTÁRIO
 // ============================================
-const CerebroTributario = ({ payload, onConcluido, onErro }) => {
+const CerebroTributario = ({ payload, user, onConcluido, onErro }) => {
   const [progresso, setProgresso] = useState(0);
   const [estagioAtual, setEstagioAtual] = useState(0);
   const [logs, setLogs] = useState([]);
   const [concluido, setConcluido] = useState(false);
   const [pulsando, setPulsando] = useState(true);
+  // Quando a IA falha, mostramos o erro NA PRÓPRIA tela em vez de "sumir"
+  // instantaneamente de volta para o upload.
+  const [erroFatal, setErroFatal] = useState(null);
+  // Quando a IA responde que faltam dados (Protocolo de Alerta do Motor TributÁgil).
+  const [alertaDados, setAlertaDados] = useState(null);
+  // Quando o backend recusa por falta de créditos (HTTP 402) — não é falha do
+  // sistema, então NÃO oferece o botão de sinalização/estorno.
+  const [semCreditos, setSemCreditos] = useState(null);
   const intervalRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -107,190 +292,312 @@ const CerebroTributario = ({ payload, onConcluido, onErro }) => {
   };
 
   // ============================================
-  // INTEGRAÇÃO REAL COM A API DO GEMINI
+  // INTEGRAÇÃO REAL COM A API DO GEMINI (executa UMA vez por payload)
   // ============================================
   useEffect(() => {
     if (!payload) return;
 
-    addLog('Inicializando conexão segura com backend...', 'info');
-    let currentProgress = 0;
+    const abortController = new AbortController();
+    const inicio = Date.now();
+    let cancelado = false;
+    let progressoLocal = 0;
+    let estagioLocal = 0;
 
-    // 1. Inicia o progresso visual simulando a "espera" da IA
+    setErroFatal(null);
+    setAlertaDados(null);
+    setSemCreditos(null);
+    addLog('Inicializando conexão segura com backend...', 'info');
+
+    // 1. Progresso "otimista" enquanto a IA trabalha (trava em 90% até a resposta).
     intervalRef.current = setInterval(() => {
-      if (currentProgress < 90) {
-        currentProgress += Math.random() * 4; // Vai subindo aos poucos
-        setProgresso(currentProgress);
-        
-        const novoEstagio = ESTAGIOS.findIndex(e => currentProgress >= e.min && currentProgress <= e.max);
-        if (novoEstagio !== -1 && novoEstagio !== estagioAtual) {
-          setEstagioAtual(novoEstagio);
-          addLog(ESTAGIOS[novoEstagio].frase, 'info');
-        }
+      if (progressoLocal >= 90) return;
+      progressoLocal = Math.min(90, progressoLocal + Math.random() * 4);
+      setProgresso(progressoLocal);
+
+      const novoEstagio = ESTAGIOS.findIndex(
+        (e) => progressoLocal >= e.min && progressoLocal <= e.max,
+      );
+      if (novoEstagio !== -1 && novoEstagio !== estagioLocal) {
+        estagioLocal = novoEstagio;
+        setEstagioAtual(novoEstagio);
+        addLog(ESTAGIOS[novoEstagio].frase, 'info');
       }
     }, 1000);
 
-    // 2. Faz a chamada real para a IA
+    // 2. Chamada real (streaming) ao backend.
     const processarComIA = async () => {
       try {
-        const promptEngenharia = `
-          Você é um advogado tributarista sênior analisando um caso para a plataforma TributÁgil.
-          Analise os dados fornecidos abaixo e retorne APENAS um JSON válido. Não inclua blocos de código markdown (como \`\`\`json).
-          O JSON deve seguir EXATAMENTE esta estrutura de chaves e arrays para não quebrar o frontend:
-          {
-            "metadata": { "modelo_ia": "Gemini 1.5 Flash (Backend)" },
-            "conclusoes": [
-              { "id": 1, "tipo": "prescricao", "severidade": "favoravel", "titulo": "Título Curto", "resumo": "Análise detalhada...", "fundamento_legal": "Lei X...", "confianca": 95 }
-            ],
-            "fatos_importantes": [
-              { "id": 1, "categoria": "cronologica", "data": "DD/MM/AAAA", "descricao": "Fato...", "fonte": "Documento Y", "relevancia": "alta" }
-            ],
-            "raciocinio": [
-              { "id": 1, "premissa": "Regra geral...", "aplicacao": "No caso...", "conclusao_logica": "Portanto...", "referencia": "STJ..." }
-            ],
-            "recomendacoes": ["Ação 1", "Ação 2"]
-          }
-          
-          Use severidades: "favoravel", "atencao", "neutro", "desfavoravel".
-          Use relevancias: "critica", "alta", "media", "baixa".
-          Use categorias: "cronologica", "processual", "tributaria".
-          
-          DADOS ENVIADOS PELO USUÁRIO PARA ANÁLISE:
-          ${JSON.stringify(payload)}
-        `;
+        // As regras jurídicas E o formato da resposta ficam inteiramente no
+        // servidor agora (system instruction "Motor TributÁgil" +
+        // REGRA_ENUMERACAO, montados em api/gemini.js). O cliente não monta
+        // mais o prompt nem o envia — evita expor a regra de enumeração no
+        // bundle público e evita que o texto que pilota o raciocínio jurídico
+        // da análise possa ser alterado no navegador antes de sair.
+        const documentos = (payload?.documentos ?? []).map((d) => ({
+          nome: d.nome,
+          mime_type: d.mime_type,
+          storage_path: d.storage_path,
+        }));
 
-        addLog('Disparando requisição POST para /api/gemini...', 'info');
+        // Token do usuário: o backend usa para ler os arquivos no Storage
+        // respeitando a RLS (só a pasta do próprio usuário).
+        const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+        const userToken = sess?.session?.access_token;
+        if (!userToken) throw new Error('Sessão expirada. Faça login novamente.');
+
+        addLog(`Enviando ${documentos.length} documento(s) para análise...`, 'info');
 
         const resposta = await fetch('/api/gemini', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptEngenharia })
+          body: JSON.stringify({
+            documentos,
+            metadata: payload?.metadata ?? {},
+            userToken,
+          }),
+          signal: abortController.signal,
         });
 
-        const dados = await resposta.json();
-        
-        if (dados.error) throw new Error(dados.error);
+        if (!resposta.ok || !resposta.body) {
+          const erroJson = await resposta.json().catch(() => ({}));
+          const erroHttp = new Error(erroJson.error || `Falha na IA (HTTP ${resposta.status}).`);
+          erroHttp.status = resposta.status;
+          throw erroHttp;
+        }
 
-        addLog('Resposta da IA recebida! Processando dados...', 'info');
+        addLog('Streaming da IA iniciado — recebendo parecer...', 'info');
+        const textoIA = await lerStreamGemini(resposta.body, { signal: abortController.signal });
+        if (cancelado) return;
 
-        // Extrai o texto da IA, limpa a formatação e transforma num Objeto JavaScript
-        const textoIA = dados.candidates[0].content.parts[0].text;
-        const jsonLimpo = textoIA.replace(/```json/g, '').replace(/```/g, '').trim();
-        const resultadoIA = JSON.parse(jsonLimpo);
+        addLog('Resposta recebida. Estruturando dados...', 'info');
+        const resultadoIA = extrairJson(textoIA);
 
-        // Sucesso! Trava no estágio final.
+        // Protocolo de Alerta do Motor TributÁgil: dados insuficientes.
+        if (resultadoIA && resultadoIA.alerta_dados_insuficientes) {
+          clearInterval(intervalRef.current);
+          setPulsando(false);
+          addLog('IA sinalizou dados insuficientes.', 'erro');
+          setAlertaDados(String(resultadoIA.alerta_dados_insuficientes));
+          return;
+        }
+
         clearInterval(intervalRef.current);
         setProgresso(100);
-        setEstagioAtual(5);
+        setEstagioAtual(ESTAGIOS.length - 1);
         addLog('✅ Parecer tributário estruturado com sucesso!', 'sucesso');
         setConcluido(true);
         setPulsando(false);
 
-        // Redireciona enviando o objeto real da IA para a próxima tela
+        // Só avança para o resultado depois do tempo mínimo de exibição —
+        // assim a tela de andamento nunca "pisca".
+        const restante = Math.max(0, TEMPO_MINIMO_VISIVEL_MS - (Date.now() - inicio));
         setTimeout(() => {
-          onConcluido?.(resultadoIA);
-        }, 2000);
-
+          if (!cancelado) onConcluido?.(resultadoIA);
+        }, restante + 700);
       } catch (erro) {
+        if (cancelado || erro?.name === 'AbortError') return;
         clearInterval(intervalRef.current);
+        console.error('[CerebroTributario] Erro no processamento:', erro);
+        setPulsando(false);
+
+        // Se o texto continha o alerta mas não parseou como JSON, trata como alerta.
+        if (typeof erro?.textoBruto === 'string' && erro.textoBruto.includes('[ALERTA DE DADOS INSUFICIENTES]')) {
+          addLog('IA sinalizou dados insuficientes.', 'erro');
+          setAlertaDados(erro.textoBruto.trim());
+          return;
+        }
+
+        // Sem créditos (HTTP 402): não é falha do sistema — não oferece estorno.
+        if (erro?.status === 402) {
+          addLog('Sem créditos disponíveis para esta análise.', 'erro');
+          setSemCreditos(erro.message || 'Você não possui créditos disponíveis.');
+          return;
+        }
+
         addLog(`Falha na IA: ${erro.message}`, 'erro');
-        console.error("Erro no processamento:", erro);
-        onErro?.(erro);
+        // Mantém a tela visível com o erro; o usuário decide voltar/tentar de novo.
+        setErroFatal(erro.message || 'Falha ao processar a análise.');
       }
     };
 
     processarComIA();
 
-    return () => clearInterval(intervalRef.current);
-  }, [payload, estagioAtual]); // Dependências corrigidas
+    return () => {
+      cancelado = true;
+      abortController.abort();
+      clearInterval(intervalRef.current);
+    };
+    // Depende apenas de `payload`: a análise roda uma única vez por conjunto de dados.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload]);
 
   const estagio = ESTAGIOS[estagioAtual] || ESTAGIOS[0];
   const IconeAtual = estagio.icone;
-  const corAtual = COR_CLASSES[estagio.cor];
 
   const particulas = Array.from({ length: 12 }, (_, i) => ({ delay: i * 200, x: 10 + (i * 7) % 80, y: 15 + (i * 13) % 70, tamanho: 4 + (i % 3) * 3 }));
 
+  // ---- ALERTA DE DADOS INSUFICIENTES: a IA não inventa — pede mais documentos --
+  if (alertaDados) {
+    return (
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle size={32} className="text-amber-400" />
+          </div>
+          <h1 className="text-xl font-bold text-parchment">Dados insuficientes</h1>
+          <p className="text-sm text-parchment/70 mt-3 whitespace-pre-wrap">{alertaDados}</p>
+          <p className="text-xs text-parchment/40 mt-3">
+            A IA está restrita aos documentos enviados e não preenche lacunas por conta própria.
+            Anexe o documento que traz a data/informação faltante e rode de novo.
+          </p>
+          <button
+            onClick={() => onErro?.(new Error('dados_insuficientes'))}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-ink text-sm font-semibold rounded-xl transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Voltar e anexar mais documentos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Sem créditos disponíveis (HTTP 402): bloqueio condicional do plano ----
+  if (semCreditos) {
+    return (
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-amber-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 flex items-center justify-center mx-auto mb-5">
+            <Coins size={32} className="text-amber-400" />
+          </div>
+          <h1 className="text-xl font-bold text-parchment">Sem créditos disponíveis</h1>
+          <p className="text-sm text-parchment/70 mt-3">{semCreditos}</p>
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              onClick={() => onErro?.(new Error('sem_creditos'))}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-line text-parchment/80 hover:border-gold/40 hover:text-gold text-sm font-semibold rounded-xl transition-colors"
+            >
+              <ArrowLeft size={16} />
+              Voltar
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('tributagil:abrir-suporte'))}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink text-sm font-semibold rounded-xl transition-colors"
+            >
+              Renovar plano / comprar créditos
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Estado de ERRO: permanece na tela, sem "piscar" de volta ao upload ----
+  if (erroFatal) {
+    return (
+      <div className="min-h-screen bg-noir flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-red-500/30 shadow-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/15 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle size={32} className="text-red-400" />
+          </div>
+          <h1 className="text-xl font-bold text-parchment">Não foi possível concluir a análise</h1>
+          <p className="text-sm text-parchment/50 mt-2">{erroFatal}</p>
+          <p className="text-xs text-parchment/30 mt-3">
+            Tente novamente. Se persistir, reduza a quantidade/tamanho dos documentos.
+          </p>
+          <button
+            onClick={() => onErro?.(new Error(erroFatal))}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 border border-line text-parchment/80 hover:border-gold/40 hover:text-gold text-sm font-semibold rounded-xl transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Voltar e revisar os documentos
+          </button>
+
+          <BotaoSinalizarErro
+            user={user}
+            mensagemErro={erroFatal}
+            logs={logs}
+            casoId={payload?.metadata?.caso_id}
+            analiseId={payload?.metadata?.analise_id}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-noir flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0">
         {particulas.map((p, i) => <Particula key={i} {...p} />)}
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
       </div>
 
       <div className="relative z-10 w-full max-w-2xl">
-        <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
-          
-          <div className="relative px-8 pt-10 pb-6 text-center">
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full ${corAtual.bg} opacity-10 blur-3xl transition-all duration-1000`} />
-            <div className="relative inline-block">
-              <div className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 ${concluido ? 'bg-emerald-500/20' : 'bg-slate-800'} border border-slate-700 transition-all duration-500 ${pulsando ? 'animate-pulse-slow' : ''}`}>
-                {concluido ? <CheckCircle2 size={40} className="text-emerald-400" /> : <Brain size={40} className={`${corAtual.text} transition-colors duration-500`} />}
-              </div>
-              {pulsando && (
-                <>
-                  <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/20 animate-ping" style={{ animationDuration: '2s' }} />
-                  <div className="absolute inset-0 rounded-2xl border border-emerald-500/10 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }} />
-                </>
-              )}
-            </div>
-            <h1 className="text-2xl font-bold text-white mb-2">{concluido ? 'Pronto!' : 'Cérebro Tributário'}</h1>
-            <p className="text-slate-400 text-sm">{concluido ? 'Sua análise foi processada com sucesso' : 'Processando documentos com IA avançada'}</p>
+        <div className="bg-ink-800/70 backdrop-blur-xl rounded-3xl border border-line shadow-2xl overflow-hidden">
+
+          <div className="relative px-5 pt-8 pb-6 text-center sm:px-8 sm:pt-10">
+            <NucleoAnalise concluido={concluido} />
+            <h1 className="mb-2 font-display text-2xl font-bold tracking-tight text-parchment">
+              {concluido ? 'Veredito pronto' : 'Cérebro Tributário'}
+            </h1>
+            <p className="text-sm text-parchment/50">
+              {concluido
+                ? 'Sua análise foi processada com sucesso'
+                : 'Pesando documentos, prazos e fundamentos'}
+            </p>
           </div>
 
-          <div className="px-8 pb-8 space-y-6">
+          <div className="space-y-6 px-5 pb-8 sm:px-8">
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-300">{estagio.frase}</span>
-                <span className={`text-sm font-bold ${corAtual.text} tabular-nums`}>{Math.floor(progresso)}%</span>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 text-sm font-medium text-parchment/70">{estagio.frase}</span>
+                <span className="text-lg font-bold tabular-nums text-gold">{Math.floor(progresso)}%</span>
               </div>
-              <BarraProgresso progresso={progresso} cor={estagio.cor} concluido={concluido} />
+              <BarraProgresso progresso={progresso} />
             </div>
 
-            <div className={`flex items-center gap-3 p-4 rounded-xl border transition-all duration-500 ${corAtual.light} border-slate-700/50`}>
-              <div className={`p-2 rounded-lg ${corAtual.bg} bg-opacity-20`}>
-                <IconeAtual size={18} className={corAtual.text} />
+            <TrilhaEtapas progresso={progresso} estagioAtual={estagioAtual} />
+
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-gold/[0.06] p-4 transition-all duration-500">
+              <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-gold/15">
+                <IconeAtual size={18} className="text-gold" />
               </div>
-              <div>
-                <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Etapa {estagio.id} de {ESTAGIOS.length}</p>
-                <p className="text-sm text-slate-300 mt-0.5">{estagio.detalhe}</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-parchment/40">
+                  Etapa {estagio.id} de {ESTAGIOS.length}
+                </p>
+                <p className="mt-0.5 text-sm text-parchment/70">{estagio.detalhe}</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
-                <Zap size={16} className="text-amber-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">{payload?.documentos?.length || 0}</p>
-                <p className="text-[10px] text-slate-500 uppercase">Documentos</p>
-              </div>
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
-                <ShieldCheck size={16} className="text-emerald-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">CTN/LEF</p>
-                <p className="text-[10px] text-slate-500 uppercase">Base Legal</p>
-              </div>
-              <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-slate-700/50">
-                <Brain size={16} className="text-blue-400 mx-auto mb-1" />
-                <p className="text-lg font-bold text-white">Backend</p>
-                <p className="text-[10px] text-slate-500 uppercase">API Segura</p>
-              </div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              {[
+                { icone: Zap, valor: payload?.documentos?.length || 0, rotulo: 'Documentos' },
+                { icone: ShieldCheck, valor: 'CTN/LEF', rotulo: 'Base Legal' },
+                { icone: Brain, valor: 'Backend', rotulo: 'API Segura' },
+              ].map(({ icone: Ic, valor, rotulo }) => (
+                <div
+                  key={rotulo}
+                  className="mi-lift group rounded-xl border border-line bg-ink-800/60 p-3 text-center"
+                >
+                  <Ic size={16} className="mi-icon mx-auto mb-1 text-gold" />
+                  <p className="text-base font-bold text-parchment sm:text-lg">{valor}</p>
+                  <p className="text-[10px] uppercase text-parchment/40">{rotulo}</p>
+                </div>
+              ))}
             </div>
 
             <LogProcessamento logs={logs} />
             <div ref={logsEndRef} />
 
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
-              <div className={`w-1.5 h-1.5 rounded-full ${pulsando ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'}`} />
+            <div className="flex items-center justify-center gap-2 text-xs text-parchment/30">
+              <div className={`h-1.5 w-1.5 rounded-full bg-gold ${pulsando ? 'anim-breathe' : ''}`} />
               <span>{concluido ? 'Processo finalizado' : 'Processamento ativo — aguardando resposta da IA'}</span>
             </div>
           </div>
         </div>
-        <p className="text-center text-slate-600 text-xs mt-6">"Da decadência à prescrição, o TributÁgil é a sua solução."</p>
+        <RodapeLegal comBorda={false} className="mt-4" />
       </div>
-
-      <style>{`
-        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-        @keyframes pulse-slow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.8; } }
-        .animate-shimmer { animation: shimmer 2s infinite; }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 };

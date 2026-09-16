@@ -25,4 +25,7 @@ dist-ssr
 
 node_modules
 dist
-.env
+
+# Segredos — ignora todos os .env, exceto o template
+.env*
+!.env.example

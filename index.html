@@ -1,10 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>tributagil</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0f0f0f" />
+    <title>TributÁgil</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- hCaptcha (proteção do login via Supabase Auth). render=explicit: o
+         widget é montado pelo React em Login.jsx, não por auto-scan. -->
+    <script src="https://js.hcaptcha.com/1/api.js?render=explicit" async defer></script>
+
+    <!-- Sentry (rastreamento de erros): o loader é injetado por src/main.jsx
+         quando VITE_SENTRY_LOADER_SRC está definida — evita <script> inline. -->
   </head>
   <body>
     <div id="root"></div>

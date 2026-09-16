@@ -1,0 +1,23 @@
+name: Checar SERVICE_ROLE_KEY fora de api/
+
+# Falha o CI se SUPABASE_SERVICE_ROLE_KEY aparecer em qualquer arquivo
+# dentro de api/ (código que roda na Vercel) — essa chave só pode existir
+# em scripts/*.mjs, rodados manualmente ou via GitHub Actions, nunca pela
+# Vercel. Documentação (README) não protege a chave; este teste sim.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Checar api/ sem SERVICE_ROLE_KEY
+        run: node scripts/checar-sem-service-role-em-api.mjs
