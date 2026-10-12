@@ -27,7 +27,7 @@ import {
 import RodapeLegal from '../components/RodapeLegal';
 import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import ModalGerarPeca from '../components/ModalGerarPeca';
-import { podeGerarPeca, temConclusaoFavoravel, cenarioPrevio } from '../lib/peca';
+import { podeGerarPeca, cenarioPrevio } from '../lib/peca';
 import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
@@ -501,9 +501,11 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   const casoId = analise?.caso_id || null;
   const versao = analise?.versao || 1;
 
-  // "Gerar peça": só com análise salva E conclusão favorável de prescrição/decadência.
-  // Plano/perfil: um único ponto (podeGerarPeca), hoje sempre true.
-  const mostrarBotaoPeca = Boolean(analiseId) && podeGerarPeca(null) && temConclusaoFavoravel(resultado);
+  // "Gerar peça": sempre que a análise está salva — mesmo com parecer desfavorável. Quem decide se há peça é o
+  // motor determinístico do servidor (api/_motor-peca.js), que avalia prescrição, decadência e intercorrente
+  // e explica o motivo quando nenhuma se sustenta (ou quando diverge do parecer). Plano/perfil: um único
+  // ponto (podeGerarPeca), hoje sempre true.
+  const mostrarBotaoPeca = Boolean(analiseId) && podeGerarPeca(null);
   const cenarioDaPeca = cenarioPrevio(resultado);
 
   // ---- Timeline: ordena por data ---------------------------------------------
