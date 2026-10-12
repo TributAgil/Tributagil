@@ -40,6 +40,7 @@ import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
 import { renderizarPeca, contarMarcadores } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
 import { creditosParaGerarPeca } from './_politica-peca.js';
+import { agruparBloqueios, orientacaoBloqueios, resumoCurtoPeca } from './_bloqueios-peca.js';
 import { mesclarPerfis, perfilDoEscritorio, perfilDoCaso, aplicarClienteAoExecutado, perfilEfetivo } from './_perfil-peca.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
@@ -365,15 +366,23 @@ function statusGeral(avaliacoes) {
 
 /** Cabeçalho comum de uma peça na resposta (sem o arquivo): quem é, em que estado está e por quê. */
 function resumoSemArquivo(a) {
-  return {
+  const base = {
     tese: a.tese,
     tese_nome: NOME_TESE[a.tese] || a.tese,
     status: a.status,
     template: a.template,
     mensagem: a.mensagem,
-    bloqueios: a.bloqueios,
+    bloqueios: a.bloqueios, // detalhe completo (um por período)
     divergencias: a.divergencias,
     avisos: a.avisos,
+  };
+  if (a.status === 'ok') return base;
+  // versão objetiva para a tela: motivos iguais agrupados + uma linha + o que fazer
+  return {
+    ...base,
+    resumo_curto: resumoCurtoPeca(base),
+    bloqueios_resumo: agruparBloqueios(a.bloqueios),
+    orientacao: orientacaoBloqueios([...a.bloqueios, ...a.divergencias]),
   };
 }
 

@@ -265,19 +265,22 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
             </p>
             {(r?.pecas || []).map((p) => (
               <div key={p.tese} className="rounded-xl border border-line p-3 space-y-1.5">
-                <p className="text-xs font-semibold text-parchment/80">{p.tese_nome}</p>
-                <p className="text-xs text-parchment/60">{p.mensagem}</p>
-                {p.bloqueios?.length > 0 && (
-                  <>
-                    <p className="text-xs text-parchment/50">Motivos</p>
-                    <Lista itens={p.bloqueios} cor="text-parchment/80" />
-                  </>
-                )}
+                <p className="text-xs font-semibold text-parchment/90">{p.resumo_curto || p.tese_nome}</p>
+                <Lista itens={p.bloqueios_resumo?.length ? p.bloqueios_resumo : p.bloqueios} cor="text-parchment/80" />
                 {p.divergencias?.length > 0 && (
                   <>
                     <p className="text-xs text-parchment/50">Divergência com o parecer</p>
                     <Lista itens={p.divergencias} cor="text-parchment/80" />
                   </>
+                )}
+                {p.orientacao && <p className="text-xs text-gold/90">O que fazer: {p.orientacao}</p>}
+                {p.bloqueios?.length > (p.bloqueios_resumo?.length || 0) && (
+                  <details>
+                    <summary className="text-xs text-parchment/50 cursor-pointer">Ver os {p.bloqueios.length} motivos, um por período</summary>
+                    <div className="mt-1.5">
+                      <Lista itens={p.bloqueios} cor="text-parchment/60" />
+                    </div>
+                  </details>
                 )}
                 <Lista itens={p.avisos} cor="text-parchment/50" />
               </div>
