@@ -57,6 +57,10 @@ const linhas = casos.map((c) => ({ id: c.id, grupo: GRUPO[c.id[0]], titulo: c.ti
 const md = ['# Os 34 casos fictícios e a resposta esperada do sistema', '', '| Caso | Cenário | Parecer deve ser favorável a | Resposta do sistema | Por quê |', '|---|---|---|---|---|'];
 for (const l of linhas) md.push(`| ${l.id} | ${l.titulo} | ${l.parecer} | ${l.rotulo} | ${l.porque.replace(/\|/g, '/')} |`);
 fs.writeFileSync(path.join(saida, 'TABELA.md'), md.join('\n') + '\n');
+const csv = (s) => `"${String(s).replace(/"/g, '""')}"`;
+const linhasCsv = [['Caso', 'Grupo', 'Cenário', 'Credor', 'Parecer deve ser favorável a', 'Resposta do sistema', 'Por quê'].map(csv).join(',')];
+for (const l of linhas) linhasCsv.push([l.id, l.grupo, l.titulo, l.credor, l.parecer, l.rotulo, l.porque].map(csv).join(','));
+fs.writeFileSync(path.join(saida, 'TABELA.csv'), '\ufeff' + linhasCsv.join('\n') + '\n');
 
 // ---- HTML
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
