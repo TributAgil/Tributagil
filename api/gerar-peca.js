@@ -35,9 +35,9 @@
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { ESQUEMA_DADOS_PECA, PROMPT_DADOS_PECA } from './_schema-dados-peca.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
-import { avaliarPeca } from './_motor-peca.js';
-import { montarContexto, contarPreencher, nomeArquivoPeca } from './_contexto-peca.js';
-import { renderizarPeca } from './_render-peca.js';
+import { avaliarPecas } from './_motor-peca.js';
+import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
+import { renderizarPeca, contarMarcadores } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
 import { creditosParaGerarPeca } from './_politica-peca.js';
 
@@ -60,11 +60,13 @@ const MODELO_PADRAO = 'gemini-3.5-flash'; // GEMINI_MODEL
 
 export const AVISO_FIXO = 'Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.';
 
-const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência' };
+const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência', prescricao_intercorrente: 'Prescrição intercorrente' };
 const NOME_MODELO = {
   EPE_prescricao_ordinaria: 'Exceção de Pré-Executividade — prescrição ordinária',
   EPE_decadencia: 'Exceção de Pré-Executividade — decadência',
   Revisao_PGFN_prescricao_ordinaria: 'Pedido de Revisão de Débito Fiscal (PGFN) — prescrição ordinária',
+  Revisao_PGFN_decadencia: 'Pedido de Revisão de Débito Fiscal — decadência',
+  EPE_prescricao_intercorrente: 'Exceção de Pré-Executividade — prescrição intercorrente',
 };
 
 export async function POST(request) {
@@ -214,30 +216,37 @@ async function processar(request, ctx) {
   if (dados.alerta_ilegivel) return json({ error: dados.alerta_ilegivel }, 422);
   if (dados.inscricoes.length === 0) return json({ error: 'Não foram encontradas inscrições (CDAs) nos documentos.' }, 422);
 
-  // ---- Motor determinístico ----------------------------------------------------------
+  // ---- Motor determinístico: UMA avaliação por tese ----------------------------------------
+  // Os modelos não são fundidos: o caso pode comportar mais de uma peça (ex.: decadência de alguns
+  // períodos + prescrição intercorrente da execução) e quem escolhe é o usuário, no modal.
   ctx.fase = 'motor';
-  const avaliacao = avaliarPeca({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
-  ctx.statusPeca = avaliacao.status;
-  ctx.template = avaliacao.template;
+  const { pecas: avaliacoes } = avaliarPecas({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
+  ctx.statusPeca = statusGeral(avaliacoes);
+  ctx.template = avaliacoes.filter((a) => a.template).map((a) => a.template).join(',') || null;
 
-  if (avaliacao.divergencias.length > 0) {
-    // Mesmo espírito de validarParecerPosGeracao (api/gemini.js): divergência entre dois
-    // cálculos independentes é sinal de bug ou de leitura ruim — loga para investigação.
-    console.error('[api/gerar-peca] DIVERGÊNCIA motor da peça x parecer salvo', { analiseId, divergencias: avaliacao.divergencias });
+  for (const a of avaliacoes) {
+    if (a.divergencias.length > 0) {
+      // Mesmo espírito de validarParecerPosGeracao (api/gemini.js): divergência entre dois
+      // cálculos independentes é sinal de bug ou de leitura ruim — loga para investigação.
+      console.error('[api/gerar-peca] DIVERGÊNCIA motor da peça x parecer salvo', { analiseId, tese: a.tese, divergencias: a.divergencias });
+    }
   }
 
-  if (avaliacao.status !== 'ok') {
+  const geraveis = avaliacoes.filter((a) => a.status === 'ok');
+  if (geraveis.length === 0) {
+    const naoOk = avaliacoes.length ? avaliacoes : [];
     return json({
-      status: avaliacao.status,
-      mensagem: avaliacao.mensagem,
-      bloqueios: avaliacao.bloqueios,
-      divergencias: avaliacao.divergencias,
-      avisos: avaliacao.avisos,
+      status: ctx.statusPeca,
+      mensagem: naoOk.find((a) => a.mensagem)?.mensagem || MSG_NENHUMA_TESE,
+      bloqueios: naoOk.flatMap((a) => a.bloqueios),
+      divergencias: naoOk.flatMap((a) => a.divergencias),
+      avisos: naoOk.flatMap((a) => a.avisos),
+      pecas: naoOk.map(resumoSemArquivo),
     }, 200);
   }
 
   // ---- Logo (opcional; falha aqui nunca derruba a peça) -------------------------------
-  const avisos = [...avaliacao.avisos];
+  const avisosLogo = [];
   let logo = null;
   if (escritorio.logo_path) {
     try {
@@ -248,69 +257,136 @@ async function processar(request, ctx) {
       const buffer = resp.ok ? Buffer.from(await resp.arrayBuffer()) : null;
       const dim = buffer && buffer.length <= MAX_BYTES_LOGO ? dimensoesImagem(buffer) : null;
       if (dim) logo = { data: buffer, extension: dim.extension, ...tamanhoLogoCm(dim) };
-      else avisos.push('Não foi possível usar o logo do escritório (arquivo ausente, grande demais ou formato não suportado). A peça saiu sem logo.');
+      else avisosLogo.push('Não foi possível usar o logo do escritório (arquivo ausente, grande demais ou formato não suportado). A peça saiu sem logo.');
     } catch (err) {
       console.warn('[api/gerar-peca] Logo indisponível:', err?.message);
-      avisos.push('Não foi possível carregar o logo do escritório. A peça saiu sem logo.');
+      avisosLogo.push('Não foi possível carregar o logo do escritório. A peça saiu sem logo.');
     }
   }
 
-  // ---- Renderização -----------------------------------------------------------------------
+  // ---- Renderização (uma por peça gerável) ----------------------------------------------------
   ctx.fase = 'renderizacao';
   const agora = new Date();
-  const contexto = montarContexto({
-    dados,
-    avaliacao,
-    escritorio: {
-      nome: escritorio.nome,
-      cidade: escritorio.cidade,
-      uf: escritorio.uf,
-      email: escritorio.email,
-      site: escritorio.site,
-      endereco: escritorio.endereco,
-      advogados: escritorio.advogados,
-    },
-    agora,
-    incluirBlocoDecretoLei: body?.incluir_bloco_decreto_lei !== false,
-  });
-
-  let docx;
-  try {
-    docx = await renderizarPeca({ template: avaliacao.template, contexto, logo });
-  } catch (err) {
-    console.error('[api/gerar-peca] Falha ao renderizar o template:', err);
-    return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
-  }
-
-  const resumo = {
-    modelo: NOME_MODELO[avaliacao.template] || avaliacao.template,
-    tese: NOME_TESE[avaliacao.tese] || avaliacao.tese,
-    creditos: avaliacao.creditos.map((c) => ({
-      cda: c.cda,
-      periodo: c.periodo,
-      termo_inicial: c.termoInicial ? dataBR(c.termoInicial) : dataBR(c.marcoInicial),
-      consumacao: c.consumacao ? dataBR(c.consumacao) : dataBR(c.termoFinal),
-    })),
-    data_referencia: avaliacao.dataReferencia,
-    campos_preencher: contarPreencher(contexto),
-    figuras: (JSON.stringify(contexto).match(/\[INSERIR FIGURA/g) || []).length,
-    avisos,
-    aviso_fixo: AVISO_FIXO,
+  const dadosEscritorio = {
+    nome: escritorio.nome,
+    cidade: escritorio.cidade,
+    uf: escritorio.uf,
+    email: escritorio.email,
+    site: escritorio.site,
+    endereco: escritorio.endereco,
+    advogados: escritorio.advogados,
   };
 
-  return json({
-    status: 'ok',
-    resumo,
-    arquivo: {
-      nome: nomeArquivoPeca(avaliacao.template, dados.executado.nome, agora),
-      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      base64: docx.toString('base64'),
-    },
-  }, 200);
+  const pecas = [];
+  for (const avaliacao of avaliacoes) {
+    if (avaliacao.status !== 'ok') {
+      pecas.push(resumoSemArquivo(avaliacao));
+      continue;
+    }
+    const contexto = montarContexto({
+      dados,
+      avaliacao,
+      escritorio: dadosEscritorio,
+      agora,
+      incluirBlocoDecretoLei: body?.incluir_bloco_decreto_lei !== false,
+    });
+    let docx;
+    try {
+      docx = await renderizarPeca({ template: avaliacao.template, contexto, logo });
+    } catch (err) {
+      console.error('[api/gerar-peca] Falha ao renderizar o template:', avaliacao.template, err);
+      return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
+    }
+    const marcadores = await contarMarcadores(docx);
+    pecas.push({
+      ...resumoSemArquivo(avaliacao),
+      resumo: {
+        modelo: NOME_MODELO[avaliacao.template] || avaliacao.template,
+        tese: NOME_TESE[avaliacao.tese] || avaliacao.tese,
+        descricao: descreverPeca(avaliacao),
+        creditos: creditosDoResumo(avaliacao),
+        intercorrente: avaliacao.intercorrente
+          ? {
+              data_intimacao: avaliacao.intercorrente.dataIntimacao,
+              data_fim_suspensao: avaliacao.intercorrente.dataFimSuspensao,
+              data_prazo_final: avaliacao.intercorrente.dataPrazoFinal,
+              cdas: avaliacao.intercorrente.cdasCobertas,
+            }
+          : null,
+        data_referencia: avaliacao.dataReferencia,
+        campos_preencher: marcadores.preencher,
+        figuras: marcadores.figuras,
+        a_confirmar: marcadores.confirmar,
+        avisos: [...avaliacao.avisos, ...avisosLogo],
+        aviso_fixo: AVISO_FIXO,
+      },
+      arquivo: {
+        nome: nomeArquivoPeca(avaliacao.template, dados.executado.nome, agora),
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        base64: docx.toString('base64'),
+      },
+    });
+  }
+
+  return json({ status: 'ok', pecas }, 200);
+}
+
+const MSG_NENHUMA_TESE = 'Os documentos não indicam prescrição, decadência ou prescrição intercorrente consumada.';
+
+/** 'ok' se alguma peça pode ser gerada; senão o "pior" motivo (bloqueada > indisponível > sem tese). */
+function statusGeral(avaliacoes) {
+  if (avaliacoes.some((a) => a.status === 'ok')) return 'ok';
+  if (avaliacoes.some((a) => a.status === 'bloqueada')) return 'bloqueada';
+  if (avaliacoes.some((a) => a.status === 'indisponivel')) return 'indisponivel';
+  return 'sem_tese';
+}
+
+/** Cabeçalho comum de uma peça na resposta (sem o arquivo): quem é, em que estado está e por quê. */
+function resumoSemArquivo(a) {
+  return {
+    tese: a.tese,
+    tese_nome: NOME_TESE[a.tese] || a.tese,
+    status: a.status,
+    template: a.template,
+    mensagem: a.mensagem,
+    bloqueios: a.bloqueios,
+    divergencias: a.divergencias,
+    avisos: a.avisos,
+  };
 }
 
 const dataBR = (d) =>
   `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+
+function creditosDoResumo(a) {
+  if (a.tese === 'prescricao_intercorrente') {
+    const ic = a.intercorrente;
+    return (ic?.cdasCobertas?.length ? ic.cdasCobertas : ['']).map((cda) => ({
+      cda,
+      periodo: '',
+      termo_inicial: ic?.dataFimSuspensao || '',
+      consumacao: ic?.dataPrazoFinal || '',
+    }));
+  }
+  return a.creditos.map((c) => ({
+    cda: c.cda,
+    periodo: c.periodo,
+    termo_inicial: c.termoInicial ? dataBR(c.termoInicial) : dataBR(c.marcoInicial),
+    consumacao: c.consumacao ? dataBR(c.consumacao) : dataBR(c.termoFinal),
+  }));
+}
+
+/** Uma linha para o usuário escolher entre as peças: o que a peça alega e sobre o quê. */
+function descreverPeca(a) {
+  if (a.tese === 'prescricao_intercorrente') {
+    const ic = a.intercorrente;
+    return `Prescrição intercorrente consumada em ${ic?.dataPrazoFinal || '—'} (ciência da não localização em ${ic?.dataIntimacao || '—'}); CDA(s): ${(ic?.cdasCobertas || []).join(', ') || '—'}.`;
+  }
+  const periodos = [...new Set(a.creditos.map((c) => c.periodo).filter(Boolean))].join(', ') || '—';
+  const cdas = [...new Set(a.creditos.map((c) => c.cda).filter(Boolean))].join(', ') || '—';
+  const parcial = a.tese === 'decadencia' && a.decadenciaParcial ? ' (parcial: há períodos ainda dentro do prazo)' : '';
+  return `${NOME_TESE[a.tese]} — período(s) ${periodos}; CDA(s) ${cdas}${parcial}.`;
+}
 
 function configuracaoThinking() {
   const nivel = (process.env.GEMINI_THINKING_LEVEL || 'high').toLowerCase();

@@ -127,17 +127,21 @@ describe('caso feliz — EPE prescrição', () => {
     const r = await chamar();
     expect(r.status).toBe(200);
     expect(r.corpo.status).toBe('ok');
-    expect(r.corpo.resumo.modelo).toMatch(/Exceção de Pré-Executividade — prescrição ordinária/);
-    expect(r.corpo.resumo.tese).toBe('Prescrição ordinária');
-    expect(r.corpo.resumo.creditos).toEqual([
+    expect(r.corpo.pecas).toHaveLength(1);
+    const peca = r.corpo.pecas[0];
+    expect(peca.tese).toBe('prescricao_ordinaria');
+    expect(peca.resumo.modelo).toMatch(/Exceção de Pré-Executividade — prescrição ordinária/);
+    expect(peca.resumo.tese).toBe('Prescrição ordinária');
+    expect(peca.resumo.descricao).toMatch(/Prescrição ordinária — período\(s\) 2018, 2019/);
+    expect(peca.resumo.creditos).toEqual([
       { cda: '12 3 45 678901-23', periodo: '2018', termo_inicial: '27/01/2020', consumacao: '27/01/2025' },
       { cda: '12 3 45 678901-23', periodo: '2019', termo_inicial: '30/06/2020', consumacao: '30/06/2025' },
     ]);
-    expect(r.corpo.resumo.aviso_fixo).toBe('Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.');
-    expect(r.corpo.resumo.figuras).toBe(7);
-    expect(r.corpo.arquivo.nome).toMatch(/^EPE_Prescricao_Maria_Exemplo_da_Silva_\d{4}-\d{2}-\d{2}\.docx$/);
+    expect(peca.resumo.aviso_fixo).toBe('Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.');
+    expect(peca.resumo.figuras).toBe(7);
+    expect(peca.arquivo.nome).toMatch(/^EPE_Prescricao_Maria_Exemplo_da_Silva_\d{4}-\d{2}-\d{2}\.docx$/);
 
-    const { texto } = await abrir(r.corpo.arquivo);
+    const { texto } = await abrir(peca.arquivo);
     expect(texto).toContain('AO JUÍZO DA 3ª VARA FEDERAL DE EXECUÇÃO FISCAL DE SALVADOR/BA.');
     expect(texto).not.toContain('+++');
 
@@ -154,21 +158,21 @@ describe('caso feliz — EPE prescrição', () => {
     cenario = cenarioPadrao({ escritorios: [] });
     const sem = await chamar();
     expect(sem.corpo.status).toBe('ok');
-    expect(sem.corpo.resumo.campos_preencher).toBeGreaterThan(com.corpo.resumo.campos_preencher);
-    expect((await abrir(sem.corpo.arquivo)).texto).toContain('[PREENCHER: nome do(a) advogado(a)]');
+    expect(sem.corpo.pecas[0].resumo.campos_preencher).toBeGreaterThan(com.corpo.pecas[0].resumo.campos_preencher);
+    expect((await abrir(sem.corpo.pecas[0].arquivo)).texto).toContain('[PREENCHER: nome do(a) advogado(a)]');
   });
 
   it('com logo válido: entra no cabeçalho; logo inválido: gera sem logo e avisa', async () => {
     cenario = cenarioPadrao({ escritorios: [{ ...escritorio, logo_path: 'user-1/logo.png' }], logo: PNG });
     const ok = await chamar();
-    const { zip } = await abrir(ok.corpo.arquivo);
+    const { zip } = await abrir(ok.corpo.pecas[0].arquivo);
     const headers = await Promise.all(['word/header1.xml', 'word/header2.xml'].map((n) => zip.file(n).async('string')));
     expect(headers.some((h) => h.includes('<w:drawing'))).toBe(true);
 
     cenario = cenarioPadrao({ escritorios: [{ ...escritorio, logo_path: 'user-1/logo.png' }], logo: Buffer.from('não é imagem de verdade, só texto qualquer') });
     const ruim = await chamar();
     expect(ruim.corpo.status).toBe('ok');
-    expect(ruim.corpo.resumo.avisos.join(' ')).toMatch(/logo/i);
+    expect(ruim.corpo.pecas[0].resumo.avisos.join(' ')).toMatch(/logo/i);
   });
 });
 
@@ -180,7 +184,7 @@ describe('bloqueios e cenários sem modelo (nada de arquivo)', () => {
     const r = await chamar();
     expect(r.status).toBe(200);
     expect(r.corpo.status).toBe('bloqueada');
-    expect(r.corpo.arquivo).toBeUndefined();
+    expect(r.corpo.pecas.every((p) => p.arquivo === undefined)).toBe(true);
     expect(r.corpo.bloqueios.join(' ')).toMatch(/parcelamento em 10\/05\/2022/);
   });
 
@@ -192,22 +196,35 @@ describe('bloqueios e cenários sem modelo (nada de arquivo)', () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('DIVERGÊNCIA motor da peça x parecer salvo'), expect.objectContaining({ analiseId: ANALISE_ID }));
   });
 
-  it('decadência sem execução ajuizada: "Modelo de peça ainda não disponível para este cenário"', async () => {
-    const dados = dadosDecadencia();
-    dados.processo_execucao = { numero: '', vara: '', comarca_secao: '', data_ajuizamento: { data: '', fonte: '' }, data_despacho_citatorio: { data: '', fonte: '' }, data_citacao: { data: '', fonte: '' } };
+  it('decadência sem execução ajuizada: gera a Revisão de Débito Fiscal (decadência)', async () => {
+    const dados = dadosDecadencia({ ajuizada: false });
     cenario = cenarioPadrao({ dadosGemini: dados, analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
     const r = await chamar();
-    expect(r.corpo.status).toBe('indisponivel');
-    expect(r.corpo.mensagem).toBe('Modelo de peça ainda não disponível para este cenário');
-    expect(r.corpo.arquivo).toBeUndefined();
+    expect(r.corpo.status).toBe('ok');
+    expect(r.corpo.pecas).toHaveLength(1);
+    expect(r.corpo.pecas[0].template).toBe('Revisao_PGFN_decadencia');
+    expect(r.corpo.pecas[0].arquivo.nome).toMatch(/^Revisao_PGFN_Decadencia_/);
+    const { texto } = await abrir(r.corpo.pecas[0].arquivo);
+    expect(texto).toContain('PEDIDO DE REVISÃO DE DÉBITO FISCAL');
+    expect(texto).not.toContain('+++');
   });
 
   it('decadência COM execução: usa a EPE de decadência', async () => {
     cenario = cenarioPadrao({ dadosGemini: dadosDecadencia(), analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
     const r = await chamar();
     expect(r.corpo.status).toBe('ok');
-    expect(r.corpo.resumo.modelo).toMatch(/decadência/);
-    expect(r.corpo.resumo.creditos[0]).toMatchObject({ termo_inicial: '01/01/2006', consumacao: '01/01/2011' });
+    expect(r.corpo.pecas[0].resumo.modelo).toMatch(/decadência/);
+    expect(r.corpo.pecas[0].resumo.creditos[0]).toMatchObject({ termo_inicial: '01/01/2006', consumacao: '01/01/2011' });
+  });
+
+  it('crédito declarado: não há peça de decadência e o aviso da Súmula 436 é mostrado', async () => {
+    const dados = dadosDecadencia({ ajuizada: false });
+    dados.inscricoes[0].periodos[0].modalidade_lancamento = 'homologacao_declarado';
+    cenario = cenarioPadrao({ dadosGemini: dados, analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('bloqueada');
+    expect(r.corpo.bloqueios.join(' ')).toMatch(/Crédito constituído por declaração do contribuinte/);
+    expect(r.corpo.pecas.every((p) => p.arquivo === undefined)).toBe(true);
   });
 
   it('saída malformada da IA (modalidade fora do enum, data inválida): bloqueia em vez de presumir', async () => {

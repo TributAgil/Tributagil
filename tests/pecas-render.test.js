@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 import { avaliarPeca, TEMPLATES } from '../api/_motor-peca.js';
-import { montarContexto, contarPreencher, nomeArquivoPeca, dataPorExtenso } from '../api/_contexto-peca.js';
-import { renderizarPeca, destacarMarcadores, acharMarcadores } from '../api/_render-peca.js';
+import { montarContexto, nomeArquivoPeca, dataPorExtenso, tratamentoProcurador } from '../api/_contexto-peca.js';
+import { renderizarPeca, destacarMarcadores, acharMarcadores, contarMarcadores } from '../api/_render-peca.js';
 import { dadosPrescricao, dadosDecadencia, escritorio, AGORA, parecerFavoravel } from './fixtures-peca.js';
 
 // PNG 1x1 válido (logo de teste)
@@ -47,8 +47,16 @@ async function expectParagrafosFixos(nomeOriginal, textoGerado, prefixos) {
   }
 }
 
+const TESE_DO_TEMPLATE = {
+  [TEMPLATES.EPE_PRESCRICAO]: 'prescricao_ordinaria',
+  [TEMPLATES.REVISAO_PGFN_PRESCRICAO]: 'prescricao_ordinaria',
+  [TEMPLATES.EPE_DECADENCIA]: 'decadencia',
+  [TEMPLATES.REVISAO_PGFN_DECADENCIA]: 'decadencia',
+  [TEMPLATES.EPE_INTERCORRENTE]: 'prescricao_intercorrente',
+};
+
 async function gerar({ dados, parecer, template, escritorioUsado = escritorio, logo = null, incluirBlocoDecretoLei = true }) {
-  const avaliacao = avaliarPeca({ dados, conclusoesParecer: parecer, agora: AGORA });
+  const avaliacao = avaliarPeca({ dados, tese: TESE_DO_TEMPLATE[template], conclusoesParecer: parecer, agora: AGORA });
   expect(avaliacao.status).toBe('ok');
   expect(avaliacao.template).toBe(template);
   const contexto = montarContexto({ dados, avaliacao, escritorio: escritorioUsado, agora: AGORA, incluirBlocoDecretoLei });
@@ -130,24 +138,45 @@ describe('contexto', () => {
   it('data por extenso e fecho com a cidade do cadastro', () => {
     expect(dataPorExtenso(AGORA)).toBe('11 de outubro de 2026');
     const dados = dadosPrescricao();
-    const av = avaliarPeca({ dados, conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
+    const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
     expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).fecho_local_data).toBe('Brumado/BA, 11 de outubro de 2026.');
   });
 
   it('sem cadastro de escritório: tudo vira [PREENCHER], nunca valor presumido', () => {
     const dados = dadosPrescricao({ executado: { nome: '', documento: '', nacionalidade: '', estado_civil: '', profissao: '', endereco: '' } });
-    const av = avaliarPeca({ dados, conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
+    const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
     const ctx = montarContexto({ dados, avaliacao: av, escritorio: {}, agora: AGORA });
     expect(ctx.advogados).toEqual([{ nome: '[PREENCHER: nome do(a) advogado(a)]', oab: '[PREENCHER: OAB/UF]' }]);
     expect(ctx.fecho_local_data).toMatch(/\[PREENCHER: cidade do escritório\]/);
-    expect(ctx.executado_qualificacao).toMatch(/\[PREENCHER: nacionalidade\].*\[PREENCHER: estado civil\].*\[PREENCHER: profissão\]/);
-    expect(contarPreencher(ctx)).toBeGreaterThan(8);
+    expect(ctx.executado_nome).toMatch(/^\[PREENCHER: nome/);
+    expect(ctx.executado_qualif_resto).toMatch(/\[PREENCHER: nacionalidade\].*\[PREENCHER: estado civil\].*\[PREENCHER: profissão\]/);
+    // sem gênero cadastrado o tratamento NÃO é presumido
+    expect(ctx.tratamento_procurador).toMatch(/^\[PREENCHER: gênero/);
+  });
+
+  it('contarMarcadores conta a partir do documento renderizado (marcador aninhado conta uma vez)', async () => {
+    const r = await gerar({ dados: dadosPrescricao(), parecer: parecerFavoravel('prescricao'), template: TEMPLATES.EPE_PRESCRICAO, escritorioUsado: {} });
+    const buffer = await renderizarPeca({ template: TEMPLATES.EPE_PRESCRICAO, contexto: r.contexto });
+    const c = await contarMarcadores(buffer);
+    expect(c.figuras).toBe(7);
+    expect(c.preencher).toBeGreaterThan(3);
+    expect(c.confirmar).toBe(0);
+  });
+
+  it('tratamento do procurador: concordância de gênero e número pelo cadastro', () => {
+    const f = { nome: 'A', oab: '1', genero: 'f' };
+    const m = { nome: 'B', oab: '2', genero: 'm' };
+    expect(tratamentoProcurador([f])).toEqual({ tratamento_procurador: 'sua advogada', subscreve_concord: 'subscreve', constituido_concord: 'constituída' });
+    expect(tratamentoProcurador([m])).toEqual({ tratamento_procurador: 'seu advogado', subscreve_concord: 'subscreve', constituido_concord: 'constituído' });
+    expect(tratamentoProcurador([f, f])).toEqual({ tratamento_procurador: 'suas advogadas', subscreve_concord: 'subscrevem', constituido_concord: 'constituídas' });
+    // plural misto vai para o masculino
+    expect(tratamentoProcurador([f, m])).toEqual({ tratamento_procurador: 'seus advogados', subscreve_concord: 'subscrevem', constituido_concord: 'constituídos' });
   });
 
   it('CNPJ é reconhecido pelos 14 dígitos', () => {
     const dados = dadosPrescricao({ executado: { nome: 'Empresa X', documento: '12.345.678/0001-90', nacionalidade: '', estado_civil: '', profissao: '', endereco: '' } });
-    const av = avaliarPeca({ dados, conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
-    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).executado_qualificacao).toMatch(/inscrito\(a\) no CNPJ sob nº 12\.345\.678\/0001-90/);
+    const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
+    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).executado_qualif_resto).toMatch(/inscrito\(a\) no CNPJ sob nº 12\.345\.678\/0001-90/);
   });
 });
 
