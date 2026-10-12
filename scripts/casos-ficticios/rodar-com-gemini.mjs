@@ -48,10 +48,22 @@ export async function executarCaso(caso, extrator, pdf) {
   return { divergencias, motorOk, obtido, templates, pecas, referencia: avaliarCaso(caso).pecas };
 }
 
+/** Lê GEMINI_API_KEY de .env.local ou .env (na raiz) se não estiver no ambiente. Esses arquivos são ignorados pelo Git. */
+function chaveDoArquivo() {
+  for (const nome of ['.env.local', '.env']) {
+    const arq = path.join(aqui, '..', '..', nome);
+    if (!fs.existsSync(arq)) continue;
+    const m = /^\s*GEMINI_API_KEY\s*=\s*["']?([^"'
+#]+?)["']?\s*$/m.exec(fs.readFileSync(arq, 'utf8'));
+    if (m && m[1]) return m[1].trim();
+  }
+  return '';
+}
+
 async function principal() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || chaveDoArquivo();
   if (!apiKey) {
-    console.error('Defina GEMINI_API_KEY (a mesma da Vercel) no ambiente antes de rodar. Ex. (PowerShell): $env:GEMINI_API_KEY="..."');
+    console.error('Defina GEMINI_API_KEY (a mesma da Vercel): no ambiente ($env:GEMINI_API_KEY="...") ou numa linha GEMINI_API_KEY=... do arquivo .env.local na raiz do projeto.');
     process.exit(2);
   }
   const casos = JSON.parse(fs.readFileSync(path.join(aqui, 'cenarios.json'), 'utf8'));
