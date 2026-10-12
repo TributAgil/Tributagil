@@ -446,6 +446,9 @@ async function extrairDados({ apiKey, partes, ctx }) {
         return JSON.parse(texto);
       }
       ultimo = resp.status;
+      // Corpo do erro do Gemini (ex.: schema recusado, modelo inexistente): sem isto o 400 é indecifrável nos logs.
+      const detalhe = await resp.text().catch(() => '');
+      console.error('[api/gerar-peca] Gemini erro', resp.status, detalhe.slice(0, 800));
       // só tenta de novo em erro transitório (limite de taxa / indisponibilidade)
       if (![429, 500, 502, 503].includes(resp.status)) break;
       await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
