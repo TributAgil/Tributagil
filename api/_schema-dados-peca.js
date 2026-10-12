@@ -52,7 +52,7 @@ export const ESQUEMA_DADOS_PECA = {
       propertyOrdering: ['esfera', 'nome'],
       required: ['esfera', 'nome'],
       properties: {
-        esfera: { type: 'STRING', enum: ['União', 'Estado', 'Município', ''], description: 'Esfera do ente credor. "" se não constar.' },
+        esfera: { type: 'STRING', enum: ['União', 'Estado', 'Município', 'não consta'], description: 'Esfera do ente credor. "não consta" se não constar.' },
         nome: { type: 'STRING', description: 'Ex.: "Fazenda Nacional", "Estado da Bahia". "" se não constar.' },
       },
     },
@@ -153,8 +153,8 @@ export const ESQUEMA_DADOS_PECA = {
                 },
                 tipo_declaracao: {
                   type: 'STRING',
-                  enum: ['DIRPF', 'DCTF', 'GIA', 'PGDAS-D', 'DEFIS', 'GFIP', 'outra', ''],
-                  description: '"" se não houve declaração ou não consta.',
+                  enum: ['DIRPF', 'DCTF', 'GIA', 'PGDAS-D', 'DEFIS', 'GFIP', 'outra', 'não consta'],
+                  description: '"não consta" se não houve declaração ou não consta.',
                 },
                 data_entrega_declaracao: DATA_COM_FONTE,
                 data_vencimento: DATA_COM_FONTE,

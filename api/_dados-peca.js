@@ -62,7 +62,8 @@ export function normalizarDadosPeca(bruto) {
         periodo: s(p?.periodo),
         // modalidade fora do enum fica "" — o motor trata como "não identificada" e bloqueia
         modalidade_lancamento: enumDe(p?.modalidade_lancamento, MODALIDADES, ''),
-        tipo_declaracao: s(p?.tipo_declaracao),
+        // o schema não aceita enum vazio (Gemini 400): "não consta" volta a ser "" aqui
+        tipo_declaracao: s(p?.tipo_declaracao) === 'não consta' ? '' : s(p?.tipo_declaracao),
         data_entrega_declaracao: dataFonte(p?.data_entrega_declaracao),
         data_vencimento: dataFonte(p?.data_vencimento),
         data_fato_gerador: dataFonte(p?.data_fato_gerador),

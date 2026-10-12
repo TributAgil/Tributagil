@@ -69,3 +69,28 @@ describe('dimensoesImagem / tamanhoLogoCm', () => {
     expect(tamanhoLogoCm({ width: 1000, height: 100 })).toEqual({ widthCm: 6, heightCm: 0.6 });
   });
 });
+
+describe('ESQUEMA_DADOS_PECA — restrições do Gemini', () => {
+  // O Gemini recusa o schema INTEIRO (HTTP 400, "enum[n]: cannot be empty") se algum enum tiver "".
+  // Esse erro só aparece com o Gemini de verdade — os testes do endpoint o simulam —, então o guarda é aqui.
+  it('nenhum enum do schema contém string vazia, e todo enum tem só strings não vazias', async () => {
+    const { ESQUEMA_DADOS_PECA } = await import('../api/_schema-dados-peca.js');
+    const achados = [];
+    (function visitar(no, caminho) {
+      if (Array.isArray(no)) return no.forEach((x, i) => visitar(x, `${caminho}[${i}]`));
+      if (!no || typeof no !== 'object') return;
+      if (Array.isArray(no.enum)) for (const v of no.enum) if (typeof v !== 'string' || v.trim() === '') achados.push(`${caminho}.enum`);
+      for (const [k, v] of Object.entries(no)) visitar(v, `${caminho}.${k}`);
+    })(ESQUEMA_DADOS_PECA, 'schema');
+    expect(achados).toEqual([]);
+  });
+
+  it('"não consta" do schema volta a ser vazio no normalizador (esfera e tipo de declaração)', () => {
+    const d = normalizarDadosPeca({
+      ente_credor: { esfera: 'não consta', nome: '' },
+      inscricoes: [{ numero_cda: 'X', periodos: [{ periodo: '2020', tipo_declaracao: 'não consta' }] }],
+    });
+    expect(d.ente_credor.esfera).toBe('');
+    expect(d.inscricoes[0].periodos[0].tipo_declaracao).toBe('');
+  });
+});
