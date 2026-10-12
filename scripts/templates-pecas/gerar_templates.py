@@ -76,6 +76,20 @@ def rpr_corpo(p):
     return 'Times New Roman', 24
 
 
+def aplicar_tratamento(p):
+    """C.4: "sua advogada que esta subscreve, constituída" -> concordância pelo cadastro do escritório
+    (sua advogada / seu advogado / suas advogadas / seus advogados; subscreve/subscrevem; constituída/o/as/os)."""
+    trocar(p, 'sua advogada', ins('tratamento_procurador'), 'tratamento do procurador')
+    trocar(p, 'subscreve', ins('subscreve_concord'), 'verbo subscrever')
+    trocar(p, 'constituída', ins('constituido_concord'), 'particípio constituída')
+
+
+def qualificacao_nome_e_resto(p, nome_modelo, nome_var, resto_var):
+    """O NOME fica no run em negrito do modelo; o RESTO da qualificação (nacionalidade… endereço) no run normal."""
+    trocar(p, nome_modelo, ins(nome_var), 'nome na qualificação')
+    exigir(trocar_entre(p, 'nacionalidade', 'endereço completo', ins(resto_var)), 'resto da qualificação')
+
+
 def assinatura(c, i_lista_ini, i_lista_fim, i_docassinado, i_generico):
     """Bloco de assinatura: laço sobre a lista de advogados + "Documento assinado digitalmente".
 
@@ -88,6 +102,7 @@ def assinatura(c, i_lista_ini, i_lista_fim, i_docassinado, i_generico):
     remover(c[i_generico])
     item = c[i_lista_ini]
     definir_texto_paragrafo(item, f'{ins("$a.nome")} | {ins("$a.oab")}')
+    tirar_cor(item)  # nos modelos os nomes estão em branco (invisíveis); aqui precisam aparecer
     for k in range(i_lista_ini + 1, i_lista_fim + 1):
         if c[k].getparent() is not None:
             remover(c[k])
@@ -197,7 +212,8 @@ def epe_prescricao(partes):
     definir_texto_paragrafo(c[0], ins('juizo'))
     trocar(c[2], 'xxxxxxx-60.2025.4.01.3300', ins('processo_numero'), 'nº da execução')
     remover_sombreado(c[2])
-    exigir(trocar_entre(c[7], 'NOME DO EXECUTADO', 'endereço completo', ins('executado_qualificacao')), 'qualificação')
+    qualificacao_nome_e_resto(c[7], 'NOME DO EXECUTADO', 'executado_nome', 'executado_qualif_resto')
+    aplicar_tratamento(c[7])
     trocar(c[7], '(Doc. 01)', f'(Doc. {ins("doc_mandato")})', 'doc do mandato')
 
     # Quadro sinóptico: o fluxograma (SmartArt) vira tabela Tese | Fundamento, 3 linhas geradas pelo código
@@ -314,6 +330,7 @@ def epe_decadencia(partes):
     definir_texto_paragrafo(c[2], ins('juizo'))
     trocar(c[5], 'xxxxxx', ins('processo_numero'), 'nº do processo')
     trocar(c[7], 'NOME DO(A) EXECUTADO(A)', ins('executado_nome'), 'nome na abertura')
+    aplicar_tratamento(c[7])
 
     # DOS FATOS (colchetes do modelo viram campos)
     remover_sombreado(c[20])
@@ -375,7 +392,8 @@ def revisao_pgfn(partes):
 
     definir_texto_paragrafo(c[1], ins('destinatario_pgfn'))
     trocar(c[3], 'xxxxxxx', ins('cdas_lista'), 'CDA no cabeçalho')
-    exigir(trocar_entre(c[7], 'NOME DO DEVEDOR', 'endereço completo', ins('devedor_qualificacao')), 'qualificação')
+    qualificacao_nome_e_resto(c[7], 'NOME DO DEVEDOR', 'devedor_nome', 'devedor_qualif_resto')
+    aplicar_tratamento(c[7])
     trocar(c[7], '(Doc. 01)', f'(Doc. {ins("doc_mandato")})', 'doc do mandato')
 
     trocar(c[14], 'NOME DO DEVEDOR', ins('devedor_nome'), 'fatos: nome')
@@ -481,3 +499,9 @@ if __name__ == '__main__':
     montar('EPE_prescricao_ordinaria', 'EPE_prescricao_ordinaria', epe_prescricao)
     montar('EPE_decadencia', 'EPE_decadencia', epe_decadencia)
     montar('Revisao_PGFN_prescricao_ordinaria', 'Revisao_PGFN_prescricao_ordinaria', revisao_pgfn)
+
+    # Modelos novos (texto jurídico integral do prompt da advogada) — ver novos_modelos.py
+    from novos_modelos import revisao_decadencia, epe_intercorrente
+
+    montar('Revisao_PGFN_prescricao_ordinaria', 'Revisao_PGFN_decadencia', revisao_decadencia)
+    montar('EPE_decadencia', 'EPE_prescricao_intercorrente', epe_intercorrente)

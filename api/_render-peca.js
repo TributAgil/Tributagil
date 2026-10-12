@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createReport } from 'docx-templates';
 import JSZip from 'jszip';
 
-export const MARCADOR_INICIO = /\[(?:PREENCHER:|INSERIR FIGURA)/g;
+export const MARCADOR_INICIO = /\[(?:PREENCHER:|INSERIR FIGURA|CONFIRMAR)/g;
 
 export function dirTemplates() {
   return path.join(process.cwd(), 'templates', 'pecas');
@@ -65,7 +65,7 @@ function comDestaque(rPr) {
 const escXml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const desescXml = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-const TEM_MARCADOR = /\[(?:PREENCHER:|INSERIR FIGURA)/;
+const TEM_MARCADOR = /\[(?:PREENCHER:|INSERIR FIGURA|CONFIRMAR)/;
 // Filhos "simples" de um run: <w:t>, <w:tab/>, <w:br/>. Qualquer outra coisa (desenho, campo...)
 // faz o run ser deixado como está — melhor não destacar do que corromper o arquivo.
 const FILHO_SIMPLES = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:t(?:\s[^>]*)?\/>|<w:(?:tab|br)(?:\s[^>]*)?\/>/g;
@@ -123,6 +123,33 @@ export function destacarMarcadores(xml) {
     }
     return saida + runDe(atual, false);
   });
+}
+
+/**
+ * Conta, no .docx JÁ RENDERIZADO, quantos trechos o advogado precisa tratar à mão. É a contagem
+ * que o resumo mostra: sai do documento final (e não do contexto), então não conta duas vezes um
+ * campo usado em dois lugares nem deixa de contar um que o template não usou.
+ * @returns {Promise<{ preencher: number, figuras: number, confirmar: number }>}
+ */
+export async function contarMarcadores(docx) {
+  const zip = await JSZip.loadAsync(docx);
+  let texto = '';
+  for (const nome of Object.keys(zip.files)) {
+    if (!/^word\/(document|header\d+|footer\d+)\.xml$/.test(nome)) continue;
+    const xml = await zip.file(nome).async('string');
+    texto += xml
+      .split('</w:p>')
+      .map((p) => [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => desescXml(m[1])).join(''))
+      .join('\n');
+  }
+  // marcadores aninhados ("[INSERIR FIGURA … [PREENCHER: x]]") contam como UM
+  const faixas = acharMarcadores(texto);
+  const tipo = (i) => texto.slice(faixas[i][0], faixas[i][0] + 12);
+  return {
+    preencher: faixas.filter((_, i) => tipo(i).startsWith('[PREENCHER')).length,
+    figuras: faixas.filter((_, i) => tipo(i).startsWith('[INSERIR FIG')).length,
+    confirmar: faixas.filter((_, i) => tipo(i).startsWith('[CONFIRMAR')).length,
+  };
 }
 
 /**

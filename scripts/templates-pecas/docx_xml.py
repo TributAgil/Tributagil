@@ -184,13 +184,56 @@ def _esc(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
-def construir_tabela(cabecalhos, larguras, celulas_linha, loop=None, fonte='Quicksand', tamanho=21):
-    """Tabela no padrão visual da quadro "Tese | Fundamento" da EPE de decadência.
+_CMD_BLOCO = re.compile(r'\+\+\+(?:IF |END-IF|FOR |END-FOR)[^+]*\+\+\+')
 
-    Bordas d1d5db, cabeçalho sombreado e5e7eb em negrito, margens de célula
-    generosas. `celulas_linha` = textos (com comandos +++INS ...+++) da linha-modelo;
-    `loop=(variavel, expressao)` cerca a linha-modelo com FOR/END-FOR (a linha
-    se repete uma vez por item). Fonte/tamanho vêm do corpo da peça.
+
+def _separar_markup(texto):
+    """'abc **negrito** ~~itálico~~ fim' -> [(texto, negrito, itálico), ...]. Comandos +++...+++ passam como texto.
+
+    Comandos de bloco (IF/END-IF/FOR/END-FOR) ficam num run SÓ DELES: o docx-templates, ao descartar o
+    trecho de um IF falso numa linha, mantém o texto que está no mesmo run do END-IF, e o que está
+    antes dele vazaria para a peça.
+    """
+    partes, negrito, italico, atual = [], False, False, ''
+    i = 0
+    while i < len(texto):
+        m = _CMD_BLOCO.match(texto, i)
+        if m:
+            if atual:
+                partes.append((atual, negrito, italico))
+                atual = ''
+            partes.append((m.group(0), negrito, italico))
+            i = m.end()
+            continue
+        if texto.startswith('**', i):
+            if atual:
+                partes.append((atual, negrito, italico))
+                atual = ''
+            negrito = not negrito
+            i += 2
+            continue
+        if texto.startswith('~~', i):
+            if atual:
+                partes.append((atual, negrito, italico))
+                atual = ''
+            italico = not italico
+            i += 2
+            continue
+        atual += texto[i]
+        i += 1
+    if atual:
+        partes.append((atual, negrito, italico))
+    return partes
+
+
+def construir_tabela(cabecalhos, larguras, celulas_linha, loop=None, fonte='Quicksand', tamanho=21, linhas_estaticas=None):
+    """Tabela no padrão visual do quadro "Tese | Fundamento" da EPE de decadência.
+
+    Bordas d1d5db, cabeçalho sombreado e5e7eb em negrito, margens de célula generosas. O texto das
+    células aceita **negrito**, ~~itálico~~ e comandos do docx-templates.
+    - Tabela com laço: `celulas_linha` = textos da linha-modelo e `loop=(variavel, expressao)` cerca a
+      linha com FOR/END-FOR (em LINHAS PRÓPRIAS, como o docx-templates exige).
+    - Tabela estática (quadro sinóptico): passe `linhas_estaticas=[[c1, c2], ...]` (celulas_linha ignorado).
     """
     borda = ''.join(
         f'<w:{lado} w:val="single" w:sz="4" w:space="0" w:color="d1d5db"/>' for lado in ('top', 'left', 'bottom', 'right')
@@ -199,32 +242,47 @@ def construir_tabela(cabecalhos, larguras, celulas_linha, loop=None, fonte='Quic
     rfonts = f'<w:rFonts w:ascii="{fonte}" w:hAnsi="{fonte}" w:cs="{fonte}"/>'
     sz = f'<w:sz w:val="{tamanho}"/><w:szCs w:val="{tamanho}"/>'
 
+    def runs(texto, cab):
+        saida = ''
+        for trecho, neg, ita in _separar_markup(texto):
+            n = '<w:b/><w:bCs/>' if (neg or cab) else ''
+            i = '<w:i/><w:iCs/>' if ita else ''
+            saida += f'<w:r><w:rPr>{rfonts}{n}{i}{sz}</w:rPr><w:t xml:space="preserve">{_esc(trecho)}</w:t></w:r>'
+        return saida or f'<w:r><w:rPr>{rfonts}{sz}</w:rPr><w:t xml:space="preserve"></w:t></w:r>'
+
     def celula(txt, largura, cab=False):
         shd = '<w:shd w:val="clear" w:color="auto" w:fill="e5e7eb"/>' if cab else ''
         jc = '<w:jc w:val="center"/>' if cab else ''
-        neg = '<w:b/><w:bCs/>' if cab else ''
         return (
             f'<w:tc><w:tcPr><w:tcW w:w="{largura}" w:type="dxa"/><w:tcBorders>{borda}</w:tcBorders>{shd}{mar}</w:tcPr>'
             f'<w:p><w:pPr><w:spacing w:before="60" w:after="60" w:line="276" w:lineRule="auto"/>{jc}</w:pPr>'
-            f'<w:r><w:rPr>{rfonts}{neg}{sz}</w:rPr><w:t xml:space="preserve">{_esc(txt)}</w:t></w:r></w:p></w:tc>'
+            f'{runs(txt, cab)}</w:p></w:tc>'
         )
+
+    def linha_de(textos):
+        return '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + ''.join(celula(t, l) for t, l in zip(textos, larguras)) + '</w:tr>'
 
     cab = '<w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>' + ''.join(celula(c, l, True) for c, l in zip(cabecalhos, larguras)) + '</w:tr>'
 
     def linha_comando(texto_cmd):
         # linha só com o comando na 1ª célula — o docx-templates a remove e repete as linhas entre FOR e END-FOR
-        textos_cmd = [texto_cmd] + [''] * (len(larguras) - 1)
-        return '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + ''.join(celula(t, l) for t, l in zip(textos_cmd, larguras)) + '</w:tr>'
+        return linha_de([texto_cmd] + [''] * (len(larguras) - 1))
 
-    linha = '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + ''.join(celula(t, l) for t, l in zip(celulas_linha, larguras)) + '</w:tr>'
-    if loop:
-        var, expr = loop
-        linha = linha_comando(f'+++FOR {var} IN {expr}+++') + linha + linha_comando(f'+++END-FOR {var}+++')
+    if linhas_estaticas is not None:
+        corpo = ''.join(linha_de(l) for l in linhas_estaticas)
+    else:
+        corpo = linha_de(celulas_linha)
+        if loop:
+            var, expr = loop
+            corpo = linha_comando(f'+++FOR {var} IN {expr}+++') + corpo + linha_comando(f'+++END-FOR {var}+++')
     grade = ''.join(f'<w:gridCol w:w="{l}"/>' for l in larguras)
+    bordas_tabela = ''.join(
+        f'<w:{l} w:val="single" w:sz="1" w:space="0" w:color="d1d5db"/>' for l in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV')
+    )
     xml = (
         f'<w:tbl xmlns:w="{W_NS}"><w:tblPr><w:tblW w:w="{sum(larguras)}" w:type="dxa"/><w:jc w:val="left"/>'
-        f'<w:tblBorders>{"".join(f"<w:{l} w:val=\"single\" w:sz=\"1\" w:space=\"0\" w:color=\"d1d5db\"/>" for l in ("top", "left", "bottom", "right", "insideH", "insideV"))}</w:tblBorders>'
-        f'<w:tblLayout w:type="fixed"/><w:tblLook w:val="0000"/></w:tblPr><w:tblGrid>{grade}</w:tblGrid>{cab}{linha}</w:tbl>'
+        f'<w:tblBorders>{bordas_tabela}</w:tblBorders>'
+        f'<w:tblLayout w:type="fixed"/><w:tblLook w:val="0000"/></w:tblPr><w:tblGrid>{grade}</w:tblGrid>{cab}{corpo}</w:tbl>'
     )
     return etree.fromstring(xml)
 
@@ -262,3 +320,80 @@ def converter_linha_em_loop(tbl, indice_linha_modelo, textos, var, expr):
             tc.remove(extra)
     modelo.addprevious(_linha_de_comando(modelo, f'+++FOR {var} IN {expr}+++'))
     modelo.addnext(_linha_de_comando(modelo, f'+++END-FOR {var}+++'))
+
+
+
+# ---------------------------------------------------------------------------
+# Parágrafos novos a partir de um parágrafo-MODELO da base (herdam pPr e fonte)
+# ---------------------------------------------------------------------------
+
+def _rpr_base(modelo):
+    """rPr do 1º run com texto do modelo, sem negrito/itálico/destaque (quem decide é a marcação)."""
+    for r in runs_com_texto(modelo):
+        rpr = r.find('w:rPr', NS)
+        if rpr is not None:
+            rpr = copy.deepcopy(rpr)
+            for tag in ('b', 'bCs', 'i', 'iCs', 'highlight', 'shd', 'noProof'):
+                for e in rpr.findall('w:' + tag, NS):
+                    rpr.remove(e)
+            return rpr
+    return etree.Element(q('rPr'))
+
+
+def _rpr_com(base, negrito, italico):
+    rpr = copy.deepcopy(base)
+    pos = 0
+    for k, filho in enumerate(rpr):
+        if filho.tag in (q('rStyle'), q('rFonts')):
+            pos = k + 1
+    extras = []
+    if negrito:
+        extras += [etree.Element(q('b')), etree.Element(q('bCs'))]
+    if italico:
+        extras += [etree.Element(q('i')), etree.Element(q('iCs'))]
+    for k, e in enumerate(extras):
+        rpr.insert(pos + k, e)
+    return rpr
+
+
+def paragrafo_de_modelo(modelo, markup):
+    """Parágrafo novo com o pPr e a fonte do `modelo`, e o texto de `markup` (**negrito**, ~~itálico~~)."""
+    novo = etree.Element(q('p'))
+    ppr = modelo.find('w:pPr', NS)
+    if ppr is not None:
+        novo.append(copy.deepcopy(ppr))
+    base = _rpr_base(modelo)
+    for trecho, neg, ita in _separar_markup(markup):
+        r = etree.SubElement(novo, q('r'))
+        r.append(_rpr_com(base, neg, ita))
+        t = etree.SubElement(r, q('t'))
+        t.text = trecho
+        t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+    return novo
+
+
+def markup_de_paragrafo(p):
+    """Texto de um parágrafo existente como markup (negrito/itálico preservados) — para copiar blocos entre modelos."""
+    saida = ''
+    for r in runs_com_texto(p):
+        rpr = r.find('w:rPr', NS)
+
+        def ligado(tag):
+            e = rpr.find('w:' + tag, NS) if rpr is not None else None
+            return e is not None and e.get(q('val')) not in ('0', 'false')
+
+        texto_r = ''.join(t.text or '' for t in r.findall('w:t', NS))
+        if not texto_r:
+            continue
+        if ligado('b'):
+            texto_r = f'**{texto_r}**'
+        if ligado('i'):
+            texto_r = f'~~{texto_r}~~'
+        saida += texto_r
+    return saida.replace('****', '').replace('~~~~', '')
+
+
+def tirar_cor(p):
+    """Remove cor de texto (ex.: branco da assinatura, que era oculto no modelo) para o texto ficar visível."""
+    for c in list(p.iter(q('color'))):
+        c.getparent().remove(c)
