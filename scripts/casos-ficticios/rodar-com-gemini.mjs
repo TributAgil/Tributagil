@@ -53,8 +53,7 @@ function chaveDoArquivo() {
   for (const nome of ['.env.local', '.env']) {
     const arq = path.join(aqui, '..', '..', nome);
     if (!fs.existsSync(arq)) continue;
-    const m = /^\s*GEMINI_API_KEY\s*=\s*["']?([^"'
-#]+?)["']?\s*$/m.exec(fs.readFileSync(arq, 'utf8'));
+    const m = /^\s*GEMINI_API_KEY\s*=\s*["']?([^"'\r\n#]+?)["']?\s*$/m.exec(fs.readFileSync(arq, 'utf8'));
     if (m && m[1]) return m[1].trim();
   }
   return '';
