@@ -29,3 +29,6 @@ dist
 # Segredos — ignora todos os .env, exceto o template
 .env*
 !.env.example
+# Python (scripts/templates-pecas)
+__pycache__/
+*.pyc
