@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import ChatLuFlutuante from '../components/ChatLuFlutuante';
+import ModalGerarPeca from '../components/ModalGerarPeca';
+import { podeGerarPeca, temConclusaoFavoravel, cenarioPrevio } from '../lib/peca';
 import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
@@ -487,6 +489,7 @@ function normalizarResultado(analise) {
 const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar }) => {
   const [abaAtiva, setAbaAtiva] = useState('conclusoes');
   const [conclusaoExpandida, setConclusaoExpandida] = useState(1);
+  const [mostrarPeca, setMostrarPeca] = useState(false);
 
   // Revela os blocos do parecer em cascata conforme entram na tela. Re-observa
   // a cada troca de aba, já que o conteúdo é remontado do zero.
@@ -497,6 +500,11 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   const analiseId = analise?.id || resultado?.id || null;
   const casoId = analise?.caso_id || null;
   const versao = analise?.versao || 1;
+
+  // "Gerar peça": só com análise salva E conclusão favorável de prescrição/decadência.
+  // Plano/perfil: um único ponto (podeGerarPeca), hoje sempre true.
+  const mostrarBotaoPeca = Boolean(analiseId) && podeGerarPeca(null) && temConclusaoFavoravel(resultado);
+  const cenarioDaPeca = cenarioPrevio(resultado);
 
   // ---- Timeline: ordena por data ---------------------------------------------
   // O rótulo da aba promete "Timeline cronológica", mas a lista era renderizada
@@ -630,8 +638,23 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
                 <span className="hidden sm:inline">Baixar em Word</span>
                 <span className="sm:hidden">Word</span>
               </button>
+              {mostrarBotaoPeca && (
+                <button
+                  onClick={() => setMostrarPeca(true)}
+                  disabled={!cenarioDaPeca.disponivel}
+                  title={cenarioDaPeca.disponivel ? 'Gerar a peça processual editável (Word) a partir desta análise' : cenarioDaPeca.motivo}
+                  className="mi-press cursor-gavel flex items-center gap-2 px-3 py-2.5 text-sm font-semibold text-gold border border-gold/40 rounded-lg hover:bg-gold/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  <Gavel size={16} />
+                  <span className="hidden sm:inline">Gerar peça (Word)</span>
+                  <span className="sm:hidden">Peça</span>
+                </button>
+              )}
             </div>
           </div>
+          {mostrarBotaoPeca && !cenarioDaPeca.disponivel && (
+            <p className="no-print mt-2 text-right text-xs text-parchment/50">{cenarioDaPeca.motivo}</p>
+          )}
         </div>
       </header>
 
@@ -852,6 +875,8 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
       </main>
 
       <ChatLuFlutuante casoId={casoId} analiseId={analiseId} user={user} />
+
+      {mostrarPeca && <ModalGerarPeca analise={{ id: analiseId }} user={user} onFechar={() => setMostrarPeca(false)} />}
 
       <div className="no-print max-w-6xl mx-auto px-4 sm:px-6 pb-12">
         <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">
