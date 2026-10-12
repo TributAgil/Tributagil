@@ -22,7 +22,7 @@ export const escritorioVazio = () => ({
   site: '',
   endereco: '',
   logo_path: null,
-  advogados: [{ nome: '', oab: '', uf: '' }],
+  advogados: [{ nome: '', oab: '', uf: '', genero: '' }],
 });
 
 /** @returns {Promise<object|null>} o cadastro, ou null se ainda não existe */
@@ -36,10 +36,25 @@ export async function lerEscritorio(userId) {
   return data || null;
 }
 
-/** Remove linhas de advogado vazias e normaliza UF; devolve só o que vira assinatura. */
+/**
+ * Gênero do advogado ('f' | 'm'): define o tratamento na peça ("sua advogada" / "seu advogado" /
+ * "suas advogadas" / "seus advogados"). Valor ausente fica vazio — o sistema nunca presume.
+ */
+export const GENEROS = [
+  { valor: 'f', rotulo: 'Advogada' },
+  { valor: 'm', rotulo: 'Advogado' },
+];
+const generoValido = (g) => (g === 'f' || g === 'm' ? g : '');
+
+/** Remove linhas de advogado vazias e normaliza UF e gênero; devolve só o que vira assinatura. */
 export function limparAdvogados(lista) {
   return (Array.isArray(lista) ? lista : [])
-    .map((a) => ({ nome: String(a?.nome || '').trim(), oab: String(a?.oab || '').trim(), uf: String(a?.uf || '').trim().toUpperCase() }))
+    .map((a) => ({
+      nome: String(a?.nome || '').trim(),
+      oab: String(a?.oab || '').trim(),
+      uf: String(a?.uf || '').trim().toUpperCase(),
+      genero: generoValido(String(a?.genero || '').trim().toLowerCase()),
+    }))
     .filter((a) => a.nome || a.oab)
     .slice(0, MAX_ADVOGADOS);
 }
@@ -54,6 +69,7 @@ export function validarEscritorio(e) {
     if (!a.nome) erros.push('Todo advogado precisa de nome.');
     if (!a.oab) erros.push(`Informe o número da OAB de ${a.nome || 'cada advogado'}.`);
     if (a.uf && !/^[A-Z]{2}$/.test(a.uf)) erros.push(`UF da OAB inválida (${a.uf}).`);
+    if (!a.genero) erros.push(`Informe se ${a.nome || 'o(a) advogado(a)'} é advogada ou advogado (define o tratamento "sua advogada"/"seu advogado" na peça).`);
   }
   return [...new Set(erros)];
 }

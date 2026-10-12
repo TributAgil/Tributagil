@@ -23,26 +23,30 @@ const preenchido = (v) => typeof v === 'string' && !AUSENTE.has(v.trim().toLower
 const favorecida = (resultado, tipo) =>
   (resultado?.conclusoes || []).some((c) => c?.tipo === tipo && c?.severidade === 'favoravel');
 
-/** O botão só aparece com conclusão FAVORÁVEL de prescrição ou decadência no parecer. */
+/** O botão só aparece com conclusão FAVORÁVEL de prescrição, decadência ou prescrição intercorrente no parecer. */
 export function temConclusaoFavoravel(resultado) {
-  return favorecida(resultado, 'prescricao') || favorecida(resultado, 'decadencia');
+  return favorecida(resultado, 'prescricao') || favorecida(resultado, 'decadencia') || favorecida(resultado, 'prescricao_intercorrente');
 }
 
 /**
- * Antes de qualquer chamada: o único caso em que já dá para saber que NÃO há modelo
- * é decadência sem execução ajuizada (a matriz completa é decidida no servidor, em
- * api/_motor-peca.js, depois da extração dos fatos).
+ * Antes de qualquer chamada: com os 5 modelos a matriz está completa, então só a
+ * prescrição INTERCORRENTE depende de execução (não existe intercorrente administrativa).
+ * A decisão final é do servidor (api/_motor-peca.js), depois da extração dos fatos.
  */
 export function cenarioPrevio(resultado) {
-  const soDecadencia = favorecida(resultado, 'decadencia') && !favorecida(resultado, 'prescricao');
+  const soIntercorrente =
+    favorecida(resultado, 'prescricao_intercorrente') && !favorecida(resultado, 'prescricao') && !favorecida(resultado, 'decadencia');
   const semExecucao = !preenchido(resultado?.metadata?.processo);
-  if (soDecadencia && semExecucao) return { disponivel: false, motivo: MSG_SEM_MODELO };
+  if (soIntercorrente && semExecucao) return { disponivel: false, motivo: 'A prescrição intercorrente só existe com execução fiscal ajuizada: não há peça para este cenário.' };
   return { disponivel: true, motivo: '' };
 }
 
 /**
- * @returns {Promise<{ok: boolean, status?: string, resumo?: object, arquivo?: object,
- *   mensagem?: string, bloqueios?: string[], divergencias?: string[], avisos?: string[], error?: string}>}
+ * @returns {Promise<{ok: boolean, status?: string, pecas?: Array<{tese: string, tese_nome: string, status: string,
+ *   template: string|null, resumo?: object, arquivo?: object, mensagem?: string, bloqueios?: string[],
+ *   divergencias?: string[], avisos?: string[]}>, mensagem?: string, bloqueios?: string[],
+ *   divergencias?: string[], avisos?: string[], error?: string}>}
+ * Uma peça por tese: o modal lista as disponíveis e o usuário escolhe qual baixar.
  */
 export async function gerarPeca({ analiseId, incluirBlocoDecretoLei = true }) {
   const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));

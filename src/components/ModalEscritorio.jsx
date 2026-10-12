@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { X, Loader2, Building2, Plus, Trash2, AlertTriangle, ImagePlus } from 'lucide-react';
-import { escritorioVazio, salvarEscritorio, enviarLogo, urlDoLogo, validarEscritorio, MAX_ADVOGADOS } from '../lib/escritorio';
+import { escritorioVazio, salvarEscritorio, enviarLogo, urlDoLogo, validarEscritorio, MAX_ADVOGADOS, GENEROS } from '../lib/escritorio';
 
 const campo =
   'w-full rounded-xl bg-ink-900/60 border border-line px-3 py-2 text-sm text-parchment placeholder:text-parchment/30 focus:outline-none focus:border-gold/50';
@@ -124,13 +124,19 @@ export default function ModalEscritorio({ user, inicial, onSalvo, onFechar }) {
           </div>
 
           <div>
-            <span className="block text-xs text-parchment/50 mb-1">Advogados (assinatura da peça)</span>
+            <span className="block text-xs text-parchment/50 mb-1">Advogados (assinatura da peça). O gênero define o tratamento no texto: &quot;sua advogada&quot;, &quot;seu advogado&quot;, &quot;suas advogadas&quot; ou &quot;seus advogados&quot;.</span>
             <div className="space-y-2">
               {e.advogados.map((a, i) => (
-                <div key={i} className="grid grid-cols-[1fr_7rem_3.5rem_auto] gap-2 items-center">
+                <div key={i} className="grid grid-cols-[1fr_6rem_3.5rem_7rem_auto] gap-2 items-center">
                   <input className={campo} placeholder="Nome completo" value={a.nome} maxLength={160} onChange={(x) => updAdv(i, { nome: x.target.value })} />
                   <input className={campo} placeholder="OAB nº" value={a.oab} maxLength={20} onChange={(x) => updAdv(i, { oab: x.target.value })} />
                   <input className={campo} placeholder="UF" value={a.uf} maxLength={2} onChange={(x) => updAdv(i, { uf: x.target.value.toUpperCase() })} />
+                  <select className={campo} value={a.genero || ''} onChange={(x) => updAdv(i, { genero: x.target.value })} aria-label="Gênero do(a) advogado(a)">
+                    <option value="">Gênero…</option>
+                    {GENEROS.map((g) => (
+                      <option key={g.valor} value={g.valor}>{g.rotulo}</option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={() => setE((x) => ({ ...x, advogados: x.advogados.filter((_, k) => k !== i) }))}
@@ -145,7 +151,7 @@ export default function ModalEscritorio({ user, inicial, onSalvo, onFechar }) {
             {e.advogados.length < MAX_ADVOGADOS && (
               <button
                 type="button"
-                onClick={() => setE((x) => ({ ...x, advogados: [...x.advogados, { nome: '', oab: '', uf: '' }] }))}
+                onClick={() => setE((x) => ({ ...x, advogados: [...x.advogados, { nome: '', oab: '', uf: '', genero: '' }] }))}
                 className="mt-2 inline-flex items-center gap-1.5 text-xs text-gold hover:underline"
               >
                 <Plus size={12} /> Adicionar advogado

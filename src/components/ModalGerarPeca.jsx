@@ -2,9 +2,10 @@
 //
 // Fluxo de "Gerar peça (Word)": (1) garante o cadastro do escritório (abre o
 // formulário na primeira vez); (2) uma chamada a /api/gerar-peca devolve
-// RESUMO + arquivo; (3) o usuário vê o resumo (modelo, CDAs/períodos, quantos
-// campos [PREENCHER], avisos e o aviso fixo de revisão) e só então baixa o .docx.
-// Peça bloqueada pelo motor ou sem modelo mostra o motivo, nunca um arquivo.
+// UMA PEÇA POR TESE (prescrição, decadência, intercorrente), cada uma com resumo +
+// arquivo; (3) o usuário vê o resumo de cada peça disponível (modelo, CDAs/períodos,
+// quantos campos [PREENCHER], avisos e o aviso fixo de revisão) e ESCOLHE qual baixar —
+// os modelos nunca são combinados. Peça bloqueada pelo motor ou sem modelo mostra o motivo.
 
 import React, { useEffect, useState } from 'react';
 import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download } from 'lucide-react';
@@ -71,6 +72,8 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
   }
 
   const r = resultado;
+  const disponiveis = (r?.pecas || []).filter((p) => p.status === 'ok');
+  const indisponiveis = (r?.pecas || []).filter((p) => p.status !== 'ok');
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fase === 'gerando' ? undefined : onFechar} />
@@ -146,49 +149,72 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
 
         {fase === 'resultado' && r?.status === 'ok' && (
           <div className="space-y-4">
-            <div className="rounded-xl bg-ink-900/60 border border-line p-4 space-y-2 text-sm">
-              <p className="text-parchment">
-                <span className="text-parchment/50">Modelo: </span>
-                {r.resumo.modelo}
-              </p>
-              <p className="text-parchment">
-                <span className="text-parchment/50">Tese: </span>
-                {r.resumo.tese}
-              </p>
-              <div>
-                <p className="text-parchment/50 text-xs mb-1">CDAs / períodos que entram na peça</p>
-                <ul className="text-xs text-parchment/80 space-y-0.5">
-                  {r.resumo.creditos.map((c, i) => (
-                    <li key={i}>
-                      {c.cda} — período {c.periodo}: {c.termo_inicial} → {c.consumacao}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <p className="text-parchment">
-                <span className="text-parchment/50">A preencher no Word: </span>
-                {r.resumo.campos_preencher} campo(s) <span className="text-parchment/40">+</span> {r.resumo.figuras} figura(s) a inserir
-                <span className="text-parchment/40"> (destacados em amarelo)</span>
-              </p>
-            </div>
-
-            <Lista itens={r.resumo.avisos} cor="text-amber-400" />
-
-            <p className="text-xs text-red-300 flex items-start gap-1.5 border border-red-500/30 bg-red-500/10 rounded-lg p-2.5">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{r.resumo.aviso_fixo}</span>
+            <p className="text-sm text-parchment/70">
+              {disponiveis.length > 1
+                ? 'Este caso comporta mais de uma peça. Escolha qual baixar — os modelos não são combinados.'
+                : 'Peça pronta para baixar.'}
             </p>
 
-            <div className="flex gap-3">
-              <button onClick={onFechar} className="flex-1 py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
-                Fechar
-              </button>
-              <button
-                onClick={() => baixarArquivo(r.arquivo)}
-                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl shadow-lg shadow-gold/20"
-              >
-                <Download size={15} /> Baixar peça (.docx)
-              </button>
-            </div>
+            {disponiveis.map((p) => (
+              <div key={p.tese} className="rounded-xl bg-ink-900/60 border border-line p-4 space-y-2 text-sm">
+                <p className="text-parchment font-semibold">{p.resumo.modelo}</p>
+                <p className="text-xs text-parchment/70">{p.resumo.descricao}</p>
+                <div>
+                  <p className="text-parchment/50 text-xs mb-1">{p.tese === 'prescricao_intercorrente' ? 'CDAs e datas' : 'CDAs / períodos que entram na peça'}</p>
+                  <ul className="text-xs text-parchment/80 space-y-0.5">
+                    {p.tese === 'prescricao_intercorrente' && p.resumo.intercorrente ? (
+                      <li>
+                        ciência da Fazenda em {p.resumo.intercorrente.data_intimacao} → fim da suspensão em {p.resumo.intercorrente.data_fim_suspensao} →
+                        prescrição em {p.resumo.intercorrente.data_prazo_final}
+                      </li>
+                    ) : (
+                      p.resumo.creditos.map((c, i) => (
+                        <li key={i}>
+                          {c.cda} — período {c.periodo}: {c.termo_inicial} → {c.consumacao}
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+                <p className="text-parchment">
+                  <span className="text-parchment/50">A preencher no Word: </span>
+                  {p.resumo.campos_preencher} campo(s) <span className="text-parchment/40">+</span> {p.resumo.figuras} figura(s) a inserir
+                  {p.resumo.a_confirmar > 0 && (
+                    <>
+                      {' '}<span className="text-parchment/40">+</span> {p.resumo.a_confirmar} trecho(s) a confirmar
+                    </>
+                  )}
+                  <span className="text-parchment/40"> (destacados em amarelo)</span>
+                </p>
+                <Lista itens={p.resumo.avisos} cor="text-amber-400" />
+                <button
+                  onClick={() => baixarArquivo(p.arquivo)}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl shadow-lg shadow-gold/20"
+                >
+                  <Download size={15} /> Baixar {p.resumo.tese.toLowerCase()} (.docx)
+                </button>
+              </div>
+            ))}
+
+            {indisponiveis.length > 0 && (
+              <div className="rounded-xl border border-line p-3 space-y-2">
+                <p className="text-xs text-parchment/50">Outras teses do caso, sem peça disponível agora:</p>
+                {indisponiveis.map((p) => (
+                  <div key={p.tese} className="text-xs">
+                    <p className="text-amber-400">{p.tese_nome}: {p.mensagem}</p>
+                    <Lista itens={[...p.bloqueios, ...p.divergencias]} cor="text-parchment/70" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-xs text-red-300 flex items-start gap-1.5 border border-red-500/30 bg-red-500/10 rounded-lg p-2.5">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{disponiveis[0].resumo.aviso_fixo}</span>
+            </p>
+
+            <button onClick={onFechar} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
+              Fechar
+            </button>
           </div>
         )}
 
@@ -198,20 +224,26 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>{r?.mensagem || 'A peça não pode ser gerada automaticamente.'}</span>
             </p>
-            {r?.bloqueios?.length > 0 && (
-              <div>
-                <p className="text-xs text-parchment/50 mb-1">Motivos</p>
-                <Lista itens={r.bloqueios} cor="text-parchment/80" />
+            {(r?.pecas || []).map((p) => (
+              <div key={p.tese} className="rounded-xl border border-line p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-parchment/80">{p.tese_nome}</p>
+                <p className="text-xs text-parchment/60">{p.mensagem}</p>
+                {p.bloqueios?.length > 0 && (
+                  <>
+                    <p className="text-xs text-parchment/50">Motivos</p>
+                    <Lista itens={p.bloqueios} cor="text-parchment/80" />
+                  </>
+                )}
+                {p.divergencias?.length > 0 && (
+                  <>
+                    <p className="text-xs text-parchment/50">Divergência com o parecer</p>
+                    <Lista itens={p.divergencias} cor="text-parchment/80" />
+                  </>
+                )}
+                <Lista itens={p.avisos} cor="text-parchment/50" />
               </div>
-            )}
-            {r?.divergencias?.length > 0 && (
-              <div>
-                <p className="text-xs text-parchment/50 mb-1">Divergência com o parecer</p>
-                <Lista itens={r.divergencias} cor="text-parchment/80" />
-              </div>
-            )}
+            ))}
             {r?.status === 'bloqueada' && <p className="text-xs text-parchment/50">Este caso exige análise manual do advogado responsável.</p>}
-            <Lista itens={r?.avisos} cor="text-parchment/50" />
             <button onClick={onFechar} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
               Fechar
             </button>
