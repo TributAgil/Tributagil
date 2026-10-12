@@ -33,7 +33,7 @@
 // role. Runtime: Node.
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
-import { ESQUEMA_DADOS_PECA, PROMPT_DADOS_PECA } from './_schema-dados-peca.js';
+import { extrairDados } from './_extracao-peca.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
 import { avaliarPecas } from './_motor-peca.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
@@ -43,7 +43,6 @@ import { creditosParaGerarPeca } from './_politica-peca.js';
 import { agruparBloqueios, orientacaoBloqueios, resumoCurtoPeca } from './_bloqueios-peca.js';
 import { mesclarPerfis, perfilDoEscritorio, perfilDoCaso, aplicarClienteAoExecutado, perfilEfetivo } from './_perfil-peca.js';
 
-const GEMINI = 'https://generativelanguage.googleapis.com';
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
@@ -54,11 +53,9 @@ const BUCKET_LOGOS = 'logos';
 const MAX_BYTES_TOTAL = 12 * 1024 * 1024; // mesmo teto de api/gemini.js
 const MAX_BYTES_LOGO = 1024 * 1024;
 const MAX_DOCS = 20;
-const TIMEOUT_EXTRACAO_MS = 200_000;
 const RL_LIMITE = 6;
 const RL_JANELA_MS = 60_000;
 
-const MODELO_PADRAO = 'gemini-3.5-flash'; // GEMINI_MODEL
 
 export const AVISO_FIXO = 'Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.';
 
@@ -417,55 +414,6 @@ function descreverPeca(a) {
   const cdas = [...new Set(a.creditos.map((c) => c.cda).filter(Boolean))].join(', ') || '—';
   const parcial = a.tese === 'decadencia' && a.decadenciaParcial ? ' (parcial: há períodos ainda dentro do prazo)' : '';
   return `${NOME_TESE[a.tese]} — período(s) ${periodos}; CDA(s) ${cdas}${parcial}.`;
-}
-
-function configuracaoThinking() {
-  const nivel = (process.env.GEMINI_THINKING_LEVEL || 'high').toLowerCase();
-  const orcamento = Number.parseInt(process.env.GEMINI_THINKING_BUDGET ?? '', 10);
-  if (['off', 'none', 'disabled', 'false'].includes(nivel)) return undefined;
-  if (nivel === 'budget' && Number.isFinite(orcamento)) return orcamento > 0 ? { thinkingBudget: orcamento } : undefined;
-  return { thinkingLevel: nivel };
-}
-
-async function extrairDados({ apiKey, partes, ctx }) {
-  const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
-  const thinking = configuracaoThinking();
-  const corpo = JSON.stringify({
-    systemInstruction: { parts: [{ text: PROMPT_DADOS_PECA }] },
-    contents: [{ role: 'user', parts: [{ text: 'Extraia os dados dos documentos anexados abaixo.' }, ...partes] }],
-    generationConfig: {
-      temperature: 0, // fatos não podem variar entre execuções do mesmo processo
-      responseMimeType: 'application/json',
-      responseSchema: ESQUEMA_DADOS_PECA,
-      ...(thinking ? { thinkingConfig: thinking } : {}),
-    },
-  });
-  const url = `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_EXTRACAO_MS);
-  try {
-    let ultimo;
-    for (let tentativa = 0; tentativa < 3; tentativa++) {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo, signal: controller.signal });
-      if (resp.ok) {
-        const json = await resp.json();
-        ctx.tokens = json?.usageMetadata?.totalTokenCount ?? null;
-        const texto = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-        return JSON.parse(texto);
-      }
-      ultimo = resp.status;
-      // Corpo do erro do Gemini (ex.: schema recusado, modelo inexistente): sem isto o 400 é indecifrável nos logs.
-      const detalhe = await resp.text().catch(() => '');
-      console.error('[api/gerar-peca] Gemini erro', resp.status, detalhe.slice(0, 800));
-      // só tenta de novo em erro transitório (limite de taxa / indisponibilidade)
-      if (![429, 500, 502, 503].includes(resp.status)) break;
-      await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
-    }
-    throw new Error(`Gemini respondeu HTTP ${ultimo}`);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function json(data, status, extraHeaders = {}) {

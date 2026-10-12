@@ -35,3 +35,23 @@ python scripts/casos-ficticios/cenarios.py          # cenarios.json
 python scripts/casos-ficticios/gerar_pdfs.py        # PDFs
 node scripts/casos-ficticios/gerar-gabarito.mjs     # GABARITO.md
 ```
+
+## Teste automático de ponta a ponta (3 camadas)
+
+| Camada | O que confere | Precisa de chave? | Onde roda |
+|---|---|---|---|
+| 1. Motor | os 34 casos chegam ao resultado do gabarito (gera, bloqueia ou nenhuma peça) | não | `yarn test:pecas` |
+| 2. Word | o `.docx` de cada peça possível sai sem marcador sobrando, com as datas, CDAs, pedidos (CADIN, protesto, retificação) e `[CONFIRMAR]` certos | não | `yarn test:pecas` |
+| 3. Gemini de verdade | a IA lê os PDFs e acerta os fatos (datas, pagamento, dolo...) e o motor, com o que foi lido, chega ao gabarito | **sim** (`GEMINI_API_KEY`) | script abaixo |
+
+Camada 3, na raiz do projeto (PowerShell):
+
+```powershell
+$env:GEMINI_API_KEY="sua-chave"
+node scripts/casos-ficticios/rodar-com-gemini.mjs          # os 34
+node scripts/casos-ficticios/rodar-com-gemini.mjs P01 D05   # só alguns
+```
+
+Grava `RESULTADO-GEMINI.md` aqui na pasta, com o que a IA leu diferente do documento (omitiu, inventou ou leu
+errado) e se o resultado do motor mudou por causa disso. Usa o mesmo código de extração de produção
+(`api/_extracao-peca.js`). Gasta uma chamada por caso, com PDFs pequenos.
