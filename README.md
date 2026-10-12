@@ -1221,6 +1221,29 @@ create policy "logos: exclusão própria" on storage.objects for delete to authe
 Sem esse SQL a peça ainda é gerada (cadastro ausente vira `[PREENCHER]`), mas a tela de cadastro do escritório
 não consegue salvar.
 
+### Perfil da peça: últimos dados utilizados
+
+Ao gerar uma peça, o modal mostra **Nº do Doc. do mandato** e (opcional) **dados do cliente**, já preenchidos com o que foi
+usado da última vez. O que entra na peça é gravado de volta: o Doc. do mandato no **escritório** (vale para todas as peças dele)
+e a qualificação do cliente no **caso** (vale para todas as peças do mesmo caso). Precedência: o que você digitou agora > o salvo >
+o que a IA leu dos documentos > `[PREENCHER]`; campo em branco **nunca apaga** um dado salvo. A regra está em `api/_perfil-peca.js`
+(com testes); o servidor também usa o salvo quando o formulário vem vazio. Gravação e leitura são "best-effort": se falharem, a
+peça sai normalmente.
+
+**SQL para rodar no SQL Editor do Supabase** (sem ele a peça funciona, só não "lembra"):
+
+```sql
+alter table public.escritorios add column if not exists perfil_peca jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(perfil_peca) = 'object');
+
+alter table public.casos add column if not exists dados_peca jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(dados_peca) = 'object');
+
+-- casos só tinha SELECT e INSERT: o usuário precisa poder atualizar o PRÓPRIO caso (dados_peca)
+create policy "casos: atualização própria" on public.casos for update
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+```
+
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 
 Este repositório **não deve ser instalado com `npm`/`yarn install` fora de uma máquina com o yarn de sempre**:

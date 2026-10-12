@@ -158,7 +158,7 @@ const LETRAS = 'abcdefghij';
  * @param {Date}   [args.agora]
  * @param {boolean}[args.incluirBlocoDecretoLei]  liga/desliga o bloco Decreto 20.910/32 + Lei 9.873/99
  */
-export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new Date(), incluirBlocoDecretoLei = true }) {
+export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new Date(), incluirBlocoDecretoLei = true, perfil = {} }) {
   const processo = dados?.processo_execucao || {};
   const executado = dados?.executado || {};
   const tese = avaliacao?.tese;
@@ -191,7 +191,8 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     devedor_nome: dev.nome,
     devedor_qualif_resto: dev.resto,
     ...tratamentoProcurador(escritorio?.advogados),
-    doc_mandato: preencher('nº do Doc. – mandato'),
+    // nº do Doc. do mandato: o último informado pelo escritório (api/_perfil-peca.js); sem ele, fica para preencher
+    doc_mandato: String(perfil?.doc_mandato || '').trim() || preencher('nº do Doc. – mandato'),
     fecho_local_data: `${cidade || preencher('cidade do escritório')}, ${dataPorExtenso(agora)}.`,
     data_geracao: formatarDataBR(new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()))),
     advogados,

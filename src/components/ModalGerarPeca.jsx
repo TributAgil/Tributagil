@@ -11,6 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download } from 'lucide-react';
 import { lerEscritorio } from '../lib/escritorio';
 import { gerarPeca, baixarArquivo } from '../lib/peca';
+import { lerPerfilPeca, salvarPerfilPeca, perfilPecaVazio, CAMPOS_CLIENTE } from '../lib/perfilPeca';
 import ModalEscritorio from './ModalEscritorio';
 
 const Lista = ({ itens, cor }) =>
@@ -30,6 +31,8 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
   const [incluirBloco, setIncluirBloco] = useState(true);
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState('');
+  // últimos dados usados (Doc. do mandato + qualificação do cliente), editáveis antes de gerar
+  const [perfil, setPerfil] = useState(perfilPecaVazio);
 
   useEffect(() => {
     let vivo = true;
@@ -38,15 +41,16 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
       setEscritorio(e);
       setFase(e ? 'pronto' : 'cadastro'); // primeira vez, sem cadastro: abre o formulário
     });
+    lerPerfilPeca({ userId: user?.id, analiseId: analise?.id }).then((p) => vivo && setPerfil(p));
     return () => {
       vivo = false;
     };
-  }, [user?.id]);
+  }, [user?.id, analise?.id]);
 
   const gerar = async () => {
     setFase('gerando');
     setErro('');
-    const r = await gerarPeca({ analiseId: analise.id, incluirBlocoDecretoLei: incluirBloco });
+    const r = await gerarPeca({ analiseId: analise.id, incluirBlocoDecretoLei: incluirBloco, dadosPeca: perfil });
     if (!r.ok) {
       setErro(r.error);
       setFase('erro');
@@ -54,6 +58,12 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
     }
     setResultado(r);
     setFase('resultado');
+    // os dados que entraram na peça viram os "últimos utilizados" (próxima peça já vem preenchida)
+    if (r.status === 'ok' && r.dados_peca_usados) {
+      salvarPerfilPeca({ userId: user?.id, analiseId: analise.id, usados: r.dados_peca_usados }).then((ok) => {
+        if (ok) setPerfil(r.dados_peca_usados);
+      });
+    }
   };
 
   if (fase === 'cadastro' || editando) {
@@ -109,6 +119,35 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               <input type="checkbox" className="mt-0.5" checked={incluirBloco} onChange={(ev) => setIncluirBloco(ev.target.checked)} />
               <span>Incluir a citação do Decreto 20.910/32 e da Lei 9.873/99 na parte de prescrição (pendente de revisão jurídica — ver observações do modelo).</span>
             </label>
+            <div className="rounded-xl bg-ink-900/60 border border-line p-3 space-y-2">
+              <p className="text-xs text-parchment/50">Dados desta peça — lembrados da última vez; o que você alterar vale para as próximas.</p>
+              <label className="block">
+                <span className="block text-xs text-parchment/50 mb-1">Nº do Doc. do mandato</span>
+                <input
+                  className="w-full rounded-xl bg-ink-900/60 border border-line px-3 py-2 text-sm text-parchment focus:outline-none focus:border-gold/50"
+                  value={perfil.doc_mandato}
+                  maxLength={30}
+                  placeholder="ex.: 01"
+                  onChange={(ev) => setPerfil((p) => ({ ...p, doc_mandato: ev.target.value }))}
+                />
+              </label>
+              <details>
+                <summary className="text-xs text-gold cursor-pointer">Dados do cliente (opcional — em branco usa o que for lido dos documentos)</summary>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {CAMPOS_CLIENTE.map((c) => (
+                    <label key={c.chave} className={c.chave === 'endereco' || c.chave === 'nome' ? 'col-span-2 block' : 'block'}>
+                      <span className="block text-xs text-parchment/50 mb-1">{c.rotulo}</span>
+                      <input
+                        className="w-full rounded-xl bg-ink-900/60 border border-line px-3 py-2 text-sm text-parchment focus:outline-none focus:border-gold/50"
+                        value={perfil.cliente[c.chave]}
+                        maxLength={c.maxLength}
+                        onChange={(ev) => setPerfil((p) => ({ ...p, cliente: { ...p.cliente, [c.chave]: ev.target.value } }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </details>
+            </div>
             <button onClick={() => setEditando(true)} className="inline-flex items-center gap-1.5 text-xs text-gold hover:underline">
               <Building2 size={12} /> Editar dados do escritório
             </button>

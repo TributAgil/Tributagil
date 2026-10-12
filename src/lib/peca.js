@@ -48,7 +48,7 @@ export function cenarioPrevio(resultado) {
  *   divergencias?: string[], avisos?: string[], error?: string}>}
  * Uma peça por tese: o modal lista as disponíveis e o usuário escolhe qual baixar.
  */
-export async function gerarPeca({ analiseId, incluirBlocoDecretoLei = true }) {
+export async function gerarPeca({ analiseId, incluirBlocoDecretoLei = true, dadosPeca = null }) {
   const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
   const token = sess?.session?.access_token;
   if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
@@ -57,7 +57,7 @@ export async function gerarPeca({ analiseId, incluirBlocoDecretoLei = true }) {
     const resposta = await fetch('/api/gerar-peca', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ analise_id: analiseId, incluir_bloco_decreto_lei: incluirBlocoDecretoLei }),
+      body: JSON.stringify({ analise_id: analiseId, incluir_bloco_decreto_lei: incluirBlocoDecretoLei, dados_peca: dadosPeca }),
     });
     const dados = await resposta.json().catch(() => ({}));
     if (!resposta.ok) return { ok: false, error: dados.error || 'Não foi possível gerar a peça agora.' };

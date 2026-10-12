@@ -40,6 +40,7 @@ import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
 import { renderizarPeca, contarMarcadores } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
 import { creditosParaGerarPeca } from './_politica-peca.js';
+import { mesclarPerfis, perfilDoEscritorio, perfilDoCaso, aplicarClienteAoExecutado, perfilEfetivo } from './_perfil-peca.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -176,6 +177,23 @@ async function processar(request, ctx) {
     console.warn('[api/gerar-peca] Cadastro do escritório indisponível (segue sem ele):', err?.message);
   }
 
+  // ---- Dados do caso salvos antes (qualificação do cliente; ausente => segue sem eles) ----
+  ctx.fase = 'leitura_caso';
+  let dadosCaso = {};
+  if (analise.caso_id && UUID_RE.test(String(analise.caso_id))) {
+    try {
+      const resp = await fetch(
+        `${supabaseUrl}/rest/v1/casos?id=eq.${encodeURIComponent(analise.caso_id)}&select=dados_peca&limit=1`,
+        { headers: cabecalhosRls },
+      );
+      if (resp.ok) dadosCaso = (await resp.json())?.[0]?.dados_peca || {};
+    } catch (err) {
+      console.warn('[api/gerar-peca] Dados salvos do caso indisponíveis (segue sem eles):', err?.message);
+    }
+  }
+  // Precedência: escritório < caso < o que o usuário digitou agora (campo vazio nunca apaga dado conhecido).
+  const perfil = mesclarPerfis(perfilDoEscritorio(escritorio.perfil_peca), perfilDoCaso(dadosCaso), body?.dados_peca);
+
   // ---- Documentos do Storage (RLS) ---------------------------------------------
   ctx.fase = 'download_storage';
   const partes = [];
@@ -208,6 +226,8 @@ async function processar(request, ctx) {
   try {
     const bruto = await extrairDados({ apiKey, partes, ctx });
     dados = normalizarDadosPeca(bruto);
+    // o que o usuário informou/guardou vence o que a IA leu (mesma regra para toda a qualificação do cliente)
+    dados.executado = aplicarClienteAoExecutado(dados.executado, perfil.cliente);
   } catch (err) {
     const abortado = err?.name === 'AbortError';
     console.error('[api/gerar-peca] Falha na extração:', err);
@@ -289,6 +309,7 @@ async function processar(request, ctx) {
       escritorio: dadosEscritorio,
       agora,
       incluirBlocoDecretoLei: body?.incluir_bloco_decreto_lei !== false,
+      perfil,
     });
     let docx;
     try {
@@ -328,7 +349,8 @@ async function processar(request, ctx) {
     });
   }
 
-  return json({ status: 'ok', pecas }, 200);
+  // Os "últimos dados utilizados": o app grava isto no perfil do escritório e no caso, para as próximas peças.
+  return json({ status: 'ok', pecas, dados_peca_usados: perfilEfetivo({ perfil, executado: dados.executado }) }, 200);
 }
 
 const MSG_NENHUMA_TESE = 'Os documentos não indicam prescrição, decadência ou prescrição intercorrente consumada.';

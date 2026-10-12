@@ -17,7 +17,7 @@ let cenario;
 
 const analisePadrao = () => ({
   id: ANALISE_ID,
-  caso_id: 'caso-1',
+  caso_id: '99999999-2222-3333-4444-555555555555',
   payload: { documentos: [{ nome: 'cda.pdf', mime_type: 'application/pdf', storage_path: 'user-1/caso-1/cda.pdf' }] },
   resultado: { conclusoes: [{ tipo: 'prescricao', severidade: 'favoravel', confianca: 90 }] },
 });
@@ -27,6 +27,7 @@ function cenarioPadrao(extra = {}) {
     authOk: true,
     analises: [analisePadrao()],
     escritorios: [{ ...escritorio, logo_path: null }],
+    casos: [{ dados_peca: {} }],
     dadosGemini: dadosPrescricao(),
     storageStatus: 200,
     geminiStatus: 200,
@@ -55,6 +56,7 @@ beforeEach(() => {
     if (u.endsWith('/auth/v1/user')) return cenario.authOk ? resp({ id: 'user-1' }) : resp({}, 401);
     if (u.includes('/rest/v1/analises?')) return resp(cenario.analises);
     if (u.includes('/rest/v1/escritorios')) return resp(cenario.escritorios);
+    if (u.includes('/rest/v1/casos?')) return resp(cenario.casos);
     if (u.includes('/storage/v1/object/logos/')) return cenario.logo ? resp(cenario.logo, 200) : resp('', 404);
     if (u.includes('/storage/v1/object/documentos/')) return cenario.storageStatus === 200 ? resp(Buffer.from('%PDF-1.4 teste'), 200, { 'content-type': 'application/pdf' }) : resp('', cenario.storageStatus);
     if (u.includes('generativelanguage.googleapis.com')) {
@@ -173,6 +175,61 @@ describe('caso feliz — EPE prescrição', () => {
     const ruim = await chamar();
     expect(ruim.corpo.status).toBe('ok');
     expect(ruim.corpo.pecas[0].resumo.avisos.join(' ')).toMatch(/logo/i);
+  });
+});
+
+describe('perfil: últimos dados utilizados (Doc. do mandato e qualificação do cliente)', () => {
+  const textoDe = async (r) => (await abrir(r.corpo.pecas[0].arquivo)).texto;
+
+  it('sem nada informado nem salvo: o Doc. do mandato fica [PREENCHER] e a resposta devolve o perfil efetivo', async () => {
+    const r = await chamar();
+    expect(await textoDe(r)).toContain('(Doc. [PREENCHER: nº do Doc. – mandato])');
+    expect(r.corpo.dados_peca_usados.doc_mandato).toBe('');
+    expect(r.corpo.dados_peca_usados.cliente.nome).toBe('Maria Exemplo da Silva');
+  });
+
+  it('o que o usuário digitou agora entra na peça e volta em dados_peca_usados (para o app gravar)', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: '04', cliente: { estado_civil: 'casada' } } });
+    const texto = await textoDe(r);
+    expect(texto).toContain('(Doc. 04)');
+    expect(texto).not.toContain('[PREENCHER: nº do Doc. – mandato]');
+    expect(texto).toContain('brasileira, casada');
+    expect(r.corpo.dados_peca_usados).toMatchObject({ doc_mandato: '04', cliente: { estado_civil: 'casada', nacionalidade: 'brasileira' } });
+  });
+
+  it('o perfil SALVO (escritório + caso) é usado quando o corpo não traz nada — sai em todas as peças seguintes', async () => {
+    cenario = cenarioPadrao({
+      escritorios: [{ ...escritorio, logo_path: null, perfil_peca: { doc_mandato: '09' } }],
+      casos: [{ dados_peca: { cliente: { profissao: 'professora' } } }],
+    });
+    const texto = await textoDe(await chamar());
+    expect(texto).toContain('(Doc. 09)');
+    expect(texto).toContain('professora');
+    expect(texto).not.toContain('servidora pública');
+  });
+
+  it('o digitado agora vence o salvo; campo em branco no formulário NÃO apaga o salvo', async () => {
+    cenario = cenarioPadrao({
+      escritorios: [{ ...escritorio, logo_path: null, perfil_peca: { doc_mandato: '09' } }],
+      casos: [{ dados_peca: { cliente: { profissao: 'professora' } } }],
+    });
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: '11', cliente: { profissao: '' } } });
+    const texto = await textoDe(r);
+    expect(texto).toContain('(Doc. 11)');
+    expect(texto).toContain('professora');
+  });
+
+  it('entrada maliciosa/lixo no dados_peca é neutralizada (sem erro e sem campo desconhecido)', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: 5, cliente: { nome: ['x'], __proto__: { hack: 1 }, extra: 'x' }, outro: 1 } });
+    expect(r.status).toBe(200);
+    expect(r.corpo.dados_peca_usados.cliente.extra).toBeUndefined();
+    expect(r.corpo.dados_peca_usados.doc_mandato).toBe('');
+  });
+
+  it('leitura do caso falhando não derruba a geração', async () => {
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url, o) => (String(url).includes('/rest/v1/casos?') ? resp({}, 500) : base(url, o)));
+    expect((await chamar()).corpo.status).toBe('ok');
   });
 });
 
