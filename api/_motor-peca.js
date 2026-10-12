@@ -8,17 +8,34 @@
 // texto livre do modelo. Puro: sem I/O, sem relógio implícito (a data atual
 // entra por parâmetro) — por isso é testável sem rede nem banco.
 //
+// UMA AVALIAÇÃO POR TESE (prescrição ordinária, decadência, prescrição
+// intercorrente), cada uma com o seu status, bloqueios e modelo: um caso pode
+// ter mais de uma peça disponível (ex.: decadência de alguns períodos e
+// prescrição intercorrente da execução) e quem escolhe qual gerar é o usuário —
+// os modelos NÃO são fundidos. Ver avaliarPecas().
+//
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
+
+import { calcularPrescricaoIntercorrente } from './_motor-prazos.js';
 
 export const PRAZO_ANOS = 5;
 
 export const TEMPLATES = {
   EPE_PRESCRICAO: 'EPE_prescricao_ordinaria',
   EPE_DECADENCIA: 'EPE_decadencia',
+  EPE_INTERCORRENTE: 'EPE_prescricao_intercorrente',
   REVISAO_PGFN_PRESCRICAO: 'Revisao_PGFN_prescricao_ordinaria',
+  REVISAO_PGFN_DECADENCIA: 'Revisao_PGFN_decadencia',
 };
 
+export const TESES = ['prescricao_ordinaria', 'decadencia', 'prescricao_intercorrente'];
+
 export const MSG_SEM_MODELO = 'Modelo de peça ainda não disponível para este cenário';
+export const MSG_BLOQUEADA = 'A peça não pode ser gerada automaticamente.';
+export const AVISO_CREDITO_DECLARADO =
+  'Crédito constituído por declaração do contribuinte: a tese de decadência não se aplica ao valor declarado.';
+export const MSG_VENCIMENTO_NAO_IDENTIFICADO =
+  'Vencimento não identificado: necessário para contar a decadência pelo art. 173, I';
 
 // ---------------------------------------------------------------------------
 // Datas — parse estrito DD/MM/AAAA em UTC (mesma convenção de _motor-prazos.js:
@@ -52,6 +69,12 @@ export function somarAnos(data, anos) {
 const dataStr = (v) => (typeof v === 'string' ? v : typeof v?.data === 'string' ? v.data : '');
 const fonteStr = (v) => (v && typeof v === 'object' && typeof v.fonte === 'string' ? v.fonte : '');
 const preenchido = (v) => dataStr(v).trim() !== '';
+const tresEstados = (v) => {
+  const x = String(v ?? '').trim().toLowerCase();
+  if (x === 'sim') return 'sim';
+  if (x === 'não' || x === 'nao') return 'não';
+  return 'não consta';
+};
 
 // ---------------------------------------------------------------------------
 // Cálculos por período
@@ -84,41 +107,57 @@ export function calcularPrescricaoOrdinaria({ vencimento, entrega }) {
 }
 
 /**
- * Decadência. Regra pelo pagamento antecipado:
- *  - sim (e sem indício de dolo/fraude/simulação): art. 150 §4º → fato gerador + 5 anos;
- *  - não, ou com dolo/fraude/simulação: art. 173, I → 1º de janeiro do exercício
- *    seguinte ao do fato gerador + 5 anos.
- * "Não consta" em qualquer dos dois campos decisivos NÃO é presumido: devolve
- * indeterminado e o chamador bloqueia a peça.
+ * Decadência (CTN). A regra depende do pagamento antecipado e da imputação de dolo:
+ *  - com pagamento antecipado e SEM imputação de dolo/fraude/simulação: art. 150 §4º →
+ *    marco = fato gerador; termo final = fato gerador + 5 anos;
+ *  - sem pagamento antecipado, OU com dolo/fraude/simulação imputado (mesmo havendo
+ *    pagamento): art. 173, I → marco = 1º de janeiro do ano seguinte ao do VENCIMENTO
+ *    (é quando o lançamento "poderia ter sido efetuado"); termo final = marco + 5 anos.
+ *    Contar do fato gerador antecipa o marco e poderia afirmar decadência antes da hora;
+ *    contar do vencimento é a leitura conservadora (ver REVISAO_JURIDICA.md).
+ *    Sem vencimento COM FONTE, não se calcula: devolve indeterminado.
+ * "Não consta" em pagamento antecipado NÃO é presumido (indeterminado) — exceto quando o
+ * dolo imputado já força o art. 173, I. "Não consta" em dolo só sinaliza `confirmarDolo`.
+ *
+ * @param {{ fatoGerador: any, vencimento: any, houvePagamentoAntecipado: string, imputacaoDolo: string }} a
  */
-export function calcularDecadencia({ fatoGerador, houvePagamentoAntecipado, indicioDolo }) {
+export function calcularDecadencia({ fatoGerador, vencimento, houvePagamentoAntecipado, imputacaoDolo }) {
   const fg = parseDataBR(dataStr(fatoGerador));
   if (!fg) {
     return { ok: false, motivo: preenchido(fatoGerador) ? 'data do fato gerador inválida' : 'data do fato gerador' };
   }
-  const pagamento = String(houvePagamentoAntecipado || '').toLowerCase();
-  const dolo = String(indicioDolo || 'não').toLowerCase();
-  if (pagamento !== 'sim' && pagamento !== 'não' && pagamento !== 'nao') {
-    return { ok: false, motivo: 'confirmação de pagamento antecipado (consta como "não consta")' };
-  }
-  if (dolo === 'não consta' || dolo === 'nao consta') {
-    return { ok: false, motivo: 'confirmação sobre indício de dolo, fraude ou simulação (consta como "não consta")' };
-  }
+  const pagamento = tresEstados(houvePagamentoAntecipado);
+  const dolo = tresEstados(imputacaoDolo);
 
-  const aplicaArt150 = pagamento === 'sim' && dolo !== 'sim';
-  const marcoInicial = aplicaArt150
-    ? fg
-    : new Date(Date.UTC(fg.getUTCFullYear() + 1, 0, 1));
+  let regra;
+  if (dolo === 'sim') regra = 'art_173_I';
+  else if (pagamento === 'sim') regra = 'art_150_par_4';
+  else if (pagamento === 'não') regra = 'art_173_I';
+  else return { ok: false, motivo: 'confirmação de pagamento antecipado (consta como "não consta")' };
+
+  let marcoInicial;
+  if (regra === 'art_150_par_4') {
+    marcoInicial = fg;
+  } else {
+    const venc = parseDataBR(dataStr(vencimento));
+    if (!venc || fonteStr(vencimento).trim() === '') {
+      return { ok: false, motivo: MSG_VENCIMENTO_NAO_IDENTIFICADO, vencimentoAusente: true };
+    }
+    marcoInicial = new Date(Date.UTC(venc.getUTCFullYear() + 1, 0, 1));
+  }
   return {
     ok: true,
-    regra: aplicaArt150 ? 'art_150_par_4' : 'art_173_I',
+    regra,
     marcoInicial,
     termoFinal: somarAnos(marcoInicial, PRAZO_ANOS),
+    doloImputado: dolo === 'sim',
+    // art. 150 §4º pressupõe ausência de dolo: se o documento não permite afirmar, o advogado confirma
+    confirmarDolo: regra === 'art_150_par_4' && dolo === 'não consta',
   };
 }
 
 // ---------------------------------------------------------------------------
-// Avaliação da peça inteira
+// Escolha do modelo
 // ---------------------------------------------------------------------------
 
 function execucaoAjuizada(processo) {
@@ -129,214 +168,426 @@ function execucaoAjuizada(processo) {
  * Escolha do modelo — matriz decidida em código, nunca pelo modelo de IA.
  *               | execução ajuizada | só inscrição em dívida ativa
  * prescrição    | EPE prescrição    | Revisão PGFN prescrição
- * decadência    | EPE decadência    | (sem modelo)
- * intercorrente | (sem modelo)      | n/a
+ * decadência    | EPE decadência    | Revisão PGFN decadência
+ * intercorrente | EPE intercorrente | n/a (sem modelo)
  */
 export function escolherTemplate(tese, ajuizada) {
   if (tese === 'prescricao_ordinaria') return ajuizada ? TEMPLATES.EPE_PRESCRICAO : TEMPLATES.REVISAO_PGFN_PRESCRICAO;
-  if (tese === 'decadencia') return ajuizada ? TEMPLATES.EPE_DECADENCIA : null;
+  if (tese === 'decadencia') return ajuizada ? TEMPLATES.EPE_DECADENCIA : TEMPLATES.REVISAO_PGFN_DECADENCIA;
+  if (tese === 'prescricao_intercorrente') return ajuizada ? TEMPLATES.EPE_INTERCORRENTE : null;
   return null;
 }
 
-const TIPO_CONCLUSAO = { prescricao_ordinaria: 'prescricao', decadencia: 'decadencia' };
+const TIPO_CONCLUSAO = {
+  prescricao_ordinaria: 'prescricao',
+  decadencia: 'decadencia',
+  prescricao_intercorrente: 'prescricao_intercorrente',
+};
+const NOME_TESE = { prescricao_ordinaria: 'prescrição', decadencia: 'decadência', prescricao_intercorrente: 'prescrição intercorrente' };
+
+const parecerFavoravel = (tese, conclusoes) =>
+  (Array.isArray(conclusoes) ? conclusoes : []).some((c) => c?.tipo === TIPO_CONCLUSAO[tese] && c?.severidade === 'favoravel');
 
 /**
  * Compara o que o motor concluiu com as `conclusoes` já salvas do parecer.
  * Qualquer assimetria bloqueia a peça: não é função desta etapa decidir qual
  * dos dois está certo.
  */
-function divergenciaComParecer(tese, motorConclui, conclusoesParecer) {
-  const tipo = TIPO_CONCLUSAO[tese];
-  const doTipo = (Array.isArray(conclusoesParecer) ? conclusoesParecer : []).filter((c) => c?.tipo === tipo);
-  const parecerFavoravel = doTipo.some((c) => c?.severidade === 'favoravel');
-  if (parecerFavoravel === motorConclui) return null;
+function divergenciaComParecer(tese, motorConclui, conclusoes) {
+  const favoravel = parecerFavoravel(tese, conclusoes);
+  if (favoravel === motorConclui) return null;
   return motorConclui
-    ? `O cálculo da peça conclui pela ${tese === 'decadencia' ? 'decadência' : 'prescrição'}, mas o parecer salvo não traz conclusão favorável nesse sentido.`
-    : `O parecer salvo é favorável à ${tese === 'decadencia' ? 'decadência' : 'prescrição'}, mas o cálculo da peça não confirma.`;
+    ? `O cálculo da peça conclui pela ${NOME_TESE[tese]}, mas o parecer salvo não traz conclusão favorável nesse sentido.`
+    : `O parecer salvo é favorável à ${NOME_TESE[tese]}, mas o cálculo da peça não confirma.`;
 }
 
-/**
- * @param {object} args
- * @param {object} args.dados  saída de ESQUEMA_DADOS_PECA (ver _schema-dados-peca.js)
- * @param {Array}  [args.conclusoesParecer]  `analises.resultado.conclusoes`
- * @param {Date}   [args.agora]  data de geração (referência quando não há execução ajuizada)
- * @returns {{ status: 'ok'|'bloqueada'|'indisponivel'|'sem_tese', tese: string|null,
- *   template: string|null, creditos: object[], omitidos: object[], avisos: string[],
- *   bloqueios: string[], divergencias: string[], dataReferencia: string, mensagem?: string }}
- */
-export function avaliarPeca({ dados, conclusoesParecer = [], agora = new Date() }) {
-  const processo = dados?.processo_execucao || {};
-  const ajuizada = execucaoAjuizada(processo);
+const rotuloPeriodo = (cda, periodo) => `${cda || 'CDA'} / ${periodo || 'período não identificado'}`;
+
+// ---------------------------------------------------------------------------
+// Avaliação — prescrição ordinária
+// ---------------------------------------------------------------------------
+
+function avaliarOrdinaria({ dados, referencia, avisosRef }) {
   const bloqueios = [];
-  const avisos = [];
-
-  // ---- Data de referência: ajuizamento (execução) ou geração (revisão PGFN) ----
-  let referencia;
-  if (ajuizada) {
-    referencia = parseDataBR(dataStr(processo.data_ajuizamento));
-    if (!referencia) {
-      bloqueios.push(
-        preenchido(processo.data_ajuizamento)
-          ? 'A data de ajuizamento da execução é inválida.'
-          : 'A data de ajuizamento da execução não consta dos documentos.',
-      );
-    }
-  } else {
-    referencia = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
-    avisos.push('Sem execução fiscal ajuizada: a prescrição foi aferida até a data de geração da peça.');
-  }
-
-  // ---- Cálculo por período, de todas as inscrições ----
+  const avisos = [...avisosRef];
   const prescritos = [];
-  const decaidos = [];
   const naoConfigurados = [];
+  let periodosDoTipo = 0;
 
   for (const inscricao of dados?.inscricoes || []) {
     const cda = inscricao?.numero_cda || '';
     const eventos = Array.isArray(inscricao?.eventos_interruptivos) ? inscricao.eventos_interruptivos : [];
 
     for (const p of inscricao?.periodos || []) {
-      const base = { cda, periodo: p?.periodo || '', modalidade: p?.modalidade_lancamento || '', tipo_declaracao: p?.tipo_declaracao || '' };
+      if (p?.modalidade_lancamento !== 'homologacao_declarado') continue;
+      periodosDoTipo++;
+      const base = { cda, periodo: p?.periodo || '', modalidade: p.modalidade_lancamento, tipo_declaracao: p?.tipo_declaracao || '' };
 
+      const calc = calcularPrescricaoOrdinaria({ vencimento: p.data_vencimento, entrega: p.data_entrega_declaracao });
+      if (!calc.ok) {
+        bloqueios.push(`${rotuloPeriodo(cda, base.periodo)}: faltam dados para o cálculo da prescrição (${calc.motivo}).`);
+        continue;
+      }
+      const registro = {
+        ...base,
+        tese: 'prescricao_ordinaria',
+        entrega: parseDataBR(dataStr(p.data_entrega_declaracao)),
+        vencimento: parseDataBR(dataStr(p.data_vencimento)),
+        termoInicial: calc.termoInicial,
+        consumacao: calc.consumacao,
+        regraTermo: calc.regraTermo,
+        fonteEntrega: fonteStr(p.data_entrega_declaracao),
+        fonteVencimento: fonteStr(p.data_vencimento),
+      };
+      if (referencia) registro.prescrito = referencia.getTime() > calc.consumacao.getTime();
+
+      // Evento potencialmente interruptivo/suspensivo no prazo: BLOQUEIA. Evento posterior à
+      // consumação não revive prazo já extinto (o próprio modelo diz isso do protesto) — vira
+      // aviso, não bloqueio.
+      for (const ev of eventos) {
+        const d = parseDataBR(dataStr(ev?.data));
+        const rotulo = `${ev?.tipo || 'evento'} em ${dataStr(ev?.data) || '[sem data]'}`;
+        if (!d) {
+          bloqueios.push(`${cda || 'CDA'}: evento "${rotulo}" com data inválida ou ausente — exige análise manual.`);
+        } else if (d.getTime() >= calc.termoInicial.getTime() && d.getTime() <= calc.consumacao.getTime()) {
+          bloqueios.push(
+            `${rotuloPeriodo(cda, base.periodo)}: ${rotulo} dentro do prazo prescricional (${formatarDataBR(calc.termoInicial)} a ${formatarDataBR(calc.consumacao)}) — pode interromper ou suspender o prazo; o caso exige análise manual.`,
+          );
+        } else if (d.getTime() > calc.consumacao.getTime() && referencia && d.getTime() <= referencia.getTime()) {
+          avisos.push(`${rotuloPeriodo(cda, base.periodo)}: ${rotulo} é posterior à consumação do prazo e, em tese, não o interrompe — conferir.`);
+        }
+      }
+      (registro.prescrito ? prescritos : naoConfigurados).push(registro);
+    }
+  }
+  return { creditos: prescritos, omitidos: naoConfigurados, avaliados: [...prescritos, ...naoConfigurados], bloqueios, avisos, n: periodosDoTipo };
+}
+
+// ---------------------------------------------------------------------------
+// Avaliação — decadência
+// ---------------------------------------------------------------------------
+
+function avaliarDecadencia({ dados }) {
+  const bloqueios = [];
+  const avisos = [];
+  const decaidos = [];
+  const dentroDoPrazo = [];
+  let periodosDoTipo = 0;
+  let declarados = 0;
+  let avisouVicio = false;
+
+  for (const inscricao of dados?.inscricoes || []) {
+    const cda = inscricao?.numero_cda || '';
+    const eventos = Array.isArray(inscricao?.eventos_interruptivos) ? inscricao.eventos_interruptivos : [];
+
+    for (const p of inscricao?.periodos || []) {
+      // Pela Súmula 436/STJ a declaração CONSTITUI o crédito: não há lançamento a decair.
       if (p?.modalidade_lancamento === 'homologacao_declarado') {
-        const calc = calcularPrescricaoOrdinaria({ vencimento: p.data_vencimento, entrega: p.data_entrega_declaracao });
-        if (!calc.ok) {
-          bloqueios.push(`${cda || 'CDA'} / ${base.periodo}: faltam dados para o cálculo da prescrição (${calc.motivo}).`);
-          continue;
-        }
-        const registro = {
-          ...base,
-          tese: 'prescricao_ordinaria',
-          entrega: parseDataBR(dataStr(p.data_entrega_declaracao)),
-          vencimento: parseDataBR(dataStr(p.data_vencimento)),
-          termoInicial: calc.termoInicial,
-          consumacao: calc.consumacao,
-          regraTermo: calc.regraTermo,
-          fonteEntrega: fonteStr(p.data_entrega_declaracao),
-          fonteVencimento: fonteStr(p.data_vencimento),
-        };
-        if (referencia) registro.prescrito = referencia.getTime() > calc.consumacao.getTime();
+        declarados++;
+        continue;
+      }
+      if (p?.modalidade_lancamento !== 'homologacao_nao_declarado' && p?.modalidade_lancamento !== 'oficio') continue;
+      periodosDoTipo++;
+      const rotulo = rotuloPeriodo(cda, p?.periodo);
 
-        // Evento potencialmente interruptivo/suspensivo no prazo: BLOQUEIA. Evento
-        // posterior à consumação não revive prazo já extinto (o próprio modelo
-        // diz isso do protesto) — vira aviso, não bloqueio.
-        for (const ev of eventos) {
-          const d = parseDataBR(dataStr(ev?.data));
-          const rotulo = `${ev?.tipo || 'evento'} em ${dataStr(ev?.data) || '[sem data]'}`;
-          if (!d) {
-            bloqueios.push(`${cda || 'CDA'}: evento "${rotulo}" com data inválida ou ausente — exige análise manual.`);
-          } else if (d.getTime() >= calc.termoInicial.getTime() && d.getTime() <= calc.consumacao.getTime()) {
-            bloqueios.push(
-              `${cda || 'CDA'} / ${base.periodo}: ${rotulo} dentro do prazo prescricional (${formatarDataBR(calc.termoInicial)} a ${formatarDataBR(calc.consumacao)}) — pode interromper ou suspender o prazo; o caso exige análise manual.`,
-            );
-          } else if (d.getTime() > calc.consumacao.getTime() && referencia && d.getTime() <= referencia.getTime()) {
-            avisos.push(`${cda || 'CDA'} / ${base.periodo}: ${rotulo} é posterior à consumação do prazo e, em tese, não o interrompe — conferir.`);
-          }
-        }
-
-        (registro.prescrito ? prescritos : naoConfigurados).push(registro);
-      } else if (p?.modalidade_lancamento === 'homologacao_nao_declarado' || p?.modalidade_lancamento === 'oficio') {
-        const calc = calcularDecadencia({
-          fatoGerador: p.data_fato_gerador,
-          houvePagamentoAntecipado: p.houve_pagamento_antecipado,
-          indicioDolo: p.indicio_dolo_fraude_simulacao,
-        });
-        const notificacao = parseDataBR(dataStr(p.data_notificacao_lancamento));
-        if (!calc.ok || !notificacao) {
-          const faltam = [];
-          if (!calc.ok) faltam.push(calc.motivo);
-          if (!notificacao) faltam.push(preenchido(p.data_notificacao_lancamento) ? 'data da notificação do lançamento inválida' : 'data da notificação do lançamento');
-          bloqueios.push(`${cda || 'CDA'} / ${base.periodo}: faltam dados para o cálculo da decadência (${faltam.join(' e ')}).`);
-          continue;
-        }
-        const registro = {
-          ...base,
-          tese: 'decadencia',
-          regra: calc.regra,
-          fatoGerador: parseDataBR(dataStr(p.data_fato_gerador)),
-          fonteFatoGerador: fonteStr(p.data_fato_gerador),
-          fonteNotificacao: fonteStr(p.data_notificacao_lancamento),
-          pagamentoAntecipado: String(p.houve_pagamento_antecipado || '').toLowerCase(),
-          marcoInicial: calc.marcoInicial,
-          termoFinal: calc.termoFinal,
-          notificacao,
-          // Decadência compara com a NOTIFICAÇÃO do lançamento, não com o ajuizamento.
-          decaido: notificacao.getTime() > calc.termoFinal.getTime(),
-        };
-
-        // Decadência não se interrompe. Mas parcelamento/compensação/protesto
-        // antes da notificação podem indicar confissão/constituição do crédito —
-        // isso bloqueia. Pagamento é o próprio fato que define a regra do
-        // art. 150 §4º; aparece só como aviso.
-        for (const ev of eventos) {
-          const d = parseDataBR(dataStr(ev?.data));
-          const tipo = String(ev?.tipo || '').toLowerCase();
-          const rotulo = `${ev?.tipo || 'evento'} em ${dataStr(ev?.data) || '[sem data]'}`;
-          if (!d) {
-            bloqueios.push(`${cda || 'CDA'}: evento "${rotulo}" com data inválida ou ausente — exige análise manual.`);
-          } else if (d.getTime() >= calc.marcoInicial.getTime() && d.getTime() <= notificacao.getTime()) {
-            if (tipo === 'pagamento') avisos.push(`${cda || 'CDA'} / ${base.periodo}: ${rotulo} — conferir se coincide com o pagamento antecipado informado.`);
-            else bloqueios.push(`${cda || 'CDA'} / ${base.periodo}: ${rotulo} antes da notificação do lançamento — pode configurar confissão/constituição do crédito; o caso exige análise manual.`);
-          }
-        }
-
-        (registro.decaido ? decaidos : naoConfigurados).push(registro);
-      } else {
+      // Art. 173, II, CTN: lançamento anterior anulado por vício FORMAL reabre o prazo — análise manual.
+      const vicio = tresEstados(p?.lancamento_anterior_anulado_vicio_formal);
+      if (vicio === 'sim') {
         bloqueios.push(
-          `${cda || 'CDA'} / ${base.periodo || 'período não identificado'}: modalidade de lançamento não identificada — exige análise manual.`,
+          `${rotulo}: consta lançamento anterior anulado por vício formal — o art. 173, II, do CTN reabre o prazo decadencial; o caso exige análise manual.`,
+        );
+        continue;
+      }
+      if (vicio === 'não consta' && !avisouVicio) {
+        avisouVicio = true;
+        avisos.push('Não consta dos documentos se houve lançamento anterior anulado por vício formal (art. 173, II, CTN) — conferir antes de protocolar.');
+      }
+
+      const calc = calcularDecadencia({
+        fatoGerador: p.data_fato_gerador,
+        vencimento: p.data_vencimento,
+        houvePagamentoAntecipado: p.houve_pagamento_antecipado,
+        imputacaoDolo: p.imputacao_dolo_fraude_simulacao,
+      });
+      const notificacao = parseDataBR(dataStr(p.data_notificacao_lancamento));
+      if (!calc.ok || !notificacao) {
+        const faltam = [];
+        if (!calc.ok) faltam.push(calc.motivo);
+        if (!notificacao) faltam.push(preenchido(p.data_notificacao_lancamento) ? 'data da notificação do lançamento inválida' : 'data da notificação do lançamento');
+        bloqueios.push(
+          calc.vencimentoAusente && notificacao
+            ? `${rotulo}: ${MSG_VENCIMENTO_NAO_IDENTIFICADO}.`
+            : `${rotulo}: faltam dados para o cálculo da decadência (${faltam.join(' e ')}).`,
+        );
+        continue;
+      }
+
+      const registro = {
+        cda,
+        periodo: p?.periodo || '',
+        tese: 'decadencia',
+        modalidade: p.modalidade_lancamento,
+        regra: calc.regra,
+        doloImputado: calc.doloImputado,
+        confirmarDolo: calc.confirmarDolo,
+        pagamentoAntecipado: tresEstados(p.houve_pagamento_antecipado),
+        fontePagamento: p.fonte_pagamento_antecipado || '',
+        fatoGerador: parseDataBR(dataStr(p.data_fato_gerador)),
+        fonteFatoGerador: fonteStr(p.data_fato_gerador),
+        vencimento: parseDataBR(dataStr(p.data_vencimento)),
+        marcoInicial: calc.marcoInicial,
+        termoFinal: calc.termoFinal,
+        notificacao,
+        fonteNotificacao: fonteStr(p.data_notificacao_lancamento),
+        // Decadência compara com a NOTIFICAÇÃO do lançamento, não com o ajuizamento.
+        decaido: notificacao.getTime() > calc.termoFinal.getTime(),
+      };
+
+      // Decadência não se interrompe. Mas parcelamento/compensação/protesto antes da notificação
+      // podem indicar confissão/constituição do crédito — isso bloqueia. Pagamento é o próprio
+      // fato que define a regra do art. 150 §4º; aparece só como aviso.
+      for (const ev of eventos) {
+        const d = parseDataBR(dataStr(ev?.data));
+        const tipo = String(ev?.tipo || '').toLowerCase();
+        const rotuloEv = `${ev?.tipo || 'evento'} em ${dataStr(ev?.data) || '[sem data]'}`;
+        if (!d) {
+          bloqueios.push(`${cda || 'CDA'}: evento "${rotuloEv}" com data inválida ou ausente — exige análise manual.`);
+        } else if (registro.fatoGerador && d.getTime() >= registro.fatoGerador.getTime() && d.getTime() <= notificacao.getTime()) {
+          if (tipo === 'pagamento') avisos.push(`${rotulo}: ${rotuloEv} — conferir se coincide com o pagamento antecipado informado.`);
+          else bloqueios.push(`${rotulo}: ${rotuloEv} antes da notificação do lançamento — pode configurar confissão/constituição do crédito; o caso exige análise manual.`);
+        }
+      }
+      (registro.decaido ? decaidos : dentroDoPrazo).push(registro);
+    }
+  }
+
+  if (declarados > 0) {
+    avisos.push(AVISO_CREDITO_DECLARADO);
+    // Só períodos declarados: não há o que alegar de decadência — a peça não pode ser gerada.
+    if (periodosDoTipo === 0) bloqueios.push(AVISO_CREDITO_DECLARADO);
+  }
+  return {
+    creditos: decaidos,
+    omitidos: dentroDoPrazo,
+    avaliados: [...decaidos, ...dentroDoPrazo],
+    bloqueios,
+    avisos,
+    n: periodosDoTipo,
+    declarados,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Avaliação — prescrição intercorrente (reusa _motor-prazos.js, sem reimplementar a conta)
+// ---------------------------------------------------------------------------
+
+const EVENTO_EXTENSO = {
+  citacao: 'citação do executado',
+  penhora_constricao: 'constrição patrimonial efetiva',
+  requerimento_constricao: 'requerimento de constrição patrimonial',
+};
+
+function avaliarIntercorrente({ dados, agora }) {
+  const bloqueios = [];
+  const avisos = [];
+  const eventos = (dados?.eventos_execucao || []).map((e) => ({
+    data: e.data,
+    inscricao: e.inscricao || '',
+    categoria: e.categoria,
+    fonte: e.fonte,
+  }));
+  const resultados = calcularPrescricaoIntercorrente(eventos, agora);
+  const nomesCda = (dados?.inscricoes || []).map((i) => i?.numero_cda).filter(Boolean);
+
+  // Só interessa quem tem ciclo ATIVO e RECONHECIDO hoje.
+  const reconhecidos = resultados
+    .map((r) => ({ r, ativo: r.ciclos.find((c) => c.status === 'ativo' && c.reconhecida) }))
+    .filter((x) => x.ativo);
+
+  const base = { creditos: [], omitidos: [], avaliados: [], bloqueios, avisos, n: resultados.length, intercorrente: null };
+  if (reconhecidos.length === 0) return base;
+
+  // Mais de um grupo reconhecido com DATAS DIFERENTES: o modelo é de um único episódio — não escolho no lugar do advogado.
+  const assinatura = (c) => `${c.dataIntimacao}|${c.dataFimSuspensao}|${c.dataPrazoFinal}`;
+  const distintos = [...new Set(reconhecidos.map((x) => assinatura(x.ativo)))];
+  if (distintos.length > 1) {
+    bloqueios.push(
+      `Há prescrição intercorrente reconhecida com datas diferentes entre inscrições (${reconhecidos
+        .map((x) => `${x.r.inscricao}: ciência em ${x.ativo.dataIntimacao}`)
+        .join('; ')}) — o modelo trata um único episódio; o caso exige análise manual.`,
+    );
+    return { ...base, intercorrente: null };
+  }
+
+  const ativo = reconhecidos[0].ativo;
+  const grupoExecucao = reconhecidos.some((x) => x.r.inscricao === '(execução)');
+  const cobertas = grupoExecucao ? nomesCda : reconhecidos.map((x) => x.r.inscricao);
+  const naoCobertas = nomesCda.filter((n) => !cobertas.includes(n));
+  if (naoCobertas.length > 0) {
+    avisos.push(`A peça cobre apenas parte das CDAs: não há prescrição intercorrente reconhecida para ${naoCobertas.join(', ')}.`);
+  }
+
+  // O que não foi localizado, lido do evento de intimação que abriu o ciclo.
+  const intimacao = eventos
+    .map((e, i) => ({ e, o: dados.eventos_execucao[i] }))
+    .find(({ e }) => e.categoria === 'intimacao_nao_localizacao_bens' && e.data === ativo.dataIntimacao);
+  const objeto = intimacao?.o?.objeto_nao_localizado || 'não consta';
+
+  // Ciclos anteriores interrompidos (de qualquer grupo reconhecido), para o parágrafo explicativo.
+  const interrompidos = reconhecidos
+    .flatMap((x) => x.r.ciclos.filter((c) => c.status === 'interrompido'))
+    .map((c) => ({
+      dataIntimacao: c.dataIntimacao,
+      dataInterrupcao: c.requerimentoRetroativo?.data || '',
+      categoria: c.requerimentoRetroativo?.categoria || '',
+      eventoExtenso: EVENTO_EXTENSO[c.requerimentoRetroativo?.categoria] || 'evento interruptivo',
+    }));
+
+  // Suspensão por parcelamento/compensação/pagamento dentro do prazo: o motor de intercorrente não enxerga
+  // esses eventos — na dúvida, análise manual (mesma postura conservadora das outras teses).
+  const ini = parseDataBR(ativo.dataIntimacao);
+  const fim = parseDataBR(ativo.dataPrazoFinal);
+  for (const insc of dados?.inscricoes || []) {
+    if (!cobertas.includes(insc?.numero_cda)) continue;
+    for (const ev of insc?.eventos_interruptivos || []) {
+      const tipo = String(ev?.tipo || '').toLowerCase();
+      if (!['parcelamento', 'pagamento', 'compensacao'].includes(tipo)) continue;
+      const d = parseDataBR(dataStr(ev?.data));
+      if (!d) {
+        bloqueios.push(`${insc.numero_cda}: evento "${tipo}" com data inválida ou ausente — exige análise manual.`);
+      } else if (ini && fim && d.getTime() >= ini.getTime() && d.getTime() <= fim.getTime()) {
+        bloqueios.push(
+          `${insc.numero_cda}: ${tipo} em ${dataStr(ev.data)} dentro do prazo da prescrição intercorrente (${ativo.dataIntimacao} a ${ativo.dataPrazoFinal}) — pode suspender o prazo; o caso exige análise manual.`,
         );
       }
     }
   }
 
-  const resultadoBase = { creditos: [], omitidos: [], avisos, bloqueios, divergencias: [], dataReferencia: referencia ? formatarDataBR(referencia) : '' };
+  const registro = { cdas: cobertas, tese: 'prescricao_intercorrente' };
+  return {
+    ...base,
+    creditos: cobertas.length ? cobertas.map((cda) => ({ ...registro, cda })) : [{ ...registro, cda: '' }],
+    intercorrente: {
+      dataIntimacao: ativo.dataIntimacao,
+      fonteIntimacao: ativo.fonteIntimacao,
+      dataFimSuspensao: ativo.dataFimSuspensao,
+      dataPrazoFinal: ativo.dataPrazoFinal,
+      objetoNaoLocalizado: objeto,
+      ciclosInterrompidos: interrompidos,
+      cdasCobertas: cobertas,
+    },
+  };
+}
 
-  if (prescritos.length === 0 && decaidos.length === 0) {
-    // Parecer favorável + motor sem tese = divergência (bloqueia e mostra), não "sem tese".
-    const divergenciasSemTese = ['prescricao_ordinaria', 'decadencia']
-      .map((t) => divergenciaComParecer(t, false, conclusoesParecer))
-      .filter(Boolean);
-    return {
-      ...resultadoBase,
-      divergencias: divergenciasSemTese,
-      status: bloqueios.length > 0 || divergenciasSemTese.length > 0 ? 'bloqueada' : 'sem_tese',
-      tese: null,
-      template: null,
-      omitidos: naoConfigurados,
-      mensagem: bloqueios.length > 0 || divergenciasSemTese.length > 0
-        ? 'A peça não pode ser gerada automaticamente.'
-        : 'O cálculo não identificou crédito prescrito ou decaído — não há tese para a peça.',
-    };
+// ---------------------------------------------------------------------------
+// Avaliação por tese e lista de peças disponíveis
+// ---------------------------------------------------------------------------
+
+/**
+ * Avalia UMA tese.
+ * @param {object} args
+ * @param {object} args.dados  saída normalizada de ESQUEMA_DADOS_PECA
+ * @param {string} args.tese   'prescricao_ordinaria' | 'decadencia' | 'prescricao_intercorrente'
+ * @param {Array}  [args.conclusoesParecer]  `analises.resultado.conclusoes`
+ * @param {Date}   [args.agora]  data de geração (referência quando não há execução ajuizada)
+ * @returns {{ tese: string, status: 'ok'|'bloqueada'|'indisponivel'|'sem_tese', relevante: boolean,
+ *   template: string|null, creditos: object[], omitidos: object[], avaliados: object[], avisos: string[],
+ *   bloqueios: string[], divergencias: string[], dataReferencia: string, mensagem: string,
+ *   intercorrente: object|null, decadenciaTotal?: boolean, decadenciaParcial?: boolean }}
+ */
+export function avaliarPeca({ dados, tese, conclusoesParecer = [], agora = new Date() }) {
+  const processo = dados?.processo_execucao || {};
+  const ajuizada = execucaoAjuizada(processo);
+
+  // Data de referência da prescrição ORDINÁRIA: ajuizamento (execução) ou geração (revisão PGFN).
+  let referencia = null;
+  const avisosRef = [];
+  const bloqueiosRef = [];
+  if (tese === 'prescricao_ordinaria') {
+    if (ajuizada) {
+      referencia = parseDataBR(dataStr(processo.data_ajuizamento));
+      if (!referencia) {
+        bloqueiosRef.push(
+          preenchido(processo.data_ajuizamento)
+            ? 'A data de ajuizamento da execução é inválida.'
+            : 'A data de ajuizamento da execução não consta dos documentos.',
+        );
+      }
+    } else {
+      referencia = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
+      avisosRef.push('Sem execução fiscal ajuizada: a prescrição foi aferida até a data de geração da peça.');
+    }
   }
 
-  // ---- Tese: a que abrange MAIS créditos (empate favorece a prescrição, que
-  // tem modelo para os dois cenários). A outra vai para `omitidos` com aviso. ----
-  const tese = decaidos.length > prescritos.length ? 'decadencia' : 'prescricao_ordinaria';
-  const creditos = tese === 'decadencia' ? decaidos : prescritos;
-  const outros = tese === 'decadencia' ? prescritos : decaidos;
-  if (outros.length > 0) {
-    avisos.push(
-      `Há ${outros.length} crédito(s) com tese diferente (${tese === 'decadencia' ? 'prescrição' : 'decadência'}) que NÃO entraram na peça gerada e precisam ser incluídos manualmente.`,
-    );
+  let r;
+  if (tese === 'prescricao_ordinaria') r = avaliarOrdinaria({ dados, referencia, avisosRef });
+  else if (tese === 'decadencia') r = avaliarDecadencia({ dados });
+  else if (tese === 'prescricao_intercorrente') r = avaliarIntercorrente({ dados, agora });
+  else throw new Error(`tese desconhecida: ${tese}`);
+
+  const bloqueios = [...bloqueiosRef, ...r.bloqueios];
+
+  // Período sem modalidade identificada: pode ser declarado ou não — bloqueia as duas teses de período.
+  if (tese !== 'prescricao_intercorrente') {
+    for (const insc of dados?.inscricoes || []) {
+      for (const p of insc?.periodos || []) {
+        if (!['homologacao_declarado', 'homologacao_nao_declarado', 'oficio'].includes(p?.modalidade_lancamento)) {
+          bloqueios.push(`${rotuloPeriodo(insc?.numero_cda, p?.periodo)}: modalidade de lançamento não identificada — exige análise manual.`);
+        }
+      }
+    }
   }
 
-  // ---- Coerência com o parecer salvo ----
-  const divergencia = divergenciaComParecer(tese, true, conclusoesParecer);
+  const motorConclui = r.creditos.length > 0;
+  const divergencia = divergenciaComParecer(tese, motorConclui, conclusoesParecer);
   const divergencias = divergencia ? [divergencia] : [];
-  if (naoConfigurados.length > 0) {
-    avisos.push(`${naoConfigurados.length} período(s) não estão prescritos/decaídos e ficaram fora da peça.`);
+  const relevante = r.n > 0 || parecerFavoravel(tese, conclusoesParecer) || divergencias.length > 0;
+
+  const avisos = [...r.avisos];
+  if (tese !== 'decadencia' && motorConclui && r.omitidos.length > 0) {
+    avisos.push(`${r.omitidos.length} período(s) não estão prescritos e ficaram fora da peça.`);
+  }
+  if (tese === 'decadencia' && motorConclui && r.omitidos.length > 0) {
+    avisos.push(`${r.omitidos.length} período(s) estão dentro do prazo decadencial: a peça pede a retificação parcial da inscrição.`);
   }
 
   const template = escolherTemplate(tese, ajuizada);
-  const comum = { tese, creditos, omitidos: [...outros, ...naoConfigurados], avisos, bloqueios, divergencias, dataReferencia: resultadoBase.dataReferencia };
+  const comum = {
+    tese,
+    relevante,
+    creditos: r.creditos,
+    omitidos: r.omitidos,
+    avaliados: r.avaliados,
+    avisos,
+    bloqueios,
+    divergencias,
+    dataReferencia: referencia ? formatarDataBR(referencia) : '',
+    intercorrente: r.intercorrente || null,
+    ...(tese === 'decadencia'
+      ? { decadenciaTotal: motorConclui && r.omitidos.length === 0, decadenciaParcial: motorConclui && r.omitidos.length > 0 }
+      : {}),
+  };
 
   if (bloqueios.length > 0 || divergencias.length > 0) {
-    return { ...comum, status: 'bloqueada', template: null, mensagem: 'A peça não pode ser gerada automaticamente.' };
+    return { ...comum, status: 'bloqueada', template: null, mensagem: MSG_BLOQUEADA };
   }
-  if (!template) {
-    return { ...comum, status: 'indisponivel', template: null, mensagem: MSG_SEM_MODELO };
+  if (!motorConclui) {
+    return { ...comum, status: 'sem_tese', template: null, mensagem: `O cálculo não identificou ${NOME_TESE[tese]} consumada.` };
   }
-  return { ...comum, status: 'ok', template };
+  if (!template) return { ...comum, status: 'indisponivel', template: null, mensagem: MSG_SEM_MODELO };
+  return { ...comum, status: 'ok', template, mensagem: '' };
 }
 
-export default { avaliarPeca, calcularPrescricaoOrdinaria, calcularDecadencia, escolherTemplate };
+/**
+ * Todas as peças que o caso comporta, uma por tese, cada uma com o seu status. Quem escolhe
+ * qual gerar é o usuário (os modelos não são fundidos). Teses sem relação com o caso (ex.: sem
+ * execução e sem eventos de não localização) não aparecem.
+ */
+export function avaliarPecas({ dados, conclusoesParecer = [], agora = new Date() }) {
+  const pecas = TESES.map((tese) => avaliarPeca({ dados, tese, conclusoesParecer, agora })).filter(
+    (p) => p.status !== 'sem_tese' && p.relevante,
+  );
+  return { pecas, dataReferencia: pecas.find((p) => p.dataReferencia)?.dataReferencia || '' };
+}
+
+export default { avaliarPeca, avaliarPecas, calcularPrescricaoOrdinaria, calcularDecadencia, escolherTemplate };

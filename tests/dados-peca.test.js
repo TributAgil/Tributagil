@@ -14,12 +14,12 @@ describe('normalizarDadosPeca', () => {
 
   it('enum inválido vira neutro, nunca um palpite', () => {
     const d = normalizarDadosPeca({
-      inscricoes: [{ numero_cda: 'X', periodos: [{ periodo: '2020', modalidade_lancamento: 'inventada', houve_pagamento_antecipado: 'talvez', indicio_dolo_fraude_simulacao: 7 }] }],
+      inscricoes: [{ numero_cda: 'X', periodos: [{ periodo: '2020', modalidade_lancamento: 'inventada', houve_pagamento_antecipado: 'talvez', imputacao_dolo_fraude_simulacao: 7 }] }],
     });
     const p = d.inscricoes[0].periodos[0];
     expect(p.modalidade_lancamento).toBe('');
     expect(p.houve_pagamento_antecipado).toBe('não consta');
-    expect(p.indicio_dolo_fraude_simulacao).toBe('não consta');
+    expect(p.imputacao_dolo_fraude_simulacao).toBe('não consta');
   });
 
   it('data fora de DD/MM/AAAA é descartada junto com a fonte', () => {

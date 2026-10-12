@@ -37,8 +37,9 @@ export const ESQUEMA_DADOS_PECA = {
     'processo_execucao',
     'executado',
     'inscricoes',
+    'eventos_execucao',
   ],
-  required: ['alerta_ilegivel', 'ente_credor', 'orgao_cobranca', 'processo_execucao', 'executado', 'inscricoes'],
+  required: ['alerta_ilegivel', 'ente_credor', 'orgao_cobranca', 'processo_execucao', 'executado', 'inscricoes', 'eventos_execucao'],
   properties: {
     alerta_ilegivel: {
       type: 'STRING',
@@ -62,12 +63,13 @@ export const ESQUEMA_DADOS_PECA = {
 
     processo_execucao: {
       type: 'OBJECT',
-      propertyOrdering: ['numero', 'vara', 'comarca_secao', 'data_ajuizamento', 'data_despacho_citatorio', 'data_citacao'],
-      required: ['numero', 'vara', 'comarca_secao', 'data_ajuizamento', 'data_despacho_citatorio', 'data_citacao'],
+      propertyOrdering: ['numero', 'exequente', 'vara', 'comarca_secao', 'data_ajuizamento', 'data_despacho_citatorio', 'data_citacao'],
+      required: ['numero', 'exequente', 'vara', 'comarca_secao', 'data_ajuizamento', 'data_despacho_citatorio', 'data_citacao'],
       description:
         'Execução fiscal JÁ AJUIZADA. Se os documentos não mostram execução ajuizada (só inscrição em dívida ativa), todos os campos ficam "" — isso decide o tipo de peça.',
       properties: {
         numero: { type: 'STRING', description: 'Número do processo da execução fiscal, como consta. "" se não houver execução.' },
+        exequente: { type: 'STRING', description: 'Exequente por extenso, como consta (ex.: "União (Fazenda Nacional)", "Estado da Bahia"). "" se não constar.' },
         vara: { type: 'STRING', description: 'Vara, como consta (ex.: "3ª Vara Federal de Execução Fiscal"). "" se não constar.' },
         comarca_secao: { type: 'STRING', description: 'Comarca ou seção judiciária (ex.: "Salvador/BA"). "" se não constar.' },
         data_ajuizamento: DATA_COM_FONTE,
@@ -117,7 +119,12 @@ export const ESQUEMA_DADOS_PECA = {
                 'data_vencimento',
                 'data_fato_gerador',
                 'houve_pagamento_antecipado',
-                'indicio_dolo_fraude_simulacao',
+                'fonte_pagamento_antecipado',
+                'imputacao_dolo_fraude_simulacao',
+                'imputacao_dolo_fraude_simulacao_fonte',
+                'lancamento_anterior_anulado_vicio_formal',
+                'lancamento_anterior_anulado_vicio_formal_fonte',
+                'data_decisao_anulatoria',
                 'data_notificacao_lancamento',
               ],
               required: [
@@ -128,7 +135,12 @@ export const ESQUEMA_DADOS_PECA = {
                 'data_vencimento',
                 'data_fato_gerador',
                 'houve_pagamento_antecipado',
-                'indicio_dolo_fraude_simulacao',
+                'fonte_pagamento_antecipado',
+                'imputacao_dolo_fraude_simulacao',
+                'imputacao_dolo_fraude_simulacao_fonte',
+                'lancamento_anterior_anulado_vicio_formal',
+                'lancamento_anterior_anulado_vicio_formal_fonte',
+                'data_decisao_anulatoria',
                 'data_notificacao_lancamento',
               ],
               properties: {
@@ -152,11 +164,22 @@ export const ESQUEMA_DADOS_PECA = {
                   enum: ['sim', 'não', 'não consta'],
                   description: 'Pagamento antecipado do tributo daquele período. "não consta" quando os documentos não permitem afirmar.',
                 },
-                indicio_dolo_fraude_simulacao: {
+                fonte_pagamento_antecipado: { type: 'STRING', description: 'Documento onde consta o pagamento antecipado ("" se não houve ou não consta).' },
+                imputacao_dolo_fraude_simulacao: {
                   type: 'STRING',
                   enum: ['sim', 'não', 'não consta'],
-                  description: '"sim" SOMENTE se um documento afirma dolo, fraude ou simulação (ex.: multa qualificada). Na dúvida, "não consta".',
+                  description:
+                    '"sim" SOMENTE se o lançamento/auto de infração IMPUTA ao contribuinte dolo, fraude ou simulação (ex.: multa qualificada de 150%). "não" quando o lançamento foi lido e não há imputação. "não consta" quando os documentos não permitem afirmar.',
                 },
+                imputacao_dolo_fraude_simulacao_fonte: { type: 'STRING', description: 'Documento lido para essa conclusão. "" se "não consta".' },
+                lancamento_anterior_anulado_vicio_formal: {
+                  type: 'STRING',
+                  enum: ['sim', 'não', 'não consta'],
+                  description:
+                    '"sim" SOMENTE se os documentos mostram que um lançamento ANTERIOR do mesmo período foi anulado por vício formal (art. 173, II, CTN). "não consta" quando não há como afirmar.',
+                },
+                lancamento_anterior_anulado_vicio_formal_fonte: { type: 'STRING', description: 'Documento de onde isso foi lido. "" se não consta.' },
+                data_decisao_anulatoria: DATA_COM_FONTE,
                 data_notificacao_lancamento: DATA_COM_FONTE,
               },
             },
@@ -180,6 +203,33 @@ export const ESQUEMA_DADOS_PECA = {
         },
       },
     },
+
+    eventos_execucao: {
+      type: 'ARRAY',
+      description:
+        'Eventos do PROCESSO DE EXECUÇÃO usados para calcular a prescrição intercorrente (art. 40 da LEF). Vazio se não há execução ajuizada. Liste TODOS os que constarem, sem julgar o efeito.',
+      items: {
+        type: 'OBJECT',
+        propertyOrdering: ['categoria', 'data', 'inscricao', 'objeto_nao_localizado', 'fonte'],
+        required: ['categoria', 'data', 'inscricao', 'objeto_nao_localizado', 'fonte'],
+        properties: {
+          categoria: {
+            type: 'STRING',
+            enum: ['intimacao_nao_localizacao_bens', 'requerimento_constricao', 'penhora_constricao', 'citacao'],
+            description:
+              'intimacao_nao_localizacao_bens = a Fazenda tomou ciência de que o devedor ou bens penhoráveis não foram localizados (art. 40 LEF), data da CIÊNCIA; requerimento_constricao = pedido de Sisbajud/Renajud/Infojud/penhora protocolado pela Fazenda, data do PROTOCOLO; penhora_constricao = constrição efetivamente realizada (resultado), data em que se efetivou; citacao = citação do executado, ainda que por edital.',
+          },
+          data: { type: 'STRING', description: 'DD/MM/AAAA. Evento sem data legível não entra.' },
+          inscricao: { type: 'STRING', description: 'Número da CDA a que o evento se refere. "" se o evento vale para a execução inteira (o caso normal).' },
+          objeto_nao_localizado: {
+            type: 'STRING',
+            enum: ['devedor', 'bens', 'devedor_e_bens', 'não consta'],
+            description: 'SÓ para intimacao_nao_localizacao_bens: o que não foi localizado. Para as demais categorias, "não consta".',
+          },
+          fonte: { type: 'STRING', description: 'Nome do documento anexado de onde o evento foi lido.' },
+        },
+      },
+    },
   },
 };
 
@@ -191,7 +241,9 @@ TOLERÂNCIA ZERO PARA INVENÇÃO:
 - Uma entrada em "inscricoes" para CADA CDA/inscrição presente; um item em "periodos" para CADA período de apuração dela. Nunca resuma "as demais".
 - Execução fiscal ajuizada = há número de processo de execução ou data de ajuizamento nos documentos. Se só há inscrição em dívida ativa, deixe todo "processo_execucao" vazio.
 - "eventos_interruptivos": liste TODO parcelamento, pagamento, protesto e compensação que constar do extrato de débito, do anexo de ocorrências ou dos andamentos, sem julgar se interrompem o prazo.
-- "houve_pagamento_antecipado" e "indicio_dolo_fraude_simulacao": use "não consta" quando os documentos não permitirem afirmar. "sim" em dolo/fraude/simulação só se um documento afirmar isso expressamente.
+- "houve_pagamento_antecipado" e "imputacao_dolo_fraude_simulacao": use "não consta" quando os documentos não permitirem afirmar. "sim" em dolo/fraude/simulação só se o lançamento IMPUTA isso expressamente ao contribuinte (ex.: multa qualificada). Cada conclusão com o documento lido em "..._fonte".
+- "eventos_execucao": só para execução já ajuizada. Registre TODA ciência da Fazenda sobre não localização do devedor ou de bens (com o que não foi localizado), TODO pedido de constrição (data do protocolo), TODA constrição efetiva e TODA citação, mesmo as antigas — a prescrição intercorrente depende de ver todos os episódios.
+- "lancamento_anterior_anulado_vicio_formal": só "sim" se um documento mostra que um lançamento anterior do mesmo período foi anulado por vício formal.
 - Se um documento estiver ilegível, preencha "alerta_ilegivel" e extraia o que for possível dos demais.`;
 
 export default ESQUEMA_DADOS_PECA;
