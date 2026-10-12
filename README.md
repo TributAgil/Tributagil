@@ -1080,8 +1080,8 @@ node scripts/teste-rls-isolamento.mjs
 
 Gera a **peça pronta para o advogado editar e protocolar**, em `.docx` real, a partir de uma
 análise já feita e de modelos Word fornecidos pela advogada parceira: Exceção de Pré-Executividade
-(prescrição ordinária; decadência) e Pedido de Revisão de Débito Fiscal à PGFN (prescrição
-ordinária). O parecer e o "Baixar em Word" do parecer continuam como estão. **PDF não faz parte.**
+(prescrição ordinária; decadência; prescrição intercorrente) e Pedido de Revisão de Débito Fiscal
+(prescrição ordinária; decadência). O parecer e o "Baixar em Word" do parecer continuam como estão. **PDF não faz parte.**
 
 **Princípio central (o mesmo do resto do sistema): a IA extrai fatos; o código calcula e decide.**
 Nenhuma data de consumação, nenhuma conclusão de "prescrito/decaído" e nenhuma escolha de modelo vem
@@ -1099,24 +1099,43 @@ navegador ─(analise_id + token)→ api/gerar-peca.js
 
 **Matriz de escolha do modelo (decidida em código):**
 
-| | Execução ajuizada | Só inscrição em dívida ativa |
+| | Execução ajuizada (há `processo_execucao`) | Só inscrição em dívida ativa |
 |---|---|---|
 | Prescrição ordinária | EPE prescrição | Revisão PGFN prescrição |
-| Decadência | EPE decadência | *sem modelo ainda* |
-| Prescrição intercorrente | *sem modelo ainda* | n/a |
+| Decadência | EPE decadência | Revisão PGFN decadência (**novo**) |
+| Prescrição intercorrente | EPE prescrição intercorrente (**novo**) | n/a (não existe intercorrente administrativa) |
 
-Combinação sem modelo: o botão fica desabilitado com *"Modelo de peça ainda não disponível para este
-cenário"*. Se houver créditos prescritos e decaídos na mesma execução, sai a peça da tese que
-abrange **mais créditos** e o sistema avisa que os demais precisam ser incluídos à mão.
+**Mais de uma peça no mesmo caso:** o motor avalia **cada tese separadamente** (cada uma com seu status
+`ok` / `bloqueada` / `indisponivel`) e a API devolve uma entrada por tese em `pecas[]`, cada uma com resumo e
+arquivo. O modal lista as peças disponíveis, com um resumo de cada, e **o usuário escolhe qual baixar**.
+Os modelos **não são fundidos** e não há mais a regra "gerar a tese que abrange mais créditos". Um bloqueio
+afeta só a tese a que pertence.
 
 **Regras do motor** (testadas em `tests/motor-peca.test.js`):
 
 - **Prescrição ordinária** (art. 174 CTN, Súmula 436, Tema 265): termo inicial = a data **posterior** entre
   vencimento e entrega da declaração; consumação = termo inicial + 5 anos (mesma data); prescrito se o
   ajuizamento for **posterior** à consumação. Sem execução ajuizada (Revisão PGFN), aferido até a data de geração.
-- **Decadência**: com pagamento antecipado e sem dolo/fraude, art. 150 §4º (fato gerador + 5 anos); sem
-  pagamento, art. 173, I (1º de janeiro do exercício seguinte + 5 anos). Compara com a **notificação do
-  lançamento**, não com o ajuizamento.
+- **Decadência** (vale para a EPE e para a Revisão): compara sempre com a **notificação do lançamento**
+  (`data_notificacao_lancamento`), não com o ajuizamento; decaído se a notificação for posterior ao termo final.
+  - **Art. 150, § 4º** (pagamento antecipado e sem imputação de dolo/fraude/simulação): marco = fato gerador; termo = fato gerador + 5 anos.
+  - **Art. 173, I** (sem pagamento antecipado, ou com dolo/fraude/simulação **imputado**): marco = **1º de janeiro do ano seguinte ao ano do
+    VENCIMENTO** (quando o lançamento passou a ser possível); termo = marco + 5 anos. Ex.: FG 31/12/2017, vencimento 31/01/2018 → marco
+    01/01/2019 → termo 01/01/2024. É a leitura conservadora (marco mais tardio). **Sem vencimento com fonte, não se conta pelo fato gerador:
+    bloqueia** com *"Vencimento não identificado: necessário para contar a decadência pelo art. 173, I"*.
+  - **Crédito declarado** (`homologacao_declarado`, p.ex. DCTF): não há decadência (Súmula 436/STJ) — o período é excluído e aparece o aviso
+    *"Crédito constituído por declaração do contribuinte: a tese de decadência não se aplica ao valor declarado."*; se só houver declarados, bloqueia.
+  - **Dolo/fraude/simulação imputado** (`sim`) força o art. 173, I mesmo com pagamento. Com `não consta` e art. 150 § 4º a peça é gerada, mas a
+    frase "não consta do lançamento qualquer imputação…" sai destacada com `[CONFIRMAR: …]` para o advogado conferir.
+  - **Lançamento anterior anulado por vício formal** (`sim`) **bloqueia** (art. 173, II reabre o prazo; análise manual).
+  - `decadencia_total` = todos os períodos da CDA decaídos (pedido de cancelamento integral); `decadencia_parcial` = só parte (pedido de retificação).
+- **Prescrição intercorrente**: usa **exclusivamente** `calcularPrescricaoIntercorrente()` de `api/_motor-prazos.js` (a conta não foi
+  reimplementada nem alterada). Só oferece a peça se algum grupo tem ciclo `ativo` com `reconhecida = true`; os ciclos `interrompido` viram o
+  parágrafo "episódio anterior…". Se parte das CDAs não tem prescrição reconhecida, avisa que a peça cobre só parte delas. Duas inscrições reconhecidas
+  com datas diferentes → bloqueia (o modelo trata um único episódio). **A peça não pede honorários** (Tema 1.229/STJ — ver `REVISAO_JURIDICA.md`).
+- **Tratamento do procurador** (todos os 5 modelos): `{{tratamento_procurador}}` sai do cadastro do escritório —
+  *sua advogada / seu advogado / suas advogadas / seus advogados* (misto → masculino), com o verbo (*subscreve/subscrevem*) e o particípio
+  (*constituída/o/as/os*) concordando. Gênero ausente **não é presumido**: vira `[PREENCHER]`.
 - **Bloqueio conservador:** parcelamento, pagamento, compensação ou protesto **dentro do prazo** da mesma
   inscrição → não gera a peça, lista os eventos e manda para análise manual. (Decadência: bloqueia
   parcelamento/compensação/protesto antes da notificação; pagamento só avisa — é ele que define o art. 150 §4º.
@@ -1140,7 +1159,11 @@ Marcadores: `+++INS expr+++`, `+++IF expr+++…+++END-IF+++` (não existe ELSE: 
 `+++FOR x IN lista+++…+++END-FOR x+++`; em tabelas, `FOR`/`END-FOR` ficam **em linhas próprias** antes/depois da linha de dados.
 
 **Blocos compartilhados:** a biblioteca não inclui trechos de outro `.docx` sem quebrar a formatação, então os
-três modelos são independentes. Os trechos duplicados estão listados em `templates/pecas/REVISAO_JURIDICA.md`.
+cinco modelos são independentes (os blocos que o prompt manda reaproveitar foram **copiados idênticos**, e a cópia é
+verificada nos testes comparando parágrafo a parágrafo com os originais). Os trechos duplicados estão listados em
+`templates/pecas/REVISAO_JURIDICA.md`. Os dois modelos novos são montados por `scripts/templates-pecas/novos_modelos.py`
+a partir dos mesmos modelos-base; as **minutas renderizadas com dados fictícios** para a advogada ler estão em
+`templates/pecas/minutas-para-revisao/`.
 
 **Quadros e figuras:** o fluxograma/SmartArt da EPE de prescrição virou tabela *Tese | Fundamento* (padrão da
 de decadência); a linha do tempo virou **tabela** (data | evento | documento-fonte) — editável, sem imagem.
@@ -1163,7 +1186,9 @@ create table if not exists public.escritorios (
   endereco    text check (char_length(endereco) <= 300),
   -- logo opcional no bucket "logos"; só pode apontar para a própria pasta
   logo_path   text check (logo_path is null or (char_length(logo_path) <= 300 and logo_path like user_id::text || '/%')),
-  -- [{ "nome": "...", "oab": "11.111", "uf": "BA" }, ...]
+  -- [{ "nome": "...", "oab": "11.111", "uf": "BA", "genero": "f" | "m" }, ...]
+  -- (genero define "sua advogada"/"seu advogado"/…; é jsonb, então NÃO precisa de migração: cadastros antigos
+  --  sem "genero" continuam válidos e a peça sai com [PREENCHER: gênero…] até o usuário escolher na tela)
   advogados   jsonb not null default '[]'::jsonb
               check (jsonb_typeof(advogados) = 'array' and jsonb_array_length(advogados) <= 20),
   created_at  timestamptz not null default now(),
@@ -1229,7 +1254,9 @@ Até lá, `api/gerar-peca.js` falha ao importar (a build do front não é afetad
 `tests/*.test.js` rodam em Node puro, com config própria (`vitest.pecas.config.js`), separada do
 `vitest.config.ts` (jsdom). Cobrem o motor (fixture real da EPE de prescrição + casos-limite: ajuizamento no dia da
 consumação, 29/02, data inválida, parcelamento no meio do prazo, divergência com o parecer, decadência pelas
-duas regras), a renderização dos 3 `.docx` (nenhum marcador sobrando, nenhum dado do caso original, **texto jurídico
+duas regras com marco pelo vencimento, crédito declarado, dolo imputado, vício formal, decadência parcial,
+prescrição intercorrente com ciclo interrompido, várias peças no mesmo caso), a renderização dos 5 `.docx`
+(`tests/pecas-render.test.js` e `tests/pecas-novos-modelos.test.js`: nenhum marcador sobrando, nenhum dado do caso original, **texto jurídico
 idêntico ao original parágrafo a parágrafo**, número de linhas das tabelas, destaque amarelo, várias CDAs,
 logo opcional) e o endpoint com Supabase/Gemini simulados (autenticação, RLS, bloqueios, cenário sem modelo).
 
