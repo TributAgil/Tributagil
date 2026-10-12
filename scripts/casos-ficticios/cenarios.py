@@ -217,9 +217,9 @@ CENARIOS = [
          execucao=exec_('4000001-10.2019.4.01.3300', '12/03/2019', [ee('intimacao_nao_localizacao_bens', '10/03/2020')]),
          esperado={PO: 'ok', IN: 'ok'}, template={PO: EP, IN: EI}),
     caso('C02', 'Decadência + intercorrente no mesmo caso (2 peças)',
-         'Auto de infração decaído (art. 173, I) e execução com ciência de não localização em 10/03/2017. O modal lista a EPE de decadência e a EPE de intercorrente.',
-         PJ2, [cda('50.400.002-1', 'IRPJ', [ofic('2016', '30/06/2016', '31/07/2016', '22/08/2023')])],
-         execucao=exec_('4000002-10.2015.4.01.3300', '15/05/2015', [ee('intimacao_nao_localizacao_bens', '10/03/2017')]),
+         'Auto de infração decaído (art. 173, I: fato gerador de 2010, lançamento notificado em 22/08/2016) e execução com ciência de não localização em 10/03/2020 (intercorrente consumada em 10/03/2026). O modal lista a EPE de decadência e a EPE de intercorrente.',
+         PJ2, [cda('50.400.002-1', 'IRPJ', [ofic('2010', '30/06/2010', '31/07/2010', '22/08/2016')])],
+         execucao=exec_('4000002-10.2019.4.01.3300', '15/05/2019', [ee('intimacao_nao_localizacao_bens', '10/03/2020')]),
          esperado={DE: 'ok', IN: 'ok'}, template={DE: ED, IN: EI}),
 ]
 

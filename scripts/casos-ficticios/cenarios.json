@@ -1704,7 +1704,7 @@
  {
   "id": "C02",
   "titulo": "Decadência + intercorrente no mesmo caso (2 peças)",
-  "descricao": "Auto de infração decaído (art. 173, I) e execução com ciência de não localização em 10/03/2017. O modal lista a EPE de decadência e a EPE de intercorrente.",
+  "descricao": "Auto de infração decaído (art. 173, I: fato gerador de 2010, lançamento notificado em 22/08/2016) e execução com ciência de não localização em 10/03/2020 (intercorrente consumada em 10/03/2026). O modal lista a EPE de decadência e a EPE de intercorrente.",
   "parte": {
    "tipo": "PJ",
    "nome": "COMERCIAL HORIZONTE DISTRIBUIDORA LTDA",
@@ -1714,16 +1714,16 @@
   "ente": "União",
   "orgao": "PGFN",
   "execucao": {
-   "numero": "4000002-10.2015.4.01.3300",
+   "numero": "4000002-10.2019.4.01.3300",
    "vara": "2a VARA FEDERAL DE EXECUCAO FISCAL",
    "secao": "Subsecao Judiciaria de Salvador",
-   "ajuizamento": "15/05/2015",
+   "ajuizamento": "15/05/2019",
    "despacho": null,
    "exequente": "UNIAO (FAZENDA NACIONAL)",
    "eventos": [
     {
      "categoria": "intimacao_nao_localizacao_bens",
-     "data": "10/03/2017",
+     "data": "10/03/2020",
      "objeto": "devedor_e_bens",
      "inscricao": ""
     }
@@ -1737,11 +1737,11 @@
     "inscricao": "14/05/2018",
     "periodos": [
      {
-      "periodo": "2016",
+      "periodo": "2010",
       "modalidade": "oficio",
-      "fato_gerador": "30/06/2016",
-      "vencimento": "31/07/2016",
-      "notificacao": "22/08/2023",
+      "fato_gerador": "30/06/2010",
+      "vencimento": "31/07/2010",
+      "notificacao": "22/08/2016",
       "pagamento": "não",
       "fonte_pagamento": "",
       "dolo": "não",

@@ -414,14 +414,14 @@ GFIP: 3 CDAs prescritas (ajuizamento 12/03/2019) e ciência da não localizaçã
 
 ### C02: Decadência + intercorrente no mesmo caso (2 peças)
 
-Auto de infração decaído (art. 173, I) e execução com ciência de não localização em 10/03/2017. O modal lista a EPE de decadência e a EPE de intercorrente.
+Auto de infração decaído (art. 173, I: fato gerador de 2010, lançamento notificado em 22/08/2016) e execução com ciência de não localização em 10/03/2020 (intercorrente consumada em 10/03/2026). O modal lista a EPE de decadência e a EPE de intercorrente.
 
 - Arquivo: `C02.pdf`
-- Credor: União · execução 4000002-10.2015.4.01.3300 ajuizada em 15/05/2015
+- Credor: União · execução 4000002-10.2019.4.01.3300 ajuizada em 15/05/2019
 - Parte: COMERCIAL HORIZONTE DISTRIBUIDORA LTDA
 - **Decadência:** gera a **EPE de decadência**
-  - CDA 50.400.002-1, período 2016: art. 173, I, marco 01/01/2017, termo final 01/01/2022, notificação 22/08/2023, **decaído**
+  - CDA 50.400.002-1, período 2010: art. 173, I, marco 01/01/2011, termo final 01/01/2016, notificação 22/08/2016, **decaído**
   - Pedido de **cancelamento integral** da inscrição
 - **Prescrição intercorrente:** gera a **EPE de prescrição intercorrente**
-  - Ciência em 10/03/2017, fim da suspensão em 10/03/2018, consumação em 10/03/2023; objeto: devedor_e_bens
+  - Ciência em 10/03/2020, fim da suspensão em 10/03/2021, consumação em 10/03/2026; objeto: devedor_e_bens
   - CDAs cobertas: 50.400.002-1
