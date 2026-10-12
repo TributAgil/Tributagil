@@ -372,6 +372,19 @@ describe('timbrado (cabeçalho e rodapé)', () => {
 });
 
 describe('os arquivos de template em si', () => {
+  it('nenhum .docx fica em public/ (o texto é propriedade intelectual do escritório) e só os marcados entram no deploy', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const achar = (dir) =>
+      fs.existsSync(dir)
+        ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? achar(path.join(dir, e.name)) : [path.join(dir, e.name)]))
+        : [];
+    expect(achar(path.join(process.cwd(), 'public')).filter((f) => /\.docx$/i.test(f))).toEqual([]);
+
+    const vercel = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8'));
+    expect(vercel.functions['api/gerar-peca.js'].includeFiles).toBe('templates/pecas/*.docx'); // sem /originais
+  });
+
   it('não carregam print de documento do caso original nem dados pessoais nas propriedades', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');

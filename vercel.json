@@ -13,6 +13,10 @@
     },
     "api/lu.js": {
       "maxDuration": 60
+    },
+    "api/gerar-peca.js": {
+      "maxDuration": 240,
+      "includeFiles": "templates/pecas/*.docx"
     }
   },
   "rewrites": [

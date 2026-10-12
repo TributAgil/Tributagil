@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:pecas": "vitest run --config vitest.pecas.config.js"
   },
   "dependencies": {
     "@google/genai": "^2.19.0",
