@@ -176,7 +176,35 @@ describe('contexto', () => {
   it('CNPJ é reconhecido pelos 14 dígitos', () => {
     const dados = dadosPrescricao({ executado: { nome: 'Empresa X', documento: '12.345.678/0001-90', nacionalidade: '', estado_civil: '', profissao: '', endereco: '' } });
     const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
-    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).executado_qualif_resto).toMatch(/inscrito\(a\) no CNPJ sob nº 12\.345\.678\/0001-90/);
+    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).executado_qualif_resto).toMatch(/inscrita no CNPJ sob nº 12\.345\.678\/0001-90/);
+  });
+
+  it('pessoa jurídica (CNPJ): qualificação própria, sem [PREENCHER] de nacionalidade/estado civil/profissão', () => {
+    const dados = dadosPrescricao({ executado: { nome: 'Empresa X Ltda', documento: '12.345.678/0001-90', nacionalidade: '', estado_civil: '', profissao: '', endereco: 'Rua A, 1, Salvador/BA' } });
+    const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
+    const ctx = montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA });
+    expect(ctx.executado_qualif_resto).toBe('pessoa jurídica de direito privado, inscrita no CNPJ sob nº 12.345.678/0001-90, com sede em Rua A, 1, Salvador/BA');
+    expect(ctx.executado_qualif_resto).not.toMatch(/nacionalidade|estado civil|profissão/);
+    expect(ctx.devedor_qualif_resto).toBe(ctx.executado_qualif_resto);
+    // pessoa física continua como antes
+    const pf = montarContexto({ dados: dadosPrescricao(), avaliacao: av, escritorio, agora: AGORA });
+    expect(pf.executado_qualif_resto).toMatch(/^brasileira, solteira, servidora pública, inscrito\(a\) no CPF/);
+  });
+
+  it('juízo: vara e subseção que a IA devolve juntas na "vara" não saem repetidas (EPE de prescrição e intercorrente)', () => {
+    const dados = dadosPrescricao();
+    dados.processo_execucao.vara = '2A VARA FEDERAL - SUBSECAO JUDICIARIA DE VITORIA DA CONQUISTA';
+    dados.processo_execucao.comarca_secao = '';
+    const av = avaliarPeca({ dados, tese: 'prescricao_ordinaria', conclusoesParecer: parecerFavoravel('prescricao'), agora: AGORA });
+    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).juizo).toBe('AO JUÍZO DA 2A VARA FEDERAL DE VITORIA DA CONQUISTA.');
+    expect(montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA }).juizo_intercorrente).toBe('AO JUÍZO DA 2A VARA FEDERAL DA SUBSEÇÃO JUDICIÁRIA DE VITORIA DA CONQUISTA.');
+
+    // com os campos já separados (o que o schema pede agora), o resultado é o mesmo, sem duplicar
+    dados.processo_execucao.vara = '2ª Vara Federal';
+    dados.processo_execucao.comarca_secao = 'Subseção Judiciária de Vitória da Conquista';
+    const ctx = montarContexto({ dados, avaliacao: av, escritorio, agora: AGORA });
+    expect(ctx.juizo).toBe('AO JUÍZO DA 2ª VARA FEDERAL DE VITÓRIA DA CONQUISTA.');
+    expect(ctx.juizo_intercorrente).toBe('AO JUÍZO DA 2ª VARA FEDERAL DA SUBSEÇÃO JUDICIÁRIA DE VITÓRIA DA CONQUISTA.');
   });
 });
 

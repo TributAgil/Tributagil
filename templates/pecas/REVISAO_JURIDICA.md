@@ -74,6 +74,14 @@ O nome da pessoa que figurava nas propriedades do arquivo foi retirado.
    de Renda" e em "declaração de rendimentos auferidos no ano de…". Nesta versão o sistema só troca o
    **nome da declaração** (DIRPF → DCTF, GIA, PGDAS-D, DEFIS, GFIP…) — o resto do texto continua falando
    de imposto de renda. **Confirmar o texto para outros tributos.**
+5-B. **Visto num teste com contribuições previdenciárias (GFIP, pessoa jurídica).** Além do item 5, a peça de prescrição
+   sai com "(GFIP, no caso do Imposto de Renda)" no parágrafo da Súmula 436 e, nos períodos em que a entrega é posterior
+   ao vencimento, com "A declaração de rendimentos auferidos no ano de 13/2012 foi entregue…" — trechos do modelo
+   original, escritos para DIRPF. O sistema só troca o **nome** da declaração. **Decidir** se o texto deve ser
+   adaptado por tributo (previdenciário, IRPJ, ICMS…). **Qualificação de pessoa jurídica:** quando o documento é CNPJ, o
+   sistema agora escreve "pessoa jurídica de direito privado, inscrita no CNPJ sob nº …, com sede em …" (antes saía
+   "[PREENCHER: nacionalidade], [PREENCHER: estado civil], [PREENCHER: profissão]") — é texto de qualificação, não de tese;
+   confirmar a redação.
 6. **Várias CDAs/períodos.** Cada CDA gera um bloco "Da prescrição da CDA nº…" e as figuras são numeradas
    em sequência. A frase "entre os marcos citados, X e Y" lista os pares de datas de todos os períodos
    da CDA. Conferir se a redação fica adequada quando há mais de um período.

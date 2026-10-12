@@ -70,8 +70,8 @@ export const ESQUEMA_DADOS_PECA = {
       properties: {
         numero: { type: 'STRING', description: 'Número do processo da execução fiscal, como consta. "" se não houver execução.' },
         exequente: { type: 'STRING', description: 'Exequente por extenso, como consta (ex.: "União (Fazenda Nacional)", "Estado da Bahia"). "" se não constar.' },
-        vara: { type: 'STRING', description: 'Vara, como consta (ex.: "3ª Vara Federal de Execução Fiscal"). "" se não constar.' },
-        comarca_secao: { type: 'STRING', description: 'Comarca ou seção judiciária (ex.: "Salvador/BA"). "" se não constar.' },
+        vara: { type: 'STRING', description: 'SÓ a vara, como consta (ex.: "3ª Vara Federal de Execução Fiscal"), SEM a seção/subseção/comarca (essa vai em comarca_secao). "" se não constar.' },
+        comarca_secao: { type: 'STRING', description: 'Comarca, seção ou subseção judiciária (ex.: "Salvador/BA", "Subseção Judiciária de Vitória da Conquista"). "" se não constar.' },
         data_ajuizamento: DATA_COM_FONTE,
         data_despacho_citatorio: DATA_COM_FONTE,
         data_citacao: DATA_COM_FONTE,

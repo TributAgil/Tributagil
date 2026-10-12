@@ -68,6 +68,13 @@ export function nomeArquivoPeca(template, executadoNome, agora) {
 function partesQualificacao(e, papel) {
   const doc = String(e?.documento || '').replace(/\D/g, '');
   const rotuloDoc = doc.length === 14 ? 'CNPJ' : 'CPF';
+  if (doc.length === 14) {
+    // Pessoa jurídica: nacionalidade, estado civil e profissão não existem — qualificação própria (e sem [PREENCHER] inútil).
+    return {
+      nome: v(e?.nome, `nome do ${papel}`),
+      resto: `pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${v(e?.documento, 'CNPJ')}, com sede em ${v(e?.endereco, 'endereço da sede')}`,
+    };
+  }
   return {
     nome: v(e?.nome, `nome do ${papel}`),
     resto: [
@@ -134,12 +141,37 @@ function unidadeCobranca(dados) {
   return uniao ? `DA SEÇÃO DE ${local.toUpperCase()}` : `EM ${local.toUpperCase()}`;
 }
 
-/** "SEÇÃO JUDICIÁRIA DE X" (vara federal) ou "COMARCA DE X". */
+const PREFIXO_LOCAL = /^\s*(?:da\s+|de\s+)?(?:subse[çc][ãa]o\s+judici[áa]ria|se[çc][ãa]o\s+judici[áa]ria|comarca)\s+(?:de\s+|do\s+|da\s+)?/i;
+const VARA_COM_LOCAL = /\s*[-–,]\s*((?:da\s+)?(?:subse[çc][ãa]o|se[çc][ãa]o|comarca).*)$/i;
+
+/**
+ * Separa a VARA do LOCAL (seção/subseção/comarca). A IA às vezes devolve tudo junto em `vara`
+ * ("2ª VARA FEDERAL - SUBSEÇÃO JUDICIÁRIA DE X"); sem isto o juízo sai repetido ("… DE X DA SEÇÃO JUDICIÁRIA DE X").
+ * @returns {{ vara: string, local: string, tipo: 'SUBSEÇÃO JUDICIÁRIA'|'SEÇÃO JUDICIÁRIA'|'COMARCA'|null }}
+ */
+function separarVaraELocal(processo) {
+  let vara = String(processo?.vara || '').trim();
+  let local = String(processo?.comarca_secao || '').trim();
+  let tipo = null;
+  const junto = VARA_COM_LOCAL.exec(vara);
+  if (junto) {
+    vara = vara.slice(0, junto.index).trim();
+    if (!local) local = junto[1];
+  }
+  const origem = `${local} ${junto ? junto[1] : ''}`;
+  if (/subse[çc][ãa]o/i.test(origem)) tipo = 'SUBSEÇÃO JUDICIÁRIA';
+  else if (/se[çc][ãa]o/i.test(origem)) tipo = 'SEÇÃO JUDICIÁRIA';
+  else if (/comarca/i.test(origem)) tipo = 'COMARCA';
+  local = local.replace(PREFIXO_LOCAL, '').trim();
+  return { vara, local, tipo };
+}
+
+/** "SEÇÃO/SUBSEÇÃO JUDICIÁRIA DE X" (vara federal) ou "COMARCA DE X". */
 function secaoOuComarca(dados) {
-  const local = String(dados?.processo_execucao?.comarca_secao || '').trim();
+  const { vara, local, tipo } = separarVaraELocal(dados?.processo_execucao);
   if (!local) return preencher('seção judiciária ou comarca');
-  const federal = /federal/i.test(String(dados?.processo_execucao?.vara || '')) || dados?.ente_credor?.esfera === 'União';
-  return `${federal ? 'SEÇÃO JUDICIÁRIA' : 'COMARCA'} DE ${local.toUpperCase()}`;
+  const federal = /federal/i.test(vara) || dados?.ente_credor?.esfera === 'União';
+  return `${tipo || (federal ? 'SEÇÃO JUDICIÁRIA' : 'COMARCA')} DE ${local.toUpperCase()}`;
 }
 
 const OBJETO_NAO_LOCALIZADO = {
@@ -164,8 +196,7 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
   const tese = avaliacao?.tese;
   const creditos = avaliacao?.creditos || [];
 
-  const comarca = String(processo.comarca_secao || '').trim();
-  const vara = String(processo.vara || '').trim();
+  const { vara, local: comarca } = separarVaraELocal(processo);
   const juizo = vara
     ? `AO JUÍZO DA ${vara}${comarca ? ` DE ${comarca}` : ''}.`.toUpperCase()
     : `AO JUÍZO DA ${preencher('vara federal de execução fiscal e comarca/seção')}.`;
