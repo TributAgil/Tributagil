@@ -276,7 +276,8 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
       });
 
       const nPaf = proxFig();
-      const nAju = proxFig();
+      // a Revisão PGFN não tem a figura do ajuizamento (não há execução): não gasta número, para a sequência não pular
+      const nAju = avaliacao?.template === TEMPLATES.REVISAO_PGFN_PRESCRICAO ? null : proxFig();
       const nNeg = proxFig();
       const paf = v(insc.processo_administrativo, 'nº do processo administrativo');
       const maxConsumacao = Math.max(...dosCredito.map((c) => c.consumacao.getTime()));
@@ -344,7 +345,9 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
         fato_gerador: formatarDataBR(c.fatoGerador),
         data_fato_gerador: formatarDataBR(c.fatoGerador),
         pagamento: c.pagamentoAntecipado === 'sim' ? 'REALIZADO' : 'NÃO REALIZADO',
-        doc_comprovante: preencher(`comprovante/nº do Doc. – pagamento, período ${c.periodo}`),
+        doc_comprovante: c.pagamentoAntecipado === 'sim'
+          ? preencher(`comprovante/nº do Doc. – pagamento, período ${c.periodo}`)
+          : c.fontePagamento || preencher(`nº do Doc. que comprova a ausência de pagamento (ex.: extrato da conta fiscal), período ${c.periodo}`),
         fonte_pagamento: c.fontePagamento || preencher(`documento do pagamento antecipado, período ${c.periodo}`),
         regra_150: c.regra === 'art_150_par_4',
         regra_150_4: c.regra === 'art_150_par_4',

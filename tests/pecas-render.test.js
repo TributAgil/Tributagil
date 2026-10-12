@@ -319,6 +319,12 @@ describe('renderização — EPE decadência', () => {
     expect(r.texto).toContain('em face da executada Maria Exemplo da Silva');
   });
 
+  it('sem pagamento antecipado o marcador pede o documento que comprova a ausência, não um "comprovante do pagamento"', async () => {
+    const r = await gerar({ dados: dadosDecadencia(), parecer: parecerFavoravel('decadencia'), template: TEMPLATES.EPE_DECADENCIA });
+    expect(r.texto).toContain('comprova a ausência de pagamento');
+    expect(r.texto).not.toContain('comprovante/nº do Doc. – pagamento');
+  });
+
   it('com pagamento antecipado usa o art. 150 §4º; tabela com 4 linhas por período + linha do tempo', async () => {
     const r = await gerar({ dados: dadosDecadencia({ pagamento: 'sim' }), parecer: parecerFavoravel('decadencia'), template: TEMPLATES.EPE_DECADENCIA });
     expect(r.texto).toContain('o prazo decadencial teve início em 30/06/2005 (art. 150, § 4º, do CTN), consumando-se em 30/06/2010.');
@@ -389,6 +395,13 @@ describe('renderização — Revisão de Débito Fiscal (PGFN)', () => {
       'Art. 1º (Decreto 20.910/32)',
       'Art. 1º (Decreto 9.873/99)',
     ]);
+  });
+
+  it('a numeração das figuras não pula (não há figura de ajuizamento na Revisão)', async () => {
+    const r = await gerar({ dados: dadosPrescricao({ ajuizada: false }), parecer: parecerFavoravel('prescricao'), template: TEMPLATES.REVISAO_PGFN_PRESCRICAO });
+    const nums = [...r.texto.matchAll(/Figura (\d+) -/g)].map((m) => Number(m[1]));
+    expect(nums.length).toBeGreaterThan(0);
+    expect(nums).toEqual(nums.map((_, i) => i + 1));
   });
 
   it('não tem quadro sinóptico; tabelas de prazo + linha do tempo', async () => {
