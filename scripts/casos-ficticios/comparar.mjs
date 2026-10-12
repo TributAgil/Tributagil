@@ -45,10 +45,16 @@ export function compararExtracao(esperado, obtido) {
         ['data_vencimento', 'vencimento'], ['data_entrega_declaracao', 'entrega da declaração'], ['data_fato_gerador', 'fato gerador'],
         ['data_notificacao_lancamento', 'notificação do lançamento'], ['data_decisao_anulatoria', 'decisão anulatória'],
       ]) comparaCampo(d, onde, rotulo, dtv(pe2[k]), dtv(po2[k]));
+      // Dolo e vício formal só importam para a DECADÊNCIA (lançamento de ofício). Num crédito declarado o documento
+      // não fala disso, e "não" e "não consta" dizem a mesma coisa: não se compara.
+      const declarado = pe2.modalidade_lancamento === 'homologacao_declarado';
       for (const [k, rotulo] of [
         ['houve_pagamento_antecipado', 'pagamento antecipado'], ['imputacao_dolo_fraude_simulacao', 'dolo/fraude/simulação'],
         ['lancamento_anterior_anulado_vicio_formal', 'vício formal anterior'],
-      ]) comparaCampo(d, onde, rotulo, pe2[k], po2[k]);
+      ]) {
+        if (declarado && k !== 'houve_pagamento_antecipado') continue;
+        comparaCampo(d, onde, rotulo, pe2[k], po2[k]);
+      }
     }
     for (const p of o.periodos || []) {
       if (!(e.periodos || []).some((x) => txt(x.periodo) === txt(p.periodo))) d.push({ onde: `CDA ${n}`, campo: `período ${p.periodo}`, tipo: 'inventou', esperado: '', obtido: p.periodo });

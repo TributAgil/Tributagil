@@ -66,43 +66,62 @@ async function principal() {
     process.exit(2);
   }
   const casos = JSON.parse(fs.readFileSync(path.join(aqui, 'cenarios.json'), 'utf8'));
-  const filtro = process.argv.slice(2).map((x) => x.toUpperCase());
+  const args = process.argv.slice(2);
+  const refazer = args.includes('--refazer');
+  const filtro = args.filter((x) => !x.startsWith('--')).map((x) => x.toUpperCase());
   const alvo = filtro.length ? casos.filter((c) => filtro.includes(c.id)) : casos;
 
-  const linhas = [];
+  // Cache: o que já foi lido com sucesso não é lido de novo (o plano gratuito do Gemini só dá ~20 chamadas por dia).
+  // Rode de novo no dia seguinte e ele continua de onde parou. `--refazer` ignora o cache.
+  const arqCache = path.join(pasta, 'resultado-gemini.cache.json');
+  const cache = !refazer && fs.existsSync(arqCache) ? JSON.parse(fs.readFileSync(arqCache, 'utf8')) : {};
+
+  let cotaEsgotada = false;
   for (const c of alvo) {
-    const pdf = fs.readFileSync(path.join(pasta, `${c.id}.pdf`));
-    const ctx = {};
-    let r;
-    try {
-      r = await executarCaso(c, (partes) => extrairDados({ apiKey, partes, ctx }), pdf);
-    } catch (err) {
-      console.log(`${c.id}  ERRO: ${err.message}`);
-      linhas.push({ c, erro: err.message });
+    if (cache[c.id]) {
+      console.log(`${c.id}  (já lido, usando o resultado guardado)`);
       continue;
     }
-    const ok = r.divergencias.length === 0 && r.motorOk;
-    console.log(`${c.id}  ${ok ? 'OK ' : 'DIVERGE'}  leitura: ${r.divergencias.length} divergencia(s)  motor: ${r.motorOk ? 'igual ao gabarito' : `esperado ${JSON.stringify(c.esperado)} obtido ${JSON.stringify(r.obtido)}`}  tokens: ${ctx.tokens ?? '?'}`);
-    linhas.push({ c, r, tokens: ctx.tokens });
+    if (cotaEsgotada) continue;
+    const pdf = fs.readFileSync(path.join(pasta, `${c.id}.pdf`));
+    const ctx = {};
+    try {
+      const r = await executarCaso(c, (partes) => extrairDados({ apiKey, partes, ctx }), pdf);
+      cache[c.id] = { divergencias: r.divergencias, motorOk: r.motorOk, obtido: r.obtido, tokens: ctx.tokens ?? null };
+      fs.writeFileSync(arqCache, JSON.stringify(cache, null, 1));
+      const ok = r.divergencias.length === 0 && r.motorOk;
+      console.log(`${c.id}  ${ok ? 'OK ' : 'DIVERGE'}  leitura: ${r.divergencias.length} divergencia(s)  motor: ${r.motorOk ? 'igual ao gabarito' : `esperado ${JSON.stringify(c.esperado)} obtido ${JSON.stringify(r.obtido)}`}  tokens: ${ctx.tokens ?? '?'}`);
+    } catch (err) {
+      console.log(`${c.id}  ERRO: ${err.message}`);
+      if (err.cotaEsgotada) {
+        cotaEsgotada = true; // para de chamar: o resto só gastaria cota à toa
+        console.log('Cota diária do Gemini esgotada. Parei aqui; rode de novo mais tarde (continua de onde parou).');
+      }
+    }
   }
 
-  const ok = linhas.filter((l) => l.r && l.r.divergencias.length === 0 && l.r.motorOk).length;
-  const md = [`# Resultado com o Gemini de verdade (${new Date().toISOString().slice(0, 10)})`, '', `${ok} de ${linhas.length} casos sem nenhuma divergência.`, '', '| Caso | Leitura dos fatos | Motor com o que foi lido | Tokens |', '|---|---|---|---|'];
-  for (const l of linhas) {
-    if (l.erro) { md.push(`| ${l.c.id} | ERRO | ${l.erro} | |`); continue; }
-    md.push(`| ${l.c.id} | ${l.r.divergencias.length ? `${l.r.divergencias.length} divergência(s)` : 'tudo certo'} | ${l.r.motorOk ? 'igual ao gabarito' : `DIFERENTE: esperado ${JSON.stringify(l.c.esperado)}, obtido ${JSON.stringify(l.r.obtido)}`} | ${l.tokens ?? ''} |`);
+  const feitos = alvo.filter((c) => cache[c.id]);
+  const pendentes = alvo.filter((c) => !cache[c.id]);
+  const ok = feitos.filter((c) => cache[c.id].divergencias.length === 0 && cache[c.id].motorOk).length;
+  const md = [`# Resultado com o Gemini de verdade (${new Date().toISOString().slice(0, 10)})`, '',
+    `${feitos.length} de ${alvo.length} casos lidos; ${ok} sem nenhuma divergência.${pendentes.length ? ` Faltam ${pendentes.length}: ${pendentes.map((c) => c.id).join(', ')}.` : ''}`, '',
+    '| Caso | Leitura dos fatos | Motor com o que foi lido | Tokens |', '|---|---|---|---|'];
+  for (const c of alvo) {
+    const l = cache[c.id];
+    if (!l) { md.push(`| ${c.id} | não lido ainda | | |`); continue; }
+    md.push(`| ${c.id} | ${l.divergencias.length ? `${l.divergencias.length} divergência(s)` : 'tudo certo'} | ${l.motorOk ? 'igual ao gabarito' : `DIFERENTE: esperado ${JSON.stringify(c.esperado)}, obtido ${JSON.stringify(l.obtido)}`} | ${l.tokens ?? ''} |`);
   }
-  const com = linhas.filter((l) => l.r && l.r.divergencias.length);
+  const com = feitos.filter((c) => cache[c.id].divergencias.length);
   if (com.length) {
     md.push('', '## Divergências de leitura (o que a IA leu diferente do documento)', '');
-    for (const l of com) {
-      md.push(`### ${l.c.id}: ${l.c.titulo}`, '');
-      for (const d of l.r.divergencias) md.push(`- **${d.onde}**, ${d.campo}: ${d.tipo}. Esperado \`${d.esperado}\`, a IA leu \`${d.obtido}\`.`);
+    for (const c of com) {
+      md.push(`### ${c.id}: ${c.titulo}`, '');
+      for (const d of cache[c.id].divergencias) md.push(`- **${d.onde}**, ${d.campo}: ${d.tipo}. Esperado \`${d.esperado}\`, a IA leu \`${d.obtido}\`.`);
       md.push('');
     }
   }
   fs.writeFileSync(path.join(pasta, 'RESULTADO-GEMINI.md'), md.join('\n'));
-  console.log(`\n${ok}/${linhas.length} casos sem divergência. Relatório: exemplos/casos-ficticios/RESULTADO-GEMINI.md`);
+  console.log(`\n${feitos.length}/${alvo.length} lidos, ${ok} sem divergência. Relatório: exemplos/casos-ficticios/RESULTADO-GEMINI.md`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) principal();

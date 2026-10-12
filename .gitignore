@@ -32,3 +32,5 @@ dist
 # Python (scripts/templates-pecas)
 __pycache__/
 *.pyc
+exemplos/casos-ficticios/resultado-gemini.cache.json
+exemplos/casos-ficticios/RESULTADO-GEMINI.md

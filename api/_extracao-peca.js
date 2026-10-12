@@ -51,6 +51,14 @@ export async function extrairDados({ apiKey, partes, ctx }) {
       // Corpo do erro do Gemini (ex.: schema recusado, modelo inexistente): sem isto o 400 é indecifrável nos logs.
       const detalhe = await resp.text().catch(() => '');
       console.error('[extracao-peca] Gemini erro', resp.status, detalhe.slice(0, 800));
+      // Cota DIÁRIA esgotada (plano gratuito: "retry in 10h..."): repetir só gasta mais cota. Falha na hora, com a explicação.
+      if (resp.status === 429) {
+        const espera = /retry in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s/i.exec(detalhe);
+        const segundos = espera ? (Number(espera[1] || 0) * 3600 + Number(espera[2] || 0) * 60 + Number(espera[3] || 0)) : 0;
+        if (segundos > 90) {
+          throw Object.assign(new Error(`Cota do Gemini esgotada (HTTP 429): tente de novo em ${Math.ceil(segundos / 60)} min.`), { cotaEsgotada: true });
+        }
+      }
       // só tenta de novo em erro transitório (limite de taxa / indisponibilidade)
       if (![429, 500, 502, 503].includes(resp.status)) break;
       await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
