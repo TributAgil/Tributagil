@@ -207,6 +207,8 @@ export function avaliarPeca({ dados, conclusoesParecer = [], agora = new Date() 
         const registro = {
           ...base,
           tese: 'prescricao_ordinaria',
+          entrega: parseDataBR(dataStr(p.data_entrega_declaracao)),
+          vencimento: parseDataBR(dataStr(p.data_vencimento)),
           termoInicial: calc.termoInicial,
           consumacao: calc.consumacao,
           regraTermo: calc.regraTermo,
@@ -252,6 +254,9 @@ export function avaliarPeca({ dados, conclusoesParecer = [], agora = new Date() 
           tese: 'decadencia',
           regra: calc.regra,
           fatoGerador: parseDataBR(dataStr(p.data_fato_gerador)),
+          fonteFatoGerador: fonteStr(p.data_fato_gerador),
+          fonteNotificacao: fonteStr(p.data_notificacao_lancamento),
+          pagamentoAntecipado: String(p.houve_pagamento_antecipado || '').toLowerCase(),
           marcoInicial: calc.marcoInicial,
           termoFinal: calc.termoFinal,
           notificacao,

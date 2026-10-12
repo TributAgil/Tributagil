@@ -20,7 +20,7 @@ function dadosPrescricao(extra = {}) {
     processo_execucao: { numero: '1234567-60.2025.4.01.3300', data_ajuizamento: '20/09/2025', ...(extra.processo || {}) },
     inscricoes: [
       {
-        numero_cda: '50 1 23 023733-90',
+        numero_cda: '12 3 45 678901-23',
         periodos: [
           {
             periodo: '2019',
