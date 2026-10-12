@@ -110,7 +110,7 @@ export function tratamentoProcurador(advogados) {
   const verbo = plural ? 'subscrevem' : 'subscreve';
   const generos = lista.map((a) => String(a?.genero || '').toLowerCase());
   if (n === 0 || generos.some((g) => g !== 'f' && g !== 'm')) {
-    const falta = preencher('gênero do(a) advogado(a) — preencha em "Dados do escritório"');
+    const falta = preencher('gênero do(a) advogado(a), preencha em "Dados do escritório"');
     return { tratamento_procurador: falta, subscreve_concord: verbo, constituido_concord: falta };
   }
   const masculino = generos.includes('m');
@@ -235,7 +235,7 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
 
   // ---- Linha do tempo (tabela de marcos em ordem cronológica) ----
   const marcos = [];
-  const add = (data, evento, fonte) => data && marcos.push({ ts: data.getTime(), data: formatarDataBR(data), evento, fonte: fonte || '—' });
+  const add = (data, evento, fonte) => data && marcos.push({ ts: data.getTime(), data: formatarDataBR(data), evento, fonte: fonte || 'não informada' });
 
   let figura = 0;
   const proxFig = () => ++figura;
@@ -256,8 +256,8 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
         const fonteExtrato = c.fonteVencimento || preencher('nome do arquivo do extrato');
         const nRecibo = proxFig();
         const nExtrato = proxFig();
-        add(c.termoInicial, `Termo inicial do prazo prescricional — período ${c.periodo} (${c.regraTermo === 'entrega_da_declaracao' ? `entrega da ${tipo}` : 'vencimento do tributo'})`, c.regraTermo === 'entrega_da_declaracao' ? fonteRecibo : fonteExtrato);
-        add(c.consumacao, `Consumação do prazo prescricional — período ${c.periodo}`, 'cálculo (art. 174 do CTN)');
+        add(c.termoInicial, `Termo inicial do prazo prescricional do período ${c.periodo} (${c.regraTermo === 'entrega_da_declaracao' ? `entrega da ${tipo}` : 'vencimento do tributo'})`, c.regraTermo === 'entrega_da_declaracao' ? fonteRecibo : fonteExtrato);
+        add(c.consumacao, `Consumação do prazo prescricional do período ${c.periodo}`, 'cálculo (art. 174 do CTN)');
         return {
           periodo: c.periodo,
           tipo,
@@ -321,9 +321,9 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     const termos = unicos(cdasPrescricao.flatMap((c) => c.periodos.map((p) => p.termo_inicial)));
     const consumacoes = unicos(cdasPrescricao.flatMap((c) => c.periodos.map((p) => p.consumacao)));
     contexto.quadro_sinoptico = [
-      { tese: 'Objeto da execução', fundamento: `CDA nº ${contexto.cdas_lista} — ${listaComE(tributos)}; período(s) de apuração: ${listaComE(unicos(cdasPrescricao.flatMap((c) => c.periodos.map((p) => p.periodo))))}` },
-      { tese: 'Constituição definitiva do crédito', fundamento: `Entrega da declaração ou vencimento, o que for posterior (termo inicial: ${listaComE(termos)}) — art. 174 do CTN; Súmula 436/STJ; Tema 265/STJ` },
-      { tese: 'Ajuizamento e consequência', fundamento: `Execução ajuizada em ${ajuiz ? formatarDataBR(ajuiz) : preencher('data do ajuizamento')}, após a consumação do prazo quinquenal (${listaComE(consumacoes)}) — prescrição do crédito tributário (arts. 156, V e 174 do CTN)` },
+      { tese: 'Objeto da execução', fundamento: `CDA nº ${contexto.cdas_lista}, ${listaComE(tributos)}; período(s) de apuração ${listaComE(unicos(cdasPrescricao.flatMap((c) => c.periodos.map((p) => p.periodo))))}` },
+      { tese: 'Constituição definitiva do crédito', fundamento: `Entrega da declaração ou vencimento, o que for posterior (termo inicial: ${listaComE(termos)}); art. 174 do CTN; Súmula 436/STJ; Tema 265/STJ` },
+      { tese: 'Ajuizamento e consequência', fundamento: `Execução ajuizada em ${ajuiz ? formatarDataBR(ajuiz) : preencher('data do ajuizamento')}, após a consumação do prazo quinquenal (${listaComE(consumacoes)}), com a prescrição do crédito tributário (arts. 156, V e 174 do CTN)` },
     ];
   }
 
@@ -372,10 +372,10 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
 
     for (const c of avaliados) {
       const art = c.regra === 'art_150_par_4' ? 'Art. 150, § 4º, CTN' : 'Art. 173, I, CTN';
-      add(c.fatoGerador, `Fato gerador — período ${rotuloPer(c)}`, c.fonteFatoGerador);
-      add(c.marcoInicial, `Marco inicial do prazo decadencial — período ${rotuloPer(c)} (${art})`, 'cálculo');
-      add(c.termoFinal, `Termo final do prazo decadencial — período ${rotuloPer(c)}`, 'cálculo (marco inicial + 5 anos)');
-      add(c.notificacao, `Notificação do lançamento — período ${rotuloPer(c)}`, c.fonteNotificacao);
+      add(c.fatoGerador, `Fato gerador do período ${rotuloPer(c)}`, c.fonteFatoGerador);
+      add(c.marcoInicial, `Marco inicial do prazo decadencial do período ${rotuloPer(c)} (${art})`, 'cálculo');
+      add(c.termoFinal, `Termo final do prazo decadencial do período ${rotuloPer(c)}`, 'cálculo (marco inicial + 5 anos)');
+      add(c.notificacao, `Notificação do lançamento do período ${rotuloPer(c)}`, c.fonteNotificacao);
     }
     const cdasProtestadasDec = [];
     for (const insc of dados?.inscricoes || []) {
