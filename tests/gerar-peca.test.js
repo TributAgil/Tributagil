@@ -60,7 +60,7 @@ beforeEach(() => {
     if (u.includes('/storage/v1/object/logos/')) return cenario.logo ? resp(cenario.logo, 200) : resp('', 404);
     if (u.includes('/storage/v1/object/documentos/')) return cenario.storageStatus === 200 ? resp(Buffer.from('%PDF-1.4 teste'), 200, { 'content-type': 'application/pdf' }) : resp('', cenario.storageStatus);
     if (u.includes('generativelanguage.googleapis.com')) {
-      if (cenario.geminiStatus !== 200) return resp({ error: 'x' }, cenario.geminiStatus);
+      if (cenario.geminiStatus !== 200) return resp(cenario.geminiCorpo || { error: 'x' }, cenario.geminiStatus);
       return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.dadosGemini) }] } }], usageMetadata: { totalTokenCount: 321 } });
     }
     throw new Error(`fetch inesperado: ${u}`);
@@ -307,6 +307,36 @@ describe('falhas de infraestrutura', () => {
     const r = await chamar();
     expect(r.status).toBe(502);
     expect(r.corpo.arquivo).toBeUndefined();
+  });
+
+  it('Gemini sobrecarregado (503) o tempo todo: tenta de novo e, no fim, 503 com mensagem clara e Retry-After', async () => {
+    vi.useFakeTimers();
+    try {
+      cenario = cenarioPadrao({ geminiStatus: 503, geminiCorpo: { error: { code: 503, status: 'UNAVAILABLE', message: 'high demand' } } });
+      const pendente = POST(requisicao());
+      await vi.runAllTimersAsync();
+      const r = await pendente;
+      const corpo = await r.json();
+      expect(r.status).toBe(503);
+      expect(corpo.error).toMatch(/sobrecarregado/);
+      expect(corpo.codigo).toBe('gemini_sobrecarga');
+      expect(r.headers.get('Retry-After')).toBe('120');
+      expect(corpo.arquivo).toBeUndefined();
+      // 1 tentativa + 3 repetições, só no modelo principal (sem GEMINI_MODEL_RESERVA)
+      expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cota diária do Gemini esgotada (429, retry in 10h): falha na hora, 429 com a explicação e sem repetir', async () => {
+    cenario = cenarioPadrao({ geminiStatus: 429, geminiCorpo: { error: { code: 429, message: 'Quota exceeded for metric ... limit: 20 ... Please retry in 10h13m16.34s.' } } });
+    const r = await chamar();
+    expect(r.status).toBe(429);
+    expect(r.corpo.error).toMatch(/limite de uso da IA/);
+    expect(r.corpo.error).toMatch(/11 h/);
+    expect(r.corpo.codigo).toBe('gemini_cota');
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(1);
   });
 
   it('análise sem documentos: 422', async () => {

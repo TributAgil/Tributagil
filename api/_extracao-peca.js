@@ -7,6 +7,7 @@
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
 
 import { ESQUEMA_DADOS_PECA, PROMPT_DADOS_PECA } from './_schema-dados-peca.js';
+import { chamarGemini } from './_gemini-resiliente.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 const TIMEOUT_EXTRACAO_MS = 200_000;
@@ -33,37 +34,20 @@ export async function extrairDados({ apiKey, partes, ctx }) {
       ...(thinking ? { thinkingConfig: thinking } : {}),
     },
   });
-  const url = `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const montarUrl = (m) => `${GEMINI}/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_EXTRACAO_MS);
   try {
-    let ultimo;
-    for (let tentativa = 0; tentativa < 3; tentativa++) {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo, signal: controller.signal });
-      if (resp.ok) {
-        const json = await resp.json();
-        ctx.tokens = json?.usageMetadata?.totalTokenCount ?? null;
-        const texto = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-        return JSON.parse(texto);
-      }
-      ultimo = resp.status;
-      // Corpo do erro do Gemini (ex.: schema recusado, modelo inexistente): sem isto o 400 é indecifrável nos logs.
-      const detalhe = await resp.text().catch(() => '');
-      console.error('[extracao-peca] Gemini erro', resp.status, detalhe.slice(0, 800));
-      // Cota DIÁRIA esgotada (plano gratuito: "retry in 10h..."): repetir só gasta mais cota. Falha na hora, com a explicação.
-      if (resp.status === 429) {
-        const espera = /retry in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s/i.exec(detalhe);
-        const segundos = espera ? (Number(espera[1] || 0) * 3600 + Number(espera[2] || 0) * 60 + Number(espera[3] || 0)) : 0;
-        if (segundos > 90) {
-          throw Object.assign(new Error(`Cota do Gemini esgotada (HTTP 429): tente de novo em ${Math.ceil(segundos / 60)} min.`), { cotaEsgotada: true });
-        }
-      }
-      // só tenta de novo em erro transitório (limite de taxa / indisponibilidade)
-      if (![429, 500, 502, 503].includes(resp.status)) break;
-      await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
-    }
-    throw new Error(`Gemini respondeu HTTP ${ultimo}`);
+    // Sobrecarga (502/503), limite de taxa e cota diária são tratados em api/_gemini-resiliente.js: esperas crescentes,
+    // modelo de reserva (GEMINI_MODEL_RESERVA) e, no fim, ErroGemini com a mensagem para o usuário.
+    const { resp, modelo: usado, usouReserva } = await chamarGemini({ montarUrl, corpo, modelo, signal: controller.signal, rotulo: 'extracao-peca' });
+    ctx.modelo = usado;
+    ctx.usouReserva = usouReserva;
+    const json = await resp.json();
+    ctx.tokens = json?.usageMetadata?.totalTokenCount ?? null;
+    const texto = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+    return JSON.parse(texto);
   } finally {
     clearTimeout(timer);
   }

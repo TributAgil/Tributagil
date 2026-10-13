@@ -33,6 +33,7 @@ yarn dev
 | `SUPABASE_ANON_KEY` | servidor | — | Idem `VITE_SUPABASE_ANON_KEY`, lado servidor. Recomendado. |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
 | `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash`. Use `gemini-3.1-pro-preview` **após ativar o billing** no Google Cloud (o Pro dá HTTP 429 no free tier) |
+| `GEMINI_MODEL_RESERVA` | servidor | — | Modelo de reserva (ex.: um Flash-Lite ou outro Flash). Usado só quando o principal continua sobrecarregado (502/503) depois de 3 repetições, ou com a cota diária esgotada. Vazio = sem reserva. Ver "Resistência a sobrecarga do Gemini" |
 | `GEMINI_TEMPERATURE` | servidor | — | Temperatura da geração (padrão `0.3`) |
 | `GEMINI_THINKING_LEVEL` | servidor | — | Nível de *thinking* dos modelos 3.x: `high` (padrão), `low` ou `off`. Para a forma numérica dos modelos 2.5: `budget` + `GEMINI_THINKING_BUDGET` |
 | `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento numérico de *thinking* (só vale com `GEMINI_THINKING_LEVEL=budget`) |
@@ -47,6 +48,24 @@ yarn dev
 
 Na Vercel: **Project Settings → Environment Variables** (defina para Production,
 Preview e Development).
+
+### Resistência a sobrecarga do Gemini
+
+A leitura dos documentos da peça (`api/_extracao-peca.js`) e as duas fases do parecer (`api/gemini.js`) chamam o Gemini por
+`api/_gemini-resiliente.js`, que trata os erros assim:
+
+| Situação | O que acontece |
+|---|---|
+| 503/502/500/504, 429 por minuto ou falha de rede | repete no mesmo modelo, esperando 2 s, 5 s e 12 s (respeita "retry in Ns" do Gemini, até 20 s) |
+| continua falhando e há `GEMINI_MODEL_RESERVA` | tenta o modelo de reserva (que tem fila e cota próprias) |
+| cota **diária** esgotada ("retry in 10h…") | não repete no principal; vai direto à reserva, se houver; senão falha na hora |
+| 400/401/403/404 (schema recusado, chave, modelo inexistente) | falha na hora, sem reserva: o defeito não é disponibilidade |
+| nada funcionou | o usuário vê "O Gemini (a IA do Google) está sobrecarregado neste momento. Aguarde alguns minutos e tente de novo." (HTTP 503, `Retry-After: 120`) ou "O limite de uso da IA (Gemini) foi atingido…" (HTTP 429) |
+
+O log da Vercel registra cada repetição e qual modelo atendeu (`atendido pelo modelo de reserva …`). Para ligar a reserva
+basta definir `GEMINI_MODEL_RESERVA` na Vercel e fazer um novo deploy; o modelo de reserva recebe o mesmo corpo da
+requisição (inclusive o nível de *thinking*), então escolha um modelo da mesma família.
+
 
 ## Estrutura
 

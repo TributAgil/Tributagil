@@ -46,6 +46,7 @@
 import { createHash } from 'node:crypto';
 import { MOTOR_TRIBUTAGIL } from './_motor-tributagil.js';
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
+import { chamarGemini, ErroGemini } from './_gemini-resiliente.js';
 import { ESQUEMA_PARECER, REGRA_ENUMERACAO } from './_schema-parecer.js';
 import { ESQUEMA_EXTRACAO, PROMPT_EXTRACAO } from './_schema-extracao.js';
 import { calcularPrescricaoIntercorrente, formatarMotorPrazosParaPrompt, validarConclusoesModulo4 } from './_motor-prazos.js';
@@ -373,13 +374,13 @@ async function processarAnalise(request, ctx) {
         ...(thinkingConfig ? { thinkingConfig } : {}),
       },
     });
-    const urlExtracao = `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const urlExtracao = (m) => `${GEMINI}/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const controllerExtracao = new AbortController();
     const timerExtracao = setTimeout(() => controllerExtracao.abort(), TIMEOUT_EXTRACAO_MS);
     let respostaExtracao;
     try {
-      respostaExtracao = await fetchComRetry(urlExtracao, corpoExtracao, controllerExtracao.signal);
+      respostaExtracao = await fetchComRetry(urlExtracao, corpoExtracao, controllerExtracao.signal, modelo, 'api/gemini:extracao');
     } finally {
       clearTimeout(timerExtracao);
     }
@@ -534,10 +535,10 @@ ${anexoMotorPrazos ? `\n${anexoMotorPrazos}\n` : ''}`;
     // Sem `tools`: nada de Google Search / acesso externo.
   });
 
-  const urlGemini = `${GEMINI}/v1beta/models/${modelo}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+  const urlGemini = (m) => `${GEMINI}/v1beta/models/${m}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
 
   try {
-    const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal);
+    const { resp: upstream, erro } = await fetchComRetry(urlGemini, corpoGemini, controller.signal, modelo, 'api/gemini:geracao');
     if (erro) return erro;
 
     // Validação pós-geração + confirmação de entrega: tee() ramifica o
@@ -792,35 +793,25 @@ async function validarParecerPosGeracao(stream, { motorPrazos, metadata, supabas
   }
 }
 
-// Retry só para erros transitórios: 429 (rate limit do free tier), 503 ("high
-// demand"), 500. Backoff: 2s, 5s. Compartilhado pelas duas fases — a única
-// diferença entre elas é a URL (generateContent x streamGenerateContent) e o
-// corpo, ambos montados por quem chama.
-async function fetchComRetry(url, body, signal) {
-  const ESPERAS_MS = [2000, 5000];
-  for (let tentativa = 0; ; tentativa++) {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal,
-      body,
-    });
-
-    if (resp.ok && resp.body) return { resp };
-
-    const transitorio = [429, 500, 503].includes(resp.status);
-    if (!transitorio || tentativa >= ESPERAS_MS.length) {
-      const detalhe = await resp.text().catch(() => '');
-      console.error('[api/gemini] Gemini respondeu erro', resp.status, detalhe.slice(0, 600));
-      const msg =
-        resp.status === 429
-          ? 'A IA está temporariamente sobrecarregada (limite de uso). Aguarde cerca de 1 minuto e tente de novo.'
-          : `Falha na API do Gemini (HTTP ${resp.status}).`;
-      return { erro: json({ error: msg }, resp.status === 429 ? 429 : 502) };
-    }
-
-    console.warn(`[api/gemini] HTTP ${resp.status} — retry ${tentativa + 1}/${ESPERAS_MS.length}`);
-    await new Promise((r) => setTimeout(r, ESPERAS_MS[tentativa]));
+// Chamada ao Gemini com resistência a erro (esperas crescentes + modelo de reserva GEMINI_MODEL_RESERVA): ver
+// api/_gemini-resiliente.js. Compartilhado pelas duas fases — a única diferença entre elas é a URL
+// (generateContent x streamGenerateContent) e o corpo, ambos montados por quem chama. Em falha definitiva devolve
+// `{ erro }` já como Response, com mensagem clara (503 sobrecarga, 429 limite de uso, 502 outros).
+async function fetchComRetry(montarUrl, body, signal, modelo, rotulo) {
+  try {
+    const { resp } = await chamarGemini({ montarUrl, corpo: body, modelo, signal, rotulo });
+    if (!resp.body) return { erro: json({ error: 'Falha na API do Gemini (resposta vazia).' }, 502) };
+    return { resp };
+  } catch (err) {
+    if (!(err instanceof ErroGemini)) throw err; // AbortError etc.: quem chama já trata
+    console.error(`[${rotulo}] Gemini indisponível:`, err.message);
+    return {
+      erro: json(
+        { error: err.mensagemUsuario, codigo: `gemini_${err.tipo}` },
+        err.statusHttp,
+        err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : undefined,
+      ),
+    };
   }
 }
 

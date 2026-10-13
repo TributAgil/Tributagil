@@ -34,6 +34,7 @@
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { extrairDados } from './_extracao-peca.js';
+import { ErroGemini } from './_gemini-resiliente.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
 import { avaliarPecas } from './_motor-peca.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
@@ -229,6 +230,10 @@ async function processar(request, ctx) {
   } catch (err) {
     const abortado = err?.name === 'AbortError';
     console.error('[api/gerar-peca] Falha na extração:', err);
+    // sobrecarga / cota do Gemini: mensagem clara e status certo (503 / 429), com Retry-After
+    if (err instanceof ErroGemini) {
+      return json({ error: err.mensagemUsuario, codigo: `gemini_${err.tipo}` }, err.statusHttp, err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : {});
+    }
     return json({ error: abortado ? 'Tempo limite excedido ao ler os documentos.' : 'Não foi possível ler os documentos para a peça.' }, abortado ? 504 : 502);
   }
   if (dados.alerta_ilegivel) return json({ error: dados.alerta_ilegivel }, 422);
