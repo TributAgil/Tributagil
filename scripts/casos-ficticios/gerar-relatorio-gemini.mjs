@@ -41,7 +41,12 @@ const feitos = casos.filter((c) => cache[c.id]);
 const conta = { ok: 0, leitura: 0, motor: 0, pendente: 0 };
 for (const c of casos) conta[situacao(c).chave]++;
 const tokens = feitos.map((c) => cache[c.id].tokens).filter(Boolean);
-const mediaTok = tokens.length ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : 0;
+const somaTok = tokens.reduce((a, b) => a + b, 0);
+const mediaTok = tokens.length ? Math.round(somaTok / tokens.length) : 0;
+// custo só da leitura dos documentos (a chamada que este relatório mede); preço de lista do gemini-3.5-flash:
+// US$ 1,50 por milhão de tokens de entrada e US$ 9,00 de saída. O total de tokens não separa entrada de saída,
+// então mostramos a faixa entre os dois extremos.
+const usd = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 let corpo = '';
 for (const et of ETAPAS) {
@@ -87,6 +92,7 @@ tr.etapa span{font-weight:400;color:#6b7280;font-size:12px;margin-left:8px} td.i
 <div class="cartao" style="background:#eceff1;color:#455a64"><b>${conta.pendente}</b><span>ainda não rodaram</span></div>
 <div class="cartao" style="background:#e8f0fe;color:#1a56b8"><b>${feitos.length}/${total}</b><span>rodados${mediaTok ? `, média de ${mediaTok.toLocaleString('pt-BR')} tokens` : ''}</span></div>
 </div>
+${somaTok ? `<div class="nota"><b>Gasto desta leitura:</b> ${somaTok.toLocaleString('pt-BR')} tokens em ${tokens.length} casos (média de ${mediaTok.toLocaleString('pt-BR')} por caso), o que dá <b>de US$ ${usd(somaTok * 1.5e-6)} a US$ ${usd(somaTok * 9e-6)}</b> no preço de lista. São PDFs fictícios de poucas páginas; documentos reais maiores custam mais. Não inclui a análise e o parecer.</div>` : ''}
 <div class="nota"><b>Outras verificações já feitas, sem o Gemini:</b> o motor acerta os 34 casos do gabarito; os 19 Word possíveis passam na validação estrutural; os testes automáticos do sistema passam (242).</div>
 <table><thead><tr><th>Caso</th><th>Cenário</th><th>Esperado</th><th>O que a IA leu</th><th>O que o motor concluiu</th><th>Situação</th></tr></thead><tbody>${corpo}</tbody></table>
 </body></html>`;
