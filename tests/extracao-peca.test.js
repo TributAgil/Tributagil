@@ -48,6 +48,15 @@ describe('comparador dos casos fictícios', () => {
   });
 });
 
+describe('roteiro da extração: dolo "não" só com declaração expressa', () => {
+  it('o schema e o roteiro mandam usar "não consta" quando o documento é omisso sobre multa e qualificação', () => {
+    const desc = ESQUEMA_DADOS_PECA.properties.inscricoes.items.properties.periodos.items.properties.imputacao_dolo_fraude_simulacao.description;
+    expect(desc).toMatch(/"não" SOMENTE se o documento AFIRMA expressamente/);
+    expect(desc).toMatch(/a ausência de menção NÃO é "não"/);
+    expect(PROMPT_DADOS_PECA).toMatch(/documento que não menciona multa nem qualificação é "não consta", nunca "não"/);
+  });
+});
+
 describe('roteiro da extração: ciência da Fazenda não é AR negativo', () => {
   it('o schema e o roteiro dizem que AR devolvido / certidão negativa NÃO são a ciência da Fazenda', () => {
     const desc = ESQUEMA_DADOS_PECA.properties.eventos_execucao.items.properties.categoria.description;

@@ -169,7 +169,7 @@ export const ESQUEMA_DADOS_PECA = {
                   type: 'STRING',
                   enum: ['sim', 'não', 'não consta'],
                   description:
-                    '"sim" SOMENTE se o lançamento/auto de infração IMPUTA ao contribuinte dolo, fraude ou simulação (ex.: multa qualificada de 150%). "não" quando o lançamento foi lido e não há imputação. "não consta" quando os documentos não permitem afirmar.',
+                    '"sim" SOMENTE se o lançamento/auto de infração IMPUTA ao contribuinte dolo, fraude ou simulação (ex.: multa qualificada de 150%). "não" SOMENTE se o documento AFIRMA expressamente que não há imputação ou traz a multa de ofício simples (ex.: 75%). Se o documento é omisso sobre multa e qualificação, ou não traz o auto de infração, o correto é "não consta": a ausência de menção NÃO é "não".',
                 },
                 imputacao_dolo_fraude_simulacao_fonte: { type: 'STRING', description: 'Documento lido para essa conclusão. "" se "não consta".' },
                 lancamento_anterior_anulado_vicio_formal: {
@@ -241,7 +241,7 @@ TOLERÂNCIA ZERO PARA INVENÇÃO:
 - Uma entrada em "inscricoes" para CADA CDA/inscrição presente; um item em "periodos" para CADA período de apuração dela. Nunca resuma "as demais".
 - Execução fiscal ajuizada = há número de processo de execução ou data de ajuizamento nos documentos. Se só há inscrição em dívida ativa, deixe todo "processo_execucao" vazio.
 - "eventos_interruptivos": liste TODO parcelamento, pagamento, protesto e compensação que constar do extrato de débito, do anexo de ocorrências ou dos andamentos, sem julgar se interrompem o prazo.
-- "houve_pagamento_antecipado" e "imputacao_dolo_fraude_simulacao": use "não consta" quando os documentos não permitirem afirmar. "sim" em dolo/fraude/simulação só se o lançamento IMPUTA isso expressamente ao contribuinte (ex.: multa qualificada). Cada conclusão com o documento lido em "..._fonte".
+- "houve_pagamento_antecipado" e "imputacao_dolo_fraude_simulacao": use "não consta" quando os documentos não permitirem afirmar. "sim" em dolo/fraude/simulação só se o lançamento IMPUTA isso expressamente ao contribuinte (ex.: multa qualificada). "não" em dolo/fraude/simulação só se o documento AFIRMA que não há imputação ou traz a multa de ofício simples (ex.: 75%); documento que não menciona multa nem qualificação é "não consta", nunca "não". Cada conclusão com o documento lido em "..._fonte".
 - "eventos_execucao": só para execução já ajuizada. Registre TODA ciência da Fazenda sobre não localização do devedor ou de bens (com o que não foi localizado; AR devolvido, mandado negativo ou certidão do oficial de justiça NÃO são a ciência da Fazenda: sem intimação ou ciência da Fazenda no documento, não registre o evento), TODO pedido de constrição (data do protocolo), TODA constrição efetiva e TODA citação, mesmo as antigas — a prescrição intercorrente depende de ver todos os episódios.
 - "lancamento_anterior_anulado_vicio_formal": só "sim" se um documento mostra que um lançamento anterior do mesmo período foi anulado por vício formal.
 - Se um documento estiver ilegível, preencha "alerta_ilegivel" e extraia o que for possível dos demais.`;

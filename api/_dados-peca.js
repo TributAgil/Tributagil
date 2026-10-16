@@ -25,6 +25,11 @@ export const TIPOS_EVENTO = ['parcelamento', 'pagamento', 'protesto', 'compensac
 export const CATEGORIAS_EXECUCAO = ['intimacao_nao_localizacao_bens', 'requerimento_constricao', 'penhora_constricao', 'citacao'];
 export const OBJETOS_NAO_LOCALIZADO = ['devedor', 'bens', 'devedor_e_bens', 'não consta'];
 
+const CAMPOS_DATA_PERIODO = ['data_entrega_declaracao', 'data_vencimento', 'data_fato_gerador', 'data_decisao_anulatoria', 'data_notificacao_lancamento'];
+function periodoFantasma(p) {
+  return s(p?.periodo) === '' && CAMPOS_DATA_PERIODO.every((k) => !DATA_RE.test(s(p?.[k]?.data)));
+}
+
 export function normalizarDadosPeca(bruto) {
   const b = bruto && typeof bruto === 'object' ? bruto : {};
   const proc = b.processo_execucao || {};
@@ -58,7 +63,9 @@ export function normalizarDadosPeca(bruto) {
       numero_cda: s(i?.numero_cda),
       tributo: s(i?.tributo),
       processo_administrativo: s(i?.processo_administrativo),
-      periodos: (Array.isArray(i?.periodos) ? i.periodos : []).map((p) => ({
+      // Período fantasma (sem nome e sem nenhuma data) é invenção da leitura, típica de CDA sem período no documento:
+      // descartado, senão o motor o avalia e aparece uma tese de decadência "bloqueada" sem existir nada a avaliar.
+      periodos: (Array.isArray(i?.periodos) ? i.periodos : []).filter((p) => !periodoFantasma(p)).map((p) => ({
         periodo: s(p?.periodo),
         // modalidade fora do enum fica "" — o motor trata como "não identificada" e bloqueia
         modalidade_lancamento: enumDe(p?.modalidade_lancamento, MODALIDADES, ''),

@@ -22,6 +22,23 @@ describe('normalizarDadosPeca', () => {
     expect(p.imputacao_dolo_fraude_simulacao).toBe('não consta');
   });
 
+  it('período fantasma (sem nome e sem nenhuma data) é descartado; o que tem nome ou data fica', () => {
+    const d = normalizarDadosPeca({
+      inscricoes: [{
+        numero_cda: 'X',
+        periodos: [
+          { periodo: '', modalidade_lancamento: 'oficio', imputacao_dolo_fraude_simulacao: 'não consta' },
+          { periodo: '', data_vencimento: { data: '30/06/2020', fonte: 'cda.pdf' } },
+          { periodo: '2020' },
+        ],
+      }],
+    });
+    expect(d.inscricoes[0].periodos.map((p) => p.periodo)).toEqual(['', '2020']);
+    expect(d.inscricoes[0].periodos[0].data_vencimento.data).toBe('30/06/2020');
+    // CDA sem nenhum período (caso de intercorrente): continua existindo, só que sem períodos
+    expect(normalizarDadosPeca({ inscricoes: [{ numero_cda: 'Y', periodos: [{ periodo: '' }] }] }).inscricoes[0].periodos).toEqual([]);
+  });
+
   it('data fora de DD/MM/AAAA é descartada junto com a fonte', () => {
     const d = normalizarDadosPeca({ processo_execucao: { numero: '1', data_ajuizamento: { data: '2025-09-20', fonte: 'x.pdf' }, data_citacao: { data: '20/09/2025', fonte: 'y.pdf' } } });
     expect(d.processo_execucao.data_ajuizamento).toEqual({ data: '', fonte: '' });
