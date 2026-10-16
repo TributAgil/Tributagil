@@ -1,0 +1,370 @@
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import JSZip from 'jszip';
+import { dadosPrescricao, dadosDecadencia, escritorio } from './fixtures-peca.js';
+
+// api/gerar-peca.js lê estas variáveis na importação do módulo
+process.env.GEMINI_API_KEY = 'chave-de-teste';
+process.env.SUPABASE_URL = 'https://abc123.supabase.co';
+process.env.SUPABASE_ANON_KEY = 'anon-de-teste';
+
+const USER_TOKEN = 'token-do-usuario';
+const ANALISE_ID = '11111111-2222-3333-4444-555555555555';
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+let POST;
+let chamadas;
+let cenario;
+
+const analisePadrao = () => ({
+  id: ANALISE_ID,
+  caso_id: '99999999-2222-3333-4444-555555555555',
+  payload: { documentos: [{ nome: 'cda.pdf', mime_type: 'application/pdf', storage_path: 'user-1/caso-1/cda.pdf' }] },
+  resultado: { conclusoes: [{ tipo: 'prescricao', severidade: 'favoravel', confianca: 90 }] },
+});
+
+function cenarioPadrao(extra = {}) {
+  return {
+    authOk: true,
+    analises: [analisePadrao()],
+    escritorios: [{ ...escritorio, logo_path: null }],
+    casos: [{ dados_peca: {} }],
+    dadosGemini: dadosPrescricao(),
+    storageStatus: 200,
+    geminiStatus: 200,
+    logo: null,
+    ...extra,
+  };
+}
+
+const resp = (corpo, status = 200, headers = {}) =>
+  new Response(typeof corpo === 'string' || corpo instanceof Uint8Array || Buffer.isBuffer(corpo) ? corpo : JSON.stringify(corpo), { status, headers });
+
+beforeAll(async () => {
+  ({ POST } = await import('../api/gerar-peca.js'));
+});
+
+beforeEach(() => {
+  chamadas = [];
+  cenario = cenarioPadrao();
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.stubGlobal('fetch', async (url, opcoes = {}) => {
+    const u = String(url);
+    chamadas.push({ url: u, opcoes });
+    if (u.includes('/rest/v1/rpc/rate_limit_checar')) return resp([{ ok: true }]);
+    if (u.endsWith('/auth/v1/user')) return cenario.authOk ? resp({ id: 'user-1' }) : resp({}, 401);
+    if (u.includes('/rest/v1/analises?')) return resp(cenario.analises);
+    if (u.includes('/rest/v1/escritorios')) return resp(cenario.escritorios);
+    if (u.includes('/rest/v1/casos?')) return resp(cenario.casos);
+    if (u.includes('/storage/v1/object/logos/')) return cenario.logo ? resp(cenario.logo, 200) : resp('', 404);
+    if (u.includes('/storage/v1/object/documentos/')) return cenario.storageStatus === 200 ? resp(Buffer.from('%PDF-1.4 teste'), 200, { 'content-type': 'application/pdf' }) : resp('', cenario.storageStatus);
+    if (u.includes('generativelanguage.googleapis.com')) {
+      if (cenario.geminiStatus !== 200) return resp(cenario.geminiCorpo || { error: 'x' }, cenario.geminiStatus);
+      return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.dadosGemini) }] } }], usageMetadata: { totalTokenCount: 321 } });
+    }
+    throw new Error(`fetch inesperado: ${u}`);
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+const requisicao = (corpo = { analise_id: ANALISE_ID }, { token = USER_TOKEN, ip = '1.2.3.4' } = {}) =>
+  new Request('http://localhost/api/gerar-peca', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(corpo),
+  });
+
+const chamar = async (corpo, opcoes) => {
+  const r = await POST(requisicao(corpo, opcoes));
+  return { status: r.status, corpo: await r.json() };
+};
+
+const abrir = async (arquivo) => {
+  const zip = await JSZip.loadAsync(Buffer.from(arquivo.base64, 'base64'));
+  const doc = await zip.file('word/document.xml').async('string');
+  const texto = doc.split('</w:p>').map((p) => [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('')).join('\n');
+  return { zip, doc, texto };
+};
+
+describe('autenticação e entrada', () => {
+  it('sem token: 401, sem tocar em Supabase nem Gemini', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID }, { token: '' });
+    expect(r.status).toBe(401);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+  });
+
+  it('token inválido: 401 e nenhuma chamada ao Gemini', async () => {
+    cenario = cenarioPadrao({ authOk: false });
+    const r = await chamar();
+    expect(r.status).toBe(401);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+  });
+
+  it('analise_id inválido: 400', async () => {
+    expect((await chamar({ analise_id: 'abc' })).status).toBe(400);
+    expect((await chamar({})).status).toBe(400);
+  });
+
+  it('análise de outro usuário (RLS devolve vazio): 404', async () => {
+    cenario = cenarioPadrao({ analises: [] });
+    expect((await chamar()).status).toBe(404);
+  });
+
+  it('o token do próprio usuário é usado em TODA leitura (nunca service role)', async () => {
+    await chamar();
+    const leituras = chamadas.filter((c) => c.url.includes('/rest/v1/analises') || c.url.includes('/rest/v1/escritorios') || c.url.includes('/storage/'));
+    expect(leituras.length).toBeGreaterThanOrEqual(3);
+    for (const c of leituras) expect(c.opcoes.headers.Authorization).toBe(`Bearer ${USER_TOKEN}`);
+    expect(JSON.stringify(chamadas)).not.toMatch(/service_role/i);
+  });
+});
+
+describe('caso feliz — EPE prescrição', () => {
+  it('devolve resumo e um .docx real, preenchido, com UMA chamada ao Gemini (temperatura 0, schema)', async () => {
+    const r = await chamar();
+    expect(r.status).toBe(200);
+    expect(r.corpo.status).toBe('ok');
+    expect(r.corpo.pecas).toHaveLength(1);
+    const peca = r.corpo.pecas[0];
+    expect(peca.tese).toBe('prescricao_ordinaria');
+    expect(peca.resumo.modelo).toMatch(/Exceção de Pré-Executividade — prescrição ordinária/);
+    expect(peca.resumo.tese).toBe('Prescrição ordinária');
+    expect(peca.resumo.descricao).toMatch(/Prescrição ordinária — período\(s\) 2018, 2019/);
+    expect(peca.resumo.creditos).toEqual([
+      { cda: '12 3 45 678901-23', periodo: '2018', termo_inicial: '27/01/2020', consumacao: '27/01/2025' },
+      { cda: '12 3 45 678901-23', periodo: '2019', termo_inicial: '30/06/2020', consumacao: '30/06/2025' },
+    ]);
+    expect(peca.resumo.aviso_fixo).toBe('Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.');
+    expect(peca.resumo.figuras).toBe(7);
+    expect(peca.arquivo.nome).toMatch(/^EPE_Prescricao_Maria_Exemplo_da_Silva_\d{4}-\d{2}-\d{2}\.docx$/);
+
+    const { texto } = await abrir(peca.arquivo);
+    expect(texto).toContain('AO JUÍZO DA 3ª VARA FEDERAL DE EXECUÇÃO FISCAL DE SALVADOR/BA.');
+    expect(texto).not.toContain('+++');
+
+    const g = chamadas.filter((c) => c.url.includes('generativelanguage'));
+    expect(g).toHaveLength(1);
+    const pedido = JSON.parse(g[0].opcoes.body);
+    expect(pedido.generationConfig.temperature).toBe(0);
+    expect(pedido.generationConfig.responseSchema.properties.inscricoes).toBeDefined();
+    expect(pedido.contents[0].parts.some((p) => p.inline_data?.mime_type === 'application/pdf')).toBe(true);
+  });
+
+  it('sem cadastro de escritório: gera mesmo assim, com mais [PREENCHER]', async () => {
+    const com = await chamar();
+    cenario = cenarioPadrao({ escritorios: [] });
+    const sem = await chamar();
+    expect(sem.corpo.status).toBe('ok');
+    expect(sem.corpo.pecas[0].resumo.campos_preencher).toBeGreaterThan(com.corpo.pecas[0].resumo.campos_preencher);
+    expect((await abrir(sem.corpo.pecas[0].arquivo)).texto).toContain('[PREENCHER: nome do(a) advogado(a)]');
+  });
+
+  it('com logo válido: entra no cabeçalho; logo inválido: gera sem logo e avisa', async () => {
+    cenario = cenarioPadrao({ escritorios: [{ ...escritorio, logo_path: 'user-1/logo.png' }], logo: PNG });
+    const ok = await chamar();
+    const { zip } = await abrir(ok.corpo.pecas[0].arquivo);
+    const headers = await Promise.all(['word/header1.xml', 'word/header2.xml'].map((n) => zip.file(n).async('string')));
+    expect(headers.some((h) => h.includes('<w:drawing'))).toBe(true);
+
+    cenario = cenarioPadrao({ escritorios: [{ ...escritorio, logo_path: 'user-1/logo.png' }], logo: Buffer.from('não é imagem de verdade, só texto qualquer') });
+    const ruim = await chamar();
+    expect(ruim.corpo.status).toBe('ok');
+    expect(ruim.corpo.pecas[0].resumo.avisos.join(' ')).toMatch(/logo/i);
+  });
+});
+
+describe('perfil: últimos dados utilizados (Doc. do mandato e qualificação do cliente)', () => {
+  const textoDe = async (r) => (await abrir(r.corpo.pecas[0].arquivo)).texto;
+
+  it('sem nada informado nem salvo: o Doc. do mandato fica [PREENCHER] e a resposta devolve o perfil efetivo', async () => {
+    const r = await chamar();
+    expect(await textoDe(r)).toContain('(Doc. [PREENCHER: nº do Doc. – mandato])');
+    expect(r.corpo.dados_peca_usados.doc_mandato).toBe('');
+    expect(r.corpo.dados_peca_usados.cliente.nome).toBe('Maria Exemplo da Silva');
+  });
+
+  it('o que o usuário digitou agora entra na peça e volta em dados_peca_usados (para o app gravar)', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: '04', cliente: { estado_civil: 'casada' } } });
+    const texto = await textoDe(r);
+    expect(texto).toContain('(Doc. 04)');
+    expect(texto).not.toContain('[PREENCHER: nº do Doc. – mandato]');
+    expect(texto).toContain('brasileira, casada');
+    expect(r.corpo.dados_peca_usados).toMatchObject({ doc_mandato: '04', cliente: { estado_civil: 'casada', nacionalidade: 'brasileira' } });
+  });
+
+  it('o perfil SALVO (escritório + caso) é usado quando o corpo não traz nada — sai em todas as peças seguintes', async () => {
+    cenario = cenarioPadrao({
+      escritorios: [{ ...escritorio, logo_path: null, perfil_peca: { doc_mandato: '09' } }],
+      casos: [{ dados_peca: { cliente: { profissao: 'professora' } } }],
+    });
+    const texto = await textoDe(await chamar());
+    expect(texto).toContain('(Doc. 09)');
+    expect(texto).toContain('professora');
+    expect(texto).not.toContain('servidora pública');
+  });
+
+  it('o digitado agora vence o salvo; campo em branco no formulário NÃO apaga o salvo', async () => {
+    cenario = cenarioPadrao({
+      escritorios: [{ ...escritorio, logo_path: null, perfil_peca: { doc_mandato: '09' } }],
+      casos: [{ dados_peca: { cliente: { profissao: 'professora' } } }],
+    });
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: '11', cliente: { profissao: '' } } });
+    const texto = await textoDe(r);
+    expect(texto).toContain('(Doc. 11)');
+    expect(texto).toContain('professora');
+  });
+
+  it('entrada maliciosa/lixo no dados_peca é neutralizada (sem erro e sem campo desconhecido)', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, dados_peca: { doc_mandato: 5, cliente: { nome: ['x'], __proto__: { hack: 1 }, extra: 'x' }, outro: 1 } });
+    expect(r.status).toBe(200);
+    expect(r.corpo.dados_peca_usados.cliente.extra).toBeUndefined();
+    expect(r.corpo.dados_peca_usados.doc_mandato).toBe('');
+  });
+
+  it('leitura do caso falhando não derruba a geração', async () => {
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url, o) => (String(url).includes('/rest/v1/casos?') ? resp({}, 500) : base(url, o)));
+    expect((await chamar()).corpo.status).toBe('ok');
+  });
+});
+
+describe('bloqueios e cenários sem modelo (nada de arquivo)', () => {
+  it('parcelamento no meio do prazo: bloqueia, lista o evento e não devolve arquivo', async () => {
+    const dados = dadosPrescricao();
+    dados.inscricoes[0].eventos_interruptivos = [{ tipo: 'parcelamento', data: '10/05/2022', fonte: 'extrato.pdf' }];
+    cenario = cenarioPadrao({ dadosGemini: dados });
+    const r = await chamar();
+    expect(r.status).toBe(200);
+    expect(r.corpo.status).toBe('bloqueada');
+    expect(r.corpo.pecas.every((p) => p.arquivo === undefined)).toBe(true);
+    expect(r.corpo.bloqueios.join(' ')).toMatch(/parcelamento em 10\/05\/2022/);
+  });
+
+  it('divergência com o parecer: bloqueia, mostra e LOGA', async () => {
+    cenario = cenarioPadrao({ analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'prescricao', severidade: 'desfavoravel' }] } }] });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('bloqueada');
+    expect(r.corpo.divergencias[0]).toMatch(/parecer salvo não traz conclusão favorável/);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('DIVERGÊNCIA motor da peça x parecer salvo'), expect.objectContaining({ analiseId: ANALISE_ID }));
+  });
+
+  it('decadência sem execução ajuizada: gera a Revisão de Débito Fiscal (decadência)', async () => {
+    const dados = dadosDecadencia({ ajuizada: false });
+    cenario = cenarioPadrao({ dadosGemini: dados, analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('ok');
+    expect(r.corpo.pecas).toHaveLength(1);
+    expect(r.corpo.pecas[0].template).toBe('Revisao_PGFN_decadencia');
+    expect(r.corpo.pecas[0].arquivo.nome).toMatch(/^Revisao_PGFN_Decadencia_/);
+    const { texto } = await abrir(r.corpo.pecas[0].arquivo);
+    expect(texto).toContain('PEDIDO DE REVISÃO DE DÉBITO FISCAL');
+    expect(texto).not.toContain('+++');
+  });
+
+  it('decadência COM execução: usa a EPE de decadência', async () => {
+    cenario = cenarioPadrao({ dadosGemini: dadosDecadencia(), analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('ok');
+    expect(r.corpo.pecas[0].resumo.modelo).toMatch(/decadência/);
+    expect(r.corpo.pecas[0].resumo.creditos[0]).toMatchObject({ termo_inicial: '01/01/2006', consumacao: '01/01/2011' });
+  });
+
+  it('crédito declarado: não há peça de decadência e o aviso da Súmula 436 é mostrado', async () => {
+    const dados = dadosDecadencia({ ajuizada: false });
+    dados.inscricoes[0].periodos[0].modalidade_lancamento = 'homologacao_declarado';
+    cenario = cenarioPadrao({ dadosGemini: dados, analises: [{ ...analisePadrao(), resultado: { conclusoes: [{ tipo: 'decadencia', severidade: 'favoravel' }] } }] });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('bloqueada');
+    expect(r.corpo.bloqueios.join(' ')).toMatch(/Crédito constituído por declaração do contribuinte/);
+    expect(r.corpo.pecas.every((p) => p.arquivo === undefined)).toBe(true);
+  });
+
+  it('saída malformada da IA (modalidade fora do enum, data inválida): bloqueia em vez de presumir', async () => {
+    const dados = dadosPrescricao();
+    dados.inscricoes[0].periodos[0].modalidade_lancamento = 'qualquer coisa';
+    cenario = cenarioPadrao({ dadosGemini: dados });
+    const r = await chamar();
+    expect(r.corpo.status).toBe('bloqueada');
+    expect(r.corpo.bloqueios.join(' ')).toMatch(/modalidade de lançamento não identificada/);
+  });
+});
+
+describe('falhas de infraestrutura', () => {
+  it('documento sumido do Storage: 410 com instrução, sem chamar o Gemini', async () => {
+    cenario = cenarioPadrao({ storageStatus: 404 });
+    const r = await chamar();
+    expect(r.status).toBe(410);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+  });
+
+  it('Gemini falhando (400): 502, sem arquivo', async () => {
+    cenario = cenarioPadrao({ geminiStatus: 400 });
+    const r = await chamar();
+    expect(r.status).toBe(502);
+    expect(r.corpo.arquivo).toBeUndefined();
+  });
+
+  it('Gemini sobrecarregado (503) o tempo todo: tenta de novo e, no fim, 503 com mensagem clara e Retry-After', async () => {
+    vi.useFakeTimers();
+    try {
+      cenario = cenarioPadrao({ geminiStatus: 503, geminiCorpo: { error: { code: 503, status: 'UNAVAILABLE', message: 'high demand' } } });
+      const pendente = POST(requisicao());
+      await vi.runAllTimersAsync();
+      const r = await pendente;
+      const corpo = await r.json();
+      expect(r.status).toBe(503);
+      expect(corpo.error).toMatch(/sobrecarregado/);
+      expect(corpo.codigo).toBe('gemini_sobrecarga');
+      expect(r.headers.get('Retry-After')).toBe('120');
+      expect(corpo.arquivo).toBeUndefined();
+      // 1 tentativa + 3 repetições, só no modelo principal (sem GEMINI_MODEL_RESERVA)
+      expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cota diária do Gemini esgotada (429, retry in 10h): falha na hora, 429 com a explicação e sem repetir', async () => {
+    cenario = cenarioPadrao({ geminiStatus: 429, geminiCorpo: { error: { code: 429, message: 'Quota exceeded for metric ... limit: 20 ... Please retry in 10h13m16.34s.' } } });
+    const r = await chamar();
+    expect(r.status).toBe(429);
+    expect(r.corpo.error).toMatch(/limite de uso da IA/);
+    expect(r.corpo.error).toMatch(/11 h/);
+    expect(r.corpo.codigo).toBe('gemini_cota');
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(1);
+  });
+
+  it('análise sem documentos: 422', async () => {
+    cenario = cenarioPadrao({ analises: [{ ...analisePadrao(), payload: { documentos: [] } }] });
+    expect((await chamar()).status).toBe(422);
+  });
+
+  it('extração ilegível sinalizada pelo modelo: 422 com a mensagem', async () => {
+    cenario = cenarioPadrao({ dadosGemini: { ...dadosPrescricao(), alerta_ilegivel: 'O arquivo extrato.pdf está ilegível.' } });
+    const r = await chamar();
+    expect(r.status).toBe(422);
+    expect(r.corpo.error).toBe('O arquivo extrato.pdf está ilegível.');
+  });
+});
+
+describe('política de créditos centralizada', () => {
+  it('hoje gerar a peça não consome crédito (nenhuma chamada a consumir_credito)', async () => {
+    await chamar();
+    expect(chamadas.some((c) => c.url.includes('consumir_credito'))).toBe(false);
+  });
+
+  it('se a política passar a cobrar sem a cobrança estar implementada, recusa (501) em vez de servir de graça', async () => {
+    vi.resetModules();
+    vi.doMock('../api/_politica-peca.js', () => ({ creditosParaGerarPeca: () => 1 }));
+    const { POST: POSTCobrando } = await import('../api/gerar-peca.js');
+    const r = await POSTCobrando(requisicao());
+    expect(r.status).toBe(501);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+    vi.doUnmock('../api/_politica-peca.js');
+  });
+});

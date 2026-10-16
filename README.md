@@ -33,6 +33,7 @@ yarn dev
 | `SUPABASE_ANON_KEY` | servidor | — | Idem `VITE_SUPABASE_ANON_KEY`, lado servidor. Recomendado. |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
 | `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash`. Use `gemini-3.1-pro-preview` **após ativar o billing** no Google Cloud (o Pro dá HTTP 429 no free tier) |
+| `GEMINI_MODEL_RESERVA` | servidor | — | Modelo de reserva (ex.: um Flash-Lite ou outro Flash). Usado só quando o principal continua sobrecarregado (502/503) depois de 3 repetições, ou com a cota diária esgotada. Vazio = sem reserva. Ver "Resistência a sobrecarga do Gemini" |
 | `GEMINI_TEMPERATURE` | servidor | — | Temperatura da geração (padrão `0.3`) |
 | `GEMINI_THINKING_LEVEL` | servidor | — | Nível de *thinking* dos modelos 3.x: `high` (padrão), `low` ou `off`. Para a forma numérica dos modelos 2.5: `budget` + `GEMINI_THINKING_BUDGET` |
 | `GEMINI_THINKING_BUDGET` | servidor | — | Orçamento numérico de *thinking* (só vale com `GEMINI_THINKING_LEVEL=budget`) |
@@ -47,6 +48,25 @@ yarn dev
 
 Na Vercel: **Project Settings → Environment Variables** (defina para Production,
 Preview e Development).
+
+### Resistência a sobrecarga do Gemini
+
+A leitura dos documentos da peça (`api/_extracao-peca.js`) e as duas fases do parecer (`api/gemini.js`) chamam o Gemini por
+`api/_gemini-resiliente.js`, que trata os erros assim:
+
+| Situação | O que acontece |
+|---|---|
+| 503/502/500/504, 429 por minuto ou falha de rede | repete no mesmo modelo, esperando 2 s, 5 s e 12 s (respeita "retry in Ns" do Gemini, até 20 s) |
+| continua falhando e há `GEMINI_MODEL_RESERVA` | tenta o modelo de reserva (que tem fila e cota próprias) |
+| cota **diária** esgotada ("retry in 10h…") | não repete no principal; vai direto à reserva, se houver; senão falha na hora |
+| 400/401/403/404 (schema recusado, chave, modelo inexistente) | falha na hora, sem reserva: o defeito não é disponibilidade |
+| 402 (créditos pré-pagos esgotados ou ainda não liberados após uma recarga) | repete 3 vezes; se persistir, **não** usa a reserva (o crédito é do projeto). O cliente vê só "O serviço de IA está temporariamente indisponível. Tente novamente em alguns minutos." (HTTP 503, `Retry-After: 300`), e o log da Vercel recebe `[ALERTA-GEMINI-CREDITOS]` para você buscar e recarregar o saldo |
+| nada funcionou | o usuário vê "O Gemini (a IA do Google) está sobrecarregado neste momento. Aguarde alguns minutos e tente de novo." (HTTP 503, `Retry-After: 120`) ou "O limite de uso da IA (Gemini) foi atingido…" (HTTP 429) |
+
+O log da Vercel registra cada repetição e qual modelo atendeu (`atendido pelo modelo de reserva …`). Para ligar a reserva
+basta definir `GEMINI_MODEL_RESERVA` na Vercel e fazer um novo deploy; o modelo de reserva recebe o mesmo corpo da
+requisição (inclusive o nível de *thinking*), então escolha um modelo da mesma família.
+
 
 ## Estrutura
 
@@ -1074,6 +1094,217 @@ SUPABASE_URL=https://xxxx.supabase.co \
 SUPABASE_SERVICE_ROLE_KEY=eyJ... \
 SUPABASE_ANON_KEY=eyJ... \
 node scripts/teste-rls-isolamento.mjs
+```
+
+## Motor de peças processuais (.docx editável)
+
+Gera a **peça pronta para o advogado editar e protocolar**, em `.docx` real, a partir de uma
+análise já feita e de modelos Word fornecidos pela advogada parceira: Exceção de Pré-Executividade
+(prescrição ordinária; decadência; prescrição intercorrente) e Pedido de Revisão de Débito Fiscal
+(prescrição ordinária; decadência). O parecer e o "Baixar em Word" do parecer continuam como estão. **PDF não faz parte.**
+
+**Princípio central (o mesmo do resto do sistema): a IA extrai fatos; o código calcula e decide.**
+Nenhuma data de consumação, nenhuma conclusão de "prescrito/decaído" e nenhuma escolha de modelo vem
+de texto livre do modelo de IA.
+
+```
+navegador ─(analise_id + token)→ api/gerar-peca.js
+   ├─ lê análise, cadastro do escritório e documentos (Storage) — sempre sob RLS, nunca service role
+   ├─ UMA chamada ao Gemini (temperatura 0, schema api/_schema-dados-peca.js): só fatos, cada um com fonte
+   ├─ api/_dados-peca.js     normaliza a saída (enum inválido → neutro; "não consta" nunca é presumido)
+   ├─ api/_motor-peca.js     CÓDIGO: prazos, bloqueios, coerência com o parecer, escolha do modelo
+   ├─ api/_contexto-peca.js  textos, tabelas, figuras e linha do tempo; dado ausente → [PREENCHER: …]
+   └─ api/_render-peca.js    docx-templates + destaque amarelo → { resumo, arquivo .docx }
+```
+
+**Matriz de escolha do modelo (decidida em código):**
+
+| | Execução ajuizada (há `processo_execucao`) | Só inscrição em dívida ativa |
+|---|---|---|
+| Prescrição ordinária | EPE prescrição | Revisão PGFN prescrição |
+| Decadência | EPE decadência | Revisão PGFN decadência (**novo**) |
+| Prescrição intercorrente | EPE prescrição intercorrente (**novo**) | n/a (não existe intercorrente administrativa) |
+
+**Mais de uma peça no mesmo caso:** o motor avalia **cada tese separadamente** (cada uma com seu status
+`ok` / `bloqueada` / `indisponivel`) e a API devolve uma entrada por tese em `pecas[]`, cada uma com resumo e
+arquivo. O modal lista as peças disponíveis, com um resumo de cada, e **o usuário escolhe qual baixar**.
+Os modelos **não são fundidos** e não há mais a regra "gerar a tese que abrange mais créditos". Um bloqueio
+afeta só a tese a que pertence.
+
+**Regras do motor** (testadas em `tests/motor-peca.test.js`):
+
+- **Prescrição ordinária** (art. 174 CTN, Súmula 436, Tema 265): termo inicial = a data **posterior** entre
+  vencimento e entrega da declaração; consumação = termo inicial + 5 anos (mesma data); prescrito se o
+  ajuizamento for **posterior** à consumação. Sem execução ajuizada (Revisão PGFN), aferido até a data de geração.
+- **Decadência** (vale para a EPE e para a Revisão): compara sempre com a **notificação do lançamento**
+  (`data_notificacao_lancamento`), não com o ajuizamento; decaído se a notificação for posterior ao termo final.
+  - **Art. 150, § 4º** (pagamento antecipado e sem imputação de dolo/fraude/simulação): marco = fato gerador; termo = fato gerador + 5 anos.
+  - **Art. 173, I** (sem pagamento antecipado, ou com dolo/fraude/simulação **imputado**): marco = **1º de janeiro do ano seguinte ao ano do
+    VENCIMENTO** (quando o lançamento passou a ser possível); termo = marco + 5 anos. Ex.: FG 31/12/2017, vencimento 31/01/2018 → marco
+    01/01/2019 → termo 01/01/2024. É a leitura conservadora (marco mais tardio). **Sem vencimento com fonte, não se conta pelo fato gerador:
+    bloqueia** com *"Vencimento não identificado: necessário para contar a decadência pelo art. 173, I"*.
+  - **Crédito declarado** (`homologacao_declarado`, p.ex. DCTF): não há decadência (Súmula 436/STJ) — o período é excluído e aparece o aviso
+    *"Crédito constituído por declaração do contribuinte: a tese de decadência não se aplica ao valor declarado."*; se só houver declarados, bloqueia.
+  - **Dolo/fraude/simulação imputado** (`sim`) força o art. 173, I mesmo com pagamento. Com `não consta` e art. 150 § 4º a peça é gerada, mas a
+    frase "não consta do lançamento qualquer imputação…" sai destacada com `[CONFIRMAR: …]` para o advogado conferir.
+  - **Lançamento anterior anulado por vício formal** (`sim`) **bloqueia** (art. 173, II reabre o prazo; análise manual).
+  - `decadencia_total` = todos os períodos da CDA decaídos (pedido de cancelamento integral); `decadencia_parcial` = só parte (pedido de retificação).
+- **Prescrição intercorrente**: usa **exclusivamente** `calcularPrescricaoIntercorrente()` de `api/_motor-prazos.js` (a conta não foi
+  reimplementada nem alterada). Só oferece a peça se algum grupo tem ciclo `ativo` com `reconhecida = true`; os ciclos `interrompido` viram o
+  parágrafo "episódio anterior…". Se parte das CDAs não tem prescrição reconhecida, avisa que a peça cobre só parte delas. Duas inscrições reconhecidas
+  com datas diferentes → bloqueia (o modelo trata um único episódio). **A peça não pede honorários** (Tema 1.229/STJ — ver `REVISAO_JURIDICA.md`).
+- **Tratamento do procurador** (todos os 5 modelos): `{{tratamento_procurador}}` sai do cadastro do escritório —
+  *sua advogada / seu advogado / suas advogadas / seus advogados* (misto → masculino), com o verbo (*subscreve/subscrevem*) e o particípio
+  (*constituída/o/as/os*) concordando. Gênero ausente **não é presumido**: vira `[PREENCHER]`.
+- **Bloqueio conservador:** parcelamento, pagamento, compensação ou protesto **dentro do prazo** da mesma
+  inscrição → não gera a peça, lista os eventos e manda para análise manual. (Decadência: bloqueia
+  parcelamento/compensação/protesto antes da notificação; pagamento só avisa — é ele que define o art. 150 §4º.
+  Evento **depois** da consumação vira aviso, não bloqueio: o próprio modelo diz que não interrompe.)
+- **Coerência com o parecer:** se o motor concluir o oposto das `conclusoes` salvas, não gera a peça, mostra
+  a divergência e loga (`DIVERGÊNCIA motor da peça x parecer salvo`), no mesmo espírito de `validarParecerPosGeracao`.
+- **"Não consta" nunca é presumido** (pagamento antecipado, dolo/fraude, modalidade): vira dado faltante e
+  bloqueia a peça.
+
+### Templates
+
+`templates/pecas/originais/*.docx` — os três modelos da advogada, **sem alteração**.
+`templates/pecas/*.docx` — as versões com marcadores, **geradas** por
+`python scripts/templates-pecas/gerar_templates.py` (Python 3 + `lxml`; só é preciso rodar quando um modelo mudar).
+Ficam **fora de `public/`** (o texto é propriedade intelectual do escritório): só `api/gerar-peca.js` os lê,
+via `includeFiles` em `vercel.json` (os originais nem entram no deploy). O script troca **apenas** dado do caso
+original por marcadores do `docx-templates` e falha alto se um trecho esperado não existir; não toca no texto jurídico.
+Os prints de documentos dos modelos originais (continham nome de parte de um processo real) **não vão para os templates**.
+
+Marcadores: `+++INS expr+++`, `+++IF expr+++…+++END-IF+++` (não existe ELSE: usa-se um segundo IF negado),
+`+++FOR x IN lista+++…+++END-FOR x+++`; em tabelas, `FOR`/`END-FOR` ficam **em linhas próprias** antes/depois da linha de dados.
+
+**Blocos compartilhados:** a biblioteca não inclui trechos de outro `.docx` sem quebrar a formatação, então os
+cinco modelos são independentes (os blocos que o prompt manda reaproveitar foram **copiados idênticos**, e a cópia é
+verificada nos testes comparando parágrafo a parágrafo com os originais). Os trechos duplicados estão listados em
+`templates/pecas/REVISAO_JURIDICA.md`. Os dois modelos novos são montados por `scripts/templates-pecas/novos_modelos.py`
+a partir dos mesmos modelos-base; as **minutas renderizadas com dados fictícios** para a advogada ler estão em
+`templates/pecas/minutas-para-revisao/`.
+
+**Quadros e figuras:** o fluxograma/SmartArt da EPE de prescrição virou tabela *Tese | Fundamento* (padrão da
+de decadência); a linha do tempo virou **tabela** (data | evento | documento-fonte) — editável, sem imagem.
+Figuras não são recortadas nesta versão: entra `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`.
+
+**Campos ausentes:** `[PREENCHER: o que falta]` e `[INSERIR FIGURA …]` saem **destacados em amarelo** (pós-processamento
+do XML em `api/_render-peca.js`, respeitando a ordem de elementos do `rPr`).
+
+### SQL para rodar no SQL Editor do Supabase
+
+```sql
+-- Cadastro do escritório (timbrado, fecho e assinatura das peças)
+create table if not exists public.escritorios (
+  user_id     uuid primary key references auth.users (id) on delete cascade,
+  nome        text not null check (char_length(nome) between 1 and 160),
+  cidade      text check (char_length(cidade) <= 120),
+  uf          text check (uf ~ '^[A-Za-z]{2}$'),
+  email       text check (char_length(email) <= 160),
+  site        text check (char_length(site) <= 160),
+  endereco    text check (char_length(endereco) <= 300),
+  -- logo opcional no bucket "logos"; só pode apontar para a própria pasta
+  logo_path   text check (logo_path is null or (char_length(logo_path) <= 300 and logo_path like user_id::text || '/%')),
+  -- [{ "nome": "...", "oab": "11.111", "uf": "BA", "genero": "f" | "m" }, ...]
+  -- (genero define "sua advogada"/"seu advogado"/…; é jsonb, então NÃO precisa de migração: cadastros antigos
+  --  sem "genero" continuam válidos e a peça sai com [PREENCHER: gênero…] até o usuário escolher na tela)
+  advogados   jsonb not null default '[]'::jsonb
+              check (jsonb_typeof(advogados) = 'array' and jsonb_array_length(advogados) <= 20),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.escritorios enable row level security;
+create policy "escritorios: leitura própria"     on public.escritorios for select using (auth.uid() = user_id);
+create policy "escritorios: inserção própria"    on public.escritorios for insert with check (auth.uid() = user_id);
+create policy "escritorios: atualização própria" on public.escritorios for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "escritorios: exclusão própria"    on public.escritorios for delete using (auth.uid() = user_id);
+
+-- Bucket PRÓPRIO para o logo: a limpeza diária de órfãos (scripts/limpar-orfaos-storage.mjs) apaga do
+-- bucket "documentos" tudo que não está vinculado a um caso — o logo sumiria lá.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('logos', 'logos', false, 1048576, array['image/png', 'image/jpeg'])
+on conflict (id) do nothing;
+
+create policy "logos: leitura própria" on storage.objects for select to authenticated
+  using (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "logos: envio próprio" on storage.objects for insert to authenticated
+  with check (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "logos: atualização própria" on storage.objects for update to authenticated
+  using (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "logos: exclusão própria" on storage.objects for delete to authenticated
+  using (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+```
+
+Sem esse SQL a peça ainda é gerada (cadastro ausente vira `[PREENCHER]`), mas a tela de cadastro do escritório
+não consegue salvar.
+
+### Perfil da peça: últimos dados utilizados
+
+Ao gerar uma peça, o modal mostra **Nº do Doc. do mandato** e (opcional) **dados do cliente**, já preenchidos com o que foi
+usado da última vez. O que entra na peça é gravado de volta: o Doc. do mandato no **escritório** (vale para todas as peças dele)
+e a qualificação do cliente no **caso** (vale para todas as peças do mesmo caso). Precedência: o que você digitou agora > o salvo >
+o que a IA leu dos documentos > `[PREENCHER]`; campo em branco **nunca apaga** um dado salvo. A regra está em `api/_perfil-peca.js`
+(com testes); o servidor também usa o salvo quando o formulário vem vazio. Gravação e leitura são "best-effort": se falharem, a
+peça sai normalmente.
+
+**SQL para rodar no SQL Editor do Supabase** (sem ele a peça funciona, só não "lembra"):
+
+```sql
+alter table public.escritorios add column if not exists perfil_peca jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(perfil_peca) = 'object');
+
+alter table public.casos add column if not exists dados_peca jsonb not null default '{}'::jsonb
+  check (jsonb_typeof(dados_peca) = 'object');
+
+-- casos só tinha SELECT e INSERT: o usuário precisa poder atualizar o PRÓPRIO caso (dados_peca)
+create policy "casos: atualização própria" on public.casos for update
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+```
+
+### Dependências (rodar na sua máquina — `yarn.lock`)
+
+Este repositório **não deve ser instalado com `npm`/`yarn install` fora de uma máquina com o yarn de sempre**:
+já se viu o lockfile derivar dezenas de versões transitivas. Por isso as dependências **não foram adicionadas** ao `package.json` (só ganhou o script `test:pecas`).
+A função só funciona depois de:
+
+```bash
+yarn add docx-templates jszip          # jszip já vem junto com docx-templates; declarado para não depender de hoisting
+yarn add -D vitest                     # para os testes (veja abaixo)
+```
+
+Até lá, `api/gerar-peca.js` falha ao importar (a build do front não é afetada).
+
+### Decisões desta versão
+
+- **Créditos:** gerar a peça **não consome crédito**. A regra está num lugar só — `creditosParaGerarPeca()` em
+  `api/_politica-peca.js` (hoje `0`). Se passar a cobrar sem a cobrança estar implementada, `/api/gerar-peca`
+  recusa (HTTP 501) em vez de servir de graça. Rate limit: `api/_ratelimit.js` (6/min por IP).
+- **Plano:** `podeGerarPeca(perfil)` em `src/lib/peca.js` — hoje retorna `true`. É o único ponto a mexer para limitar por plano.
+- **Persistir a extração da fase 1 (`analises.extracao`) — avaliado e NÃO feito.** Mexeria no streaming de `api/gemini.js`,
+  e mesmo persistida ela não traria os campos que a peça precisa (tipo de declaração, data de entrega, pagamento
+  antecipado, ligação fato→inscrição). A extração própria da peça continua necessária.
+- **Resumo e arquivo na mesma resposta** (em vez de "prévia" + "gerar"): a extração é a parte que custa IA; separar
+  os dois passos dobraria o custo ou exigiria cache em banco. O usuário vê o resumo e só então baixa o arquivo.
+- **Documentos sumidos do Storage** (análise sem caso, apagada pela limpeza LGPD): HTTP 410 com instrução de refazer a análise.
+- **Sem variáveis de ambiente novas.** Usa `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` já existentes.
+- **`vercel.json`:** só `api/gerar-peca.js` → `maxDuration: 240` e `includeFiles: templates/pecas/*.docx`.
+
+### Testes
+
+`tests/*.test.js` rodam em Node puro, com config própria (`vitest.pecas.config.js`), separada do
+`vitest.config.ts` (jsdom). Cobrem o motor (fixture real da EPE de prescrição + casos-limite: ajuizamento no dia da
+consumação, 29/02, data inválida, parcelamento no meio do prazo, divergência com o parecer, decadência pelas
+duas regras com marco pelo vencimento, crédito declarado, dolo imputado, vício formal, decadência parcial,
+prescrição intercorrente com ciclo interrompido, várias peças no mesmo caso), a renderização dos 5 `.docx`
+(`tests/pecas-render.test.js` e `tests/pecas-novos-modelos.test.js`: nenhum marcador sobrando, nenhum dado do caso original, **texto jurídico
+idêntico ao original parágrafo a parágrafo**, número de linhas das tabelas, destaque amarelo, várias CDAs,
+logo opcional) e o endpoint com Supabase/Gemini simulados (autenticação, RLS, bloqueios, cenário sem modelo).
+
+```bash
+yarn test:pecas        # = vitest run --config vitest.pecas.config.js
 ```
 
 ## Testes (opcional)
