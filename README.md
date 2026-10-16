@@ -60,6 +60,7 @@ A leitura dos documentos da peça (`api/_extracao-peca.js`) e as duas fases do p
 | continua falhando e há `GEMINI_MODEL_RESERVA` | tenta o modelo de reserva (que tem fila e cota próprias) |
 | cota **diária** esgotada ("retry in 10h…") | não repete no principal; vai direto à reserva, se houver; senão falha na hora |
 | 400/401/403/404 (schema recusado, chave, modelo inexistente) | falha na hora, sem reserva: o defeito não é disponibilidade |
+| 402 (créditos pré-pagos esgotados ou ainda não liberados após uma recarga) | repete 3 vezes; se persistir, **não** usa a reserva (o crédito é do projeto). O cliente vê só "O serviço de IA está temporariamente indisponível. Tente novamente em alguns minutos." (HTTP 503, `Retry-After: 300`), e o log da Vercel recebe `[ALERTA-GEMINI-CREDITOS]` para você buscar e recarregar o saldo |
 | nada funcionou | o usuário vê "O Gemini (a IA do Google) está sobrecarregado neste momento. Aguarde alguns minutos e tente de novo." (HTTP 503, `Retry-After: 120`) ou "O limite de uso da IA (Gemini) foi atingido…" (HTTP 429) |
 
 O log da Vercel registra cada repetição e qual modelo atendeu (`atendido pelo modelo de reserva …`). Para ligar a reserva

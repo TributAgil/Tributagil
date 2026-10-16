@@ -232,7 +232,7 @@ async function processar(request, ctx) {
     console.error('[api/gerar-peca] Falha na extração:', err);
     // sobrecarga / cota do Gemini: mensagem clara e status certo (503 / 429), com Retry-After
     if (err instanceof ErroGemini) {
-      return json({ error: err.mensagemUsuario, codigo: `gemini_${err.tipo}` }, err.statusHttp, err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : {});
+      return json({ error: err.mensagemUsuario, codigo: err.codigo }, err.statusHttp, err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : {});
     }
     return json({ error: abortado ? 'Tempo limite excedido ao ler os documentos.' : 'Não foi possível ler os documentos para a peça.' }, abortado ? 504 : 502);
   }

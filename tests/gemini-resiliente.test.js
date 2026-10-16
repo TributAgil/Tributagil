@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { chamarGemini, ErroGemini, MENSAGEM_SOBRECARGA, segundosDeEspera } from '../api/_gemini-resiliente.js';
+import { chamarGemini, ErroGemini, MENSAGEM_SOBRECARGA, MENSAGEM_INDISPONIVEL, MARCADOR_ALERTA_CREDITOS, segundosDeEspera } from '../api/_gemini-resiliente.js';
 
 beforeEach(() => {
   // os logs de erro/aviso são esperados nestes testes
@@ -130,6 +130,36 @@ describe('chamarGemini: cota e erros que repetir não resolve', () => {
     const ctrl = new AbortController();
     vi.stubGlobal('fetch', vi.fn(async () => { ctrl.abort(); throw Object.assign(new Error('Aborted'), { name: 'AbortError' }); }));
     await expect(chamarGemini({ ...base(), signal: ctrl.signal, dormir: semEspera() })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('chamarGemini: 402 (créditos pré-pagos)', () => {
+  const CREDITOS = () => resposta(402, { error: { code: 402, status: 'RESOURCE_EXHAUSTED', message: 'Your prepayment credits are depleted.' } });
+
+  it('402 intermitente (crédito recém-comprado ainda propagando): repete e a resposta boa é usada', async () => {
+    const chamadas = roteiro({ principal: [CREDITOS, CREDITOS, OK] });
+    const dormir = semEspera();
+    const r = await chamarGemini({ ...base(), dormir });
+    expect(r.resp.ok).toBe(true);
+    expect(chamadas.length).toBe(3);
+    expect(dormir.mock.calls.map((c) => c[0])).toEqual([2000, 5000]);
+  });
+
+  it('402 que persiste: ErroGemini "creditos", 503, sem usar a reserva, com alerta no log para o dono', async () => {
+    const chamadas = roteiro({ principal: [CREDITOS], reserva: [OK] });
+    const erro = await chamarGemini({ ...base(), modeloReserva: 'reserva', dormir: semEspera() }).catch((e) => e);
+    expect(chamadas.every((m) => m === 'principal')).toBe(true);
+    expect(chamadas.length).toBe(4);
+    expect(erro).toMatchObject({ tipo: 'creditos', statusHttp: 503, retryAfterSegundos: 300 });
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(MARCADOR_ALERTA_CREDITOS));
+  });
+
+  it('o cliente não vê "crédito", "402" nem "faturamento": só que o serviço está indisponível', async () => {
+    roteiro({ principal: [CREDITOS] });
+    const erro = await chamarGemini({ ...base(), dormir: semEspera() }).catch((e) => e);
+    expect(erro.mensagemUsuario).toBe(MENSAGEM_INDISPONIVEL);
+    expect(erro.mensagemUsuario).not.toMatch(/cr[eé]dito|402|faturamento|billing/i);
+    expect(erro.codigo).toBe('gemini_indisponivel');
   });
 });
 

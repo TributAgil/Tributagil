@@ -11,6 +11,9 @@
 // Cota DIÁRIA esgotada (plano gratuito: "retry in 10h...") NÃO é repetida no mesmo modelo, porque só gasta cota: vai
 // direto para o modelo de reserva (a cota gratuita é por modelo) e, não havendo, falha na hora.
 //
+// 402 (créditos pré-pagos esgotados ou ainda não liberados): repete como os transitórios; se persistir, o cliente vê só
+// "serviço temporariamente indisponível" e o log recebe [ALERTA-GEMINI-CREDITOS] para o dono do sistema agir.
+//
 // Erro que repetir não resolve (400 schema recusado, 401/403 chave, 404 modelo inexistente) falha na hora e NÃO aciona a
 // reserva: o defeito está na requisição ou na chave, não na disponibilidade do modelo.
 //
@@ -24,9 +27,15 @@ const TRANSITORIOS = new Set([429, 500, 502, 503, 504]);
 export const MENSAGEM_SOBRECARGA =
   'O Gemini (a IA do Google) está sobrecarregado neste momento. Aguarde alguns minutos e tente de novo.';
 
+// 402 = créditos pré-pagos do projeto esgotados (ou crédito recém-comprado que o Google ainda não propagou: logo após a
+// compra, as chamadas alternaram entre 200 e 402 por cerca de uma hora). Assunto do dono do sistema, não do cliente: o
+// cliente só vê que o serviço está indisponível; o motivo real vai para o log, com um marcador fácil de buscar.
+export const MENSAGEM_INDISPONIVEL = 'O serviço de IA está temporariamente indisponível. Tente novamente em alguns minutos.';
+export const MARCADOR_ALERTA_CREDITOS = '[ALERTA-GEMINI-CREDITOS]';
+
 export class ErroGemini extends Error {
   /**
-   * @param {'sobrecarga'|'cota'|'erro'} tipo
+   * @param {'sobrecarga'|'cota'|'creditos'|'erro'} tipo
    * @param {number} statusGemini  status HTTP que o Gemini devolveu (0 = falha de rede)
    * @param {object} [extras]      { segundos } para cota
    */
@@ -42,12 +51,13 @@ export class ErroGemini extends Error {
   /** Status HTTP que o NOSSO endpoint devolve ao navegador. */
   get statusHttp() {
     if (this.tipo === 'cota') return 429;
-    if (this.tipo === 'sobrecarga') return 503;
+    if (this.tipo === 'sobrecarga' || this.tipo === 'creditos') return 503;
     return 502;
   }
 
   get mensagemUsuario() {
     if (this.tipo === 'sobrecarga') return MENSAGEM_SOBRECARGA;
+    if (this.tipo === 'creditos') return MENSAGEM_INDISPONIVEL;
     if (this.tipo === 'cota') {
       const quando = this.segundos > 0 ? ` Tente de novo em cerca de ${duracaoPorExtenso(this.segundos)}.` : ' Tente de novo mais tarde.';
       return `O limite de uso da IA (Gemini) foi atingido.${quando}`;
@@ -55,9 +65,15 @@ export class ErroGemini extends Error {
     return `Falha na API do Gemini (HTTP ${this.statusGemini}).`;
   }
 
+  /** Código estável para o navegador. Crédito esgotado não é exposto ao cliente: aparece como "indisponível". */
+  get codigo() {
+    return this.tipo === 'creditos' ? 'gemini_indisponivel' : `gemini_${this.tipo}`;
+  }
+
   /** Cabeçalho Retry-After (segundos) para o navegador, quando faz sentido. */
   get retryAfterSegundos() {
     if (this.tipo === 'sobrecarga') return 120;
+    if (this.tipo === 'creditos') return 300;
     if (this.tipo === 'cota' && this.segundos > 0) return Math.min(this.segundos, 3600);
     return 0;
   }
@@ -109,6 +125,14 @@ async function tentarModelo({ url, corpo, signal, esperasMs, dormir, rotulo, mod
     if (resp.status === 429 && dica > COTA_DIARIA_MIN_SEGUNDOS) {
       return { falha: { tipo: 'cota', status: 429, segundos: dica } };
     }
+    // 402: tenta de novo (a propagação do crédito é intermitente); se persistir, vira "creditos" e NÃO aciona a reserva,
+    // porque o crédito é do projeto e o modelo de reserva cai no mesmo 402.
+    if (resp.status === 402) {
+      if (tentativa >= esperasMs.length) return { falha: { tipo: 'creditos', status: 402, segundos: 0 } };
+      console.warn(`[${rotulo}] HTTP 402 em ${modelo}: nova tentativa ${tentativa + 1}/${esperasMs.length} em ${esperasMs[tentativa]} ms`);
+      await dormir(esperasMs[tentativa], signal);
+      continue;
+    }
     if (!TRANSITORIOS.has(resp.status)) return { falha: { tipo: 'erro', status: resp.status, segundos: 0 } };
     if (tentativa >= esperasMs.length) return { falha: { tipo: resp.status === 429 ? 'cota' : 'sobrecarga', status: resp.status, segundos: dica } };
 
@@ -149,8 +173,11 @@ export async function chamarGemini({
     }
     if (i === 0) falhaPrincipal = r.falha;
     else console.error(`[${rotulo}] modelo de reserva ${m} também falhou: ${r.falha.tipo} HTTP ${r.falha.status}`);
-    // defeito da requisição/chave: a reserva não resolveria
-    if (i === 0 && r.falha.tipo === 'erro') break;
+    // defeito da requisição/chave (ou crédito do projeto, que a reserva também usaria): a reserva não resolveria
+    if (i === 0 && (r.falha.tipo === 'erro' || r.falha.tipo === 'creditos')) break;
+  }
+  if (falhaPrincipal.tipo === 'creditos') {
+    console.error(`${MARCADOR_ALERTA_CREDITOS} [${rotulo}] O Gemini recusou a chamada com HTTP 402 depois de todas as tentativas: créditos pré-pagos esgotados ou ainda não liberados. Confira o saldo em aistudio.google.com > Faturamento e recarregue.`);
   }
   throw new ErroGemini(falhaPrincipal.tipo, falhaPrincipal.status, { segundos: falhaPrincipal.segundos });
 }

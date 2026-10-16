@@ -807,7 +807,7 @@ async function fetchComRetry(montarUrl, body, signal, modelo, rotulo) {
     console.error(`[${rotulo}] Gemini indisponível:`, err.message);
     return {
       erro: json(
-        { error: err.mensagemUsuario, codigo: `gemini_${err.tipo}` },
+        { error: err.mensagemUsuario, codigo: err.codigo },
         err.statusHttp,
         err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : undefined,
       ),
