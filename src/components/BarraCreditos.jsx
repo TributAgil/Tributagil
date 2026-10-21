@@ -22,6 +22,7 @@ const NOMES_PLANO = {
   starter: 'Plano Starter',
   business: 'Plano Business',
   business_pro: 'Plano Business Pro',
+  dedicado: 'Plano Dedicado',
 
   essencial: 'Plano Essencial',
   profissional: 'Plano Profissional',
