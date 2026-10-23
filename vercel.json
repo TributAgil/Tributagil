@@ -17,6 +17,9 @@
     "api/gerar-peca.js": {
       "maxDuration": 240,
       "includeFiles": "templates/pecas/*.docx"
+    },
+    "api/localizar-figuras.js": {
+      "maxDuration": 150
     }
   },
   "rewrites": [
