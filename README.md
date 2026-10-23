@@ -744,37 +744,51 @@ qualquer falha parcial:
    segurança final: mesmo que duas chamadas rodem em paralelo (corrida, dois
    cliques), nunca duplica linha.
 
-### 5. Custo do Lu — teto de 10 perguntas por CONSULTA DE ANÁLISE
+### 5. Custo do Lu: perguntas prontas sem IA e 5 perguntas com IA por CONSULTA
 
-Metodologia fechada: a cota é por **consulta** (cada linha de `analises` —
-a análise original e cada reanálise, já que cada uma consome 1 crédito
-próprio), não por caso. `analises.perguntas_lu_disponiveis` nasce em 10 em
-TODA análise nova, incluindo reanálises do mesmo caso — nunca é
-compartilhada entre versões. Exemplo: um plano de 100 consultas dá
-100 × 10 = **1000 perguntas ao Lu no total**, 10 por consulta individual.
+O Lu tem duas famílias de pergunta. A cota só vale para a segunda.
 
-- **Só uma pergunta RESPONDIDA COM SUCESSO consome 1 da cota.** Um "não sei"
-  por falta de contexto (nenhum documento do caso encontrado na busca —
-  ver "Exigência de documento" abaixo — ou legislação sem correspondência)
-  e qualquer erro do sistema (falha do Gemini, sessão caída, etc.) **não**
-  descontam — `/api/lu` só chama `decrementar_pergunta_lu` no fim do
-  caminho feliz, depois de já ter gerado a resposta.
-- **Contador fixo e visível** no cabeçalho da aba do Lu (`ChatLu.jsx`):
-  mostra "N de 10 perguntas desta consulta" com uma barra de decaimento,
-  atualizado a cada resposta. Ao chegar em 0, a caixa de pergunta é
-  desabilitada com uma mensagem explicando que uma reanálise (nova consulta)
-  dá outras 10 — sem chamar a IA à toa.
-- **Exigência de documento:** `/api/lu` só gera resposta quando a busca
-  encontra pelo menos 1 chunk de DOCUMENTO do caso com boa correspondência —
-  legislação sozinha (sem nenhum documento relevante) não é suficiente. Evita
-  que o Lu vire uma busca de legislação genérica desvinculada do caso,
-  consumindo a cota à toa com perguntas sem relação com os autos.
+- **Perguntas prontas (14, sem IA e sem cota).** Ficam na tela inicial do chat
+  e são respondidas só por código (`src/lib/luPreMontadas.js`), a partir do
+  parecer (`analises.resultado`) e do resumo da última peça gerada
+  (`analises.peca_resumo`). Resposta imediata, sem rede, sem Gemini, sem
+  desconto. Cada afirmação traz uma citação `[n]` que aponta para o item do
+  parecer ou da peça de onde saiu o dado. Frentes: fundamentação legal,
+  conferência de dados, estratégia processual e peça.
+- **Perguntas com IA (campo livre e 5 sugestões), 5 por consulta.** A cota é por
+  **consulta** (cada linha de `analises`), não por caso. Consultas antigas que
+  nasceram com 10 passam a valer no máximo 5 (o código limita com `Math.min`).
+  Só uma resposta **gerada com ao menos uma citação válida** consome 1 da cota.
+  Recusa ("não possuo essa informação"), resposta sem fonte conferida, "não
+  sei" por falta de fonte do caso e qualquer erro do sistema **não** descontam.
+  Ao chegar em 0, só o campo livre e as sugestões com IA são desabilitados; as
+  perguntas prontas seguem liberadas.
+- **Fontes do Lu.** O contexto enviado ao modelo é numerado: `[D#]` trechos de
+  documentos do caso, `[P#]` parecer, `[A#]` resumo da peça, `[L#]` legislação.
+  O modelo cita por esses identificadores e o servidor confere
+  (`api/_lu-citacoes.js`): identificador inventado é apagado, os números são
+  refeitos por ordem de aparição (`[1]`, `[2]`) e só voltam à tela as fontes
+  realmente citadas. Fonte com documento abre o PDF na página citada
+  (`VisorFonte.jsx`).
+- **Exigência de fonte do caso.** `/api/lu` só gera resposta quando há pelo
+  menos 1 fonte do CASO (trecho de documento, parecer ou resumo da peça).
+  Legislação sozinha não basta.
+- **Resumo da peça.** Ao gerar a peça, o navegador grava em
+  `analises.peca_resumo` só nomes, números e avisos (nunca o arquivo nem o texto
+  dos modelos). Sem peça, o chat mostra um aviso esmaecido e o Lu responde só com
+  o parecer. **Migração pendente de autorização:**
+  `docs/migracoes/2026-10-23-lu-peca-resumo-e-cota-5.sql` (coluna `peca_resumo`
+  e novo padrão 5 da cota). Enquanto não rodar, o código funciona: lê sem a
+  coluna e limita a cota a 5.
+- **Resistência a falhas.** A geração usa `chamarGemini` (retentativas em
+  502/503, proteção do 402), igual ao motor de peças.
+- **Medição com o Gemini real:** `node scripts/lu/medir-citacoes.mjs P03`
+  (18 perguntas, com e sem peça): 16 com citação válida, 2 recusas corretas, 0
+  identificador inventado.
 - **Ponto único para religar um teto diferente por plano depois:** tanto
   `/api/lu.js` quanto `/api/indexar-caso.js` passam por
   `chatbotLiberadoParaPerfil()` em `api/_chatbot-acesso.js`, que hoje sempre
-  libera. Quando a segmentação de planos existir (ex.: plano "com chatbot" x
-  "sem chatbot", ou tetos diferentes por plano), o corte entra só ali —
-  nenhum outro lugar do código precisa mudar.
+  libera.
 
 ## Storage — bucket `documentos`
 

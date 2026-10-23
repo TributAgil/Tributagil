@@ -111,6 +111,14 @@ describe('api/lu', () => {
     expect(rpcs).not.toContain('decrementar_pergunta_lu');
   });
 
+  it('recusa explícita sem citação não é falha de fonte: não marca e não desconta', async () => {
+    gemini.texto = 'Não possuo essa informação. O contexto cobre só o parecer e os documentos do caso.';
+    const j = await (await pedir('Qual o IPCA de 2020?')).json();
+    expect(j.semFonteConferida).toBe(false);
+    expect(j.fontes).toEqual([]);
+    expect(rpcs).not.toContain('decrementar_pergunta_lu');
+  });
+
   it('sem documento mas com parecer: ainda responde', async () => {
     docs = [];
     const j = await (await pedir()).json();

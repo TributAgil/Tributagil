@@ -66,7 +66,7 @@ const RESPOSTA_LIMITE_ATINGIDO =
   'Você já usou as 5 perguntas com IA disponíveis para esta consulta. As perguntas prontas continuam liberadas, ' +
   'e uma reanálise deste caso (nova consulta) dá outras 5.';
 
-const SYSTEM_LU = `Você é Lu, o assistente jurídico do TributÁgil. Trate o usuário com cordialidade profissional, no tratamento masculino ao se referir a si mesmo.
+export const SYSTEM_LU = `Você é Lu, o assistente jurídico do TributÁgil. Trate o usuário com cordialidade profissional, no tratamento masculino ao se referir a si mesmo.
 
 Você é o melhor assistente possível para um advogado tributarista: conhece a fundo a legislação tributária sobre prescrição e decadência e os documentos DESTE caso específico — e nada além disso. Tom técnico e direto, sem enrolação; seja didático quando o usuário pedir uma explicação mais simples.
 
@@ -78,7 +78,8 @@ REGRAS INEGOCIÁVEIS:
 5. Documentos do caso são os blocos [D#] (a citação já indica documento e página). O parecer são os blocos [P#]. O resumo da peça são os blocos [A#]. Legislação são os blocos [L#].
 6. NÃO escreva uma seção "Fontes consultadas": a tela já mostra as fontes a partir das suas citações.
 7. Se a peça não foi gerada (aviso no contexto), diga isso quando perguntarem sobre ela.
-8. Nunca use travessão. Seja direto.`;
+8. Nunca use travessão. Seja direto.
+9. Se o contexto não tiver a informação pedida, comece a resposta exatamente com "Não possuo essa informação" e explique em uma frase o que o contexto cobre.`;
 
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -220,8 +221,10 @@ export async function POST(request) {
     // ---- Conferência das citações em código ----
     const conferida = conferirCitacoes(texto, contexto.blocos);
     if (conferida.semFonte) {
-      // Nenhuma citação válida: a resposta aparece marcada e NÃO desconta da cota
-      return json({ resposta: conferida.texto, fontes: [], semFonteConferida: true, perguntasDisponiveis: disponiveisAntes }, 200);
+      // Nenhuma citação válida: NÃO desconta da cota. Recusa explícita ("Não possuo essa informação") não é falha de
+      // fonte; qualquer outra resposta sem citação aparece marcada como "sem fonte conferida".
+      const recusa = /^\s*Não possuo essa informação/i.test(conferida.texto);
+      return json({ resposta: conferida.texto, fontes: [], semFonteConferida: !recusa, perguntasDisponiveis: disponiveisAntes }, 200);
     }
     const fontes = conferida.usados.map((b, i) => fonteParaCliente(b, i + 1));
 

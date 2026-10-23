@@ -1,6 +1,6 @@
-# Lu: respostas com fonte conferida e ligação ao parecer e à peça
+﻿# Lu: respostas com fonte conferida e ligação ao parecer e à peça
 
-Data: 23/10/2026 · Branch: `feat/lu-novo` (a main não é mexida) · Estado: desenho aprovado em conversa, aguardando revisão desta especificação.
+Data: 23/10/2026 · Branch: `feat/lu-novo` (a main não é mexida) · Estado: implementada na `feat/lu-novo` (plano em `docs/superpowers/plans/2026-10-23-lu-fontes-e-peca.md`). Falta só a migração do banco, que aguarda autorização.
 
 ## Objetivo
 
@@ -20,7 +20,9 @@ Este trabalho muda três coisas:
 - Sem peça gerada, o Lu responde só com o parecer e mostra um aviso discreto (texto em opacidade reduzida): "Nenhuma peça foi gerada para esta consulta ainda."
 - Cota: 5 perguntas de IA por consulta (antes 10). Perguntas pré-montadas não contam.
 
-## 1. Perguntas pré-montadas (sem IA)
+## 1. Perguntas pré-montadas (sem IA), 14 no catálogo
+
+As perguntas 5 ("em que documento consta") viraram quatro: citação, ajuizamento, notificação e inscrição.
 
 Rodam no navegador, sobre o parecer (`analises.resultado`) e o resumo da peça. Resposta instantânea, custo zero, sem rate limit, sem desconto de cota. O resultado é sempre o mesmo para o mesmo parecer, o que também as torna testáveis em código.
 
@@ -112,7 +114,15 @@ Basta ter pelo menos uma fonte do próprio caso (documento, parecer ou peça). L
 - Destacar o trecho com uma caixa sobre a página do documento.
 - Mudança do comportamento da main: tudo na `feat/lu-novo`, até você pedir o merge.
 
-## 7. Pontos a confirmar na revisão
+## 7. Resultado (23/10/2026)
+
+- Cota de IA: 5 por consulta, confirmada pelo Luan. Sugestões clicáveis gastam 1 da cota.
+- Resumo da peça: `{ gerada_em, pecas: [{ modelo, tese, descricao, data_referencia, campos_preencher, figuras, a_confirmar, avisos }] }`, gravado pelo navegador.
+- Recusa explícita do modelo ("Não possuo essa informação") não é tratada como falha de fonte: não é marcada e não desconta.
+- Medição com o Gemini real (caso P03, 18 perguntas, com e sem peça): 16 respostas com citação válida, 2 recusas corretas (pergunta fora do contexto), 0 identificador inventado, pergunta sobre a peça respondida corretamente nos dois contextos. Testes: 367 passando.
+- Pendente: migração `docs/migracoes/2026-10-23-lu-peca-resumo-e-cota-5.sql` em produção (só com autorização expressa) e merge da `feat/lu-novo` na main (só quando o Luan pedir).
+
+## 8. Pontos que foram confirmados na revisão
 
 1. Cota de IA em 5: confirma o número, ou prefere outro?
 2. "5 perguntas com IA" é a cota do campo livre mais as sugestões clicáveis da seção 2 (cada uma gastando 1 da cota)? Foi assim que interpretei.
