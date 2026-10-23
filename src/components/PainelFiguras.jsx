@@ -134,6 +134,7 @@ export default function PainelFiguras({ analiseId, figuras, arquivo = null, titu
   const figuraAtual = figuras.find((f) => f.numero === selecionada) || figuras[0];
 
   const baixarZip = async () => {
+    if (!resumo.completo) return;
     // JSZip só é baixado quando o advogado pede o .zip
     const { default: JSZip } = await import('jszip');
     const zip = new JSZip();
@@ -148,6 +149,7 @@ export default function PainelFiguras({ analiseId, figuras, arquivo = null, titu
 
   // Etapa (d): o Word sai com as imagens confirmadas no lugar dos marcadores; as demais ficam como marcador amarelo
   const baixarWord = async () => {
+    if (!resumo.completo) return;
     setMontando(true);
     setAvisoWord('');
     try {
@@ -158,7 +160,7 @@ export default function PainelFiguras({ analiseId, figuras, arquivo = null, titu
       baixarBlob(r.blob, r.nome);
       setAvisoWord(
         r.restantes.length > 0
-          ? `Word baixado com ${r.inseridas.length} figura(s). ${r.restantes.length} continua(m) como marcador amarelo para você preencher.`
+          ? `Word baixado com ${r.inseridas.length} figura(s). ${r.restantes.length} não pôde(ram) ser inserida(s) e continua(m) como marcador amarelo.`
           : `Word baixado com as ${r.inseridas.length} figura(s) nos lugares.`,
       );
     } catch (err) {
@@ -333,23 +335,25 @@ export default function PainelFiguras({ analiseId, figuras, arquivo = null, titu
               </p>
               <button
                 onClick={baixarZip}
-                disabled={resumo.confirmadas === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-parchment/80 bg-ink-700 hover:bg-ink-600 rounded-xl disabled:opacity-40"
+                disabled={!resumo.completo}
+                title={resumo.completo ? undefined : 'Disponível depois de confirmar todas as figuras'}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-parchment/80 bg-ink-700 hover:bg-ink-600 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Download size={14} /> Baixar as imagens (.zip)
               </button>
               {arquivo && (
                 <button
                   onClick={baixarWord}
-                  disabled={resumo.confirmadas === 0 || montando}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl disabled:opacity-40"
+                  disabled={!resumo.completo || montando}
+                  title={resumo.completo ? undefined : 'Disponível depois de confirmar todas as figuras'}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {montando ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} Baixar o Word com as figuras
                 </button>
               )}
-              {(avisoWord || (arquivo && resumo.confirmadas > 0 && resumo.faltam > 0)) && (
+              {(avisoWord || !resumo.completo) && (
                 <p className="basis-full text-right text-xs text-parchment/60" aria-live="polite">
-                  {avisoWord || `${resumo.faltam} figura(s) sem imagem ficam no Word como marcador amarelo.`}
+                  {avisoWord || `Os downloads são liberados quando as ${resumo.total} figura(s) forem analisadas e confirmadas (faltam ${resumo.faltam}).`}
                 </p>
               )}
             </div>
