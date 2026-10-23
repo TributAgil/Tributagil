@@ -20,7 +20,8 @@ import { LEGISLACAO_TRIBUTAGIL } from '../api/_legislacao-tributagil.js';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODELO_EMBEDDING = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+// mesmo modelo de api/_embeddings.js (o text-embedding-004 foi desativado pelo Google)
+const MODELO_EMBEDDING = ['text-embedding-004', 'embedding-001', 'embedding-gecko-001'].includes(process.env.GEMINI_EMBEDDING_MODEL) || !process.env.GEMINI_EMBEDDING_MODEL ? 'gemini-embedding-001' : process.env.GEMINI_EMBEDDING_MODEL;
 const DIMENSOES = 768;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !GEMINI_API_KEY) {

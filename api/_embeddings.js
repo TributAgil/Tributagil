@@ -4,13 +4,25 @@
 // /api/indexar-caso (chunks de documentos + legislação). Usa o mesmo
 // GEMINI_API_KEY do motor de análise — nenhuma credencial nova.
 //
-// Modelo: text-embedding-004 (768 dimensões) — precisa bater com o `vector(768)`
-// das colunas `embedding` no Supabase (ver README).
+// Modelo: gemini-embedding-001 com outputDimensionality 768 — precisa bater com o
+// `vector(768)` das colunas `embedding` no Supabase (ver README). O antigo
+// text-embedding-004 foi desativado pelo Google (HTTP 404): se a variável
+// GEMINI_EMBEDDING_MODEL ainda o trouxer, é ignorada e vale o padrão.
 //
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
-const MODELO_EMBEDDING = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+const MODELO_PADRAO = 'gemini-embedding-001';
+const MODELOS_DESATIVADOS = new Set(['text-embedding-004', 'embedding-001', 'embedding-gecko-001']);
+export const MODELO_EMBEDDING = (() => {
+  const pedido = String(process.env.GEMINI_EMBEDDING_MODEL || '').trim();
+  if (!pedido) return MODELO_PADRAO;
+  if (MODELOS_DESATIVADOS.has(pedido)) {
+    console.warn(`[_embeddings] GEMINI_EMBEDDING_MODEL=${pedido} foi desativado pelo Google: usando ${MODELO_PADRAO}.`);
+    return MODELO_PADRAO;
+  }
+  return pedido;
+})();
 export const DIMENSOES_EMBEDDING = 768;
 
 /**
