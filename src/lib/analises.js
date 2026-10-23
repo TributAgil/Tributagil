@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { removerDocumentos } from './storageDocumentos';
 import { criarCaso } from './casos';
+import { LIMITE_PERGUNTAS_IA } from './luPreMontadas';
 
 /** Extrai os storage_path dos documentos de um registro/payload de análise. */
 export function caminhosDocumentos(registroOuPayload) {
@@ -199,7 +200,7 @@ export async function salvarObservacoes(id, texto) {
 
 /**
  * Saldo de perguntas ao Lu disponíveis para ESTA consulta de análise (teto
- * de 10, decrescente, por linha de `analises` — não por caso; uma
+ * de 5 perguntas com IA, decrescente, por linha de `analises` — não por caso; uma
  * reanálise tem sua própria cota nova. Ver README, "Custo do Lu"). Leitura
  * direta, coberta pela policy de SELECT de `analises`; não gasta nenhuma
  * chamada de IA.
@@ -217,9 +218,21 @@ export async function buscarPerguntasLuDisponiveis(analiseId) {
       console.warn('[analises] Falha ao buscar cota de perguntas do Lu:', error.message);
       return null;
     }
-    return Number.isFinite(data?.perguntas_lu_disponiveis) ? data.perguntas_lu_disponiveis : null;
+    return Number.isFinite(data?.perguntas_lu_disponiveis) ? Math.min(data.perguntas_lu_disponiveis, LIMITE_PERGUNTAS_IA) : null;
   } catch (err) {
     console.error('[analises] Erro inesperado ao buscar cota de perguntas do Lu:', err);
+    return null;
+  }
+}
+
+/** Resumo da última peça gerada nesta consulta (analises.peca_resumo). null = nenhuma peça ou migração pendente. */
+export async function buscarPecaResumoLu(analiseId) {
+  if (!analiseId) return null;
+  try {
+    const { data, error } = await supabase.from('analises').select('peca_resumo').eq('id', analiseId).single();
+    if (error) return null; // coluna ainda não existe: o Lu segue sem peça
+    return data?.peca_resumo || null;
+  } catch {
     return null;
   }
 }

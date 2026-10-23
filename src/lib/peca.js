@@ -80,3 +80,43 @@ export function baixarArquivo({ nome, mime, base64 }) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Resumo da peça gerada que o Lu lê (analises.peca_resumo). Guarda só números, nomes e avisos: nunca o arquivo
+ * nem o texto jurídico dos modelos.
+ * @returns {{ gerada_em: string, pecas: object[] } | null}
+ */
+export function resumoParaLu(resposta, agora = new Date()) {
+  const prontas = (resposta?.pecas || []).filter((p) => p?.status === 'ok' && p.resumo);
+  if (prontas.length === 0) return null;
+  return {
+    gerada_em: agora.toISOString(),
+    pecas: prontas.map(({ resumo: r }) => ({
+      modelo: r.modelo,
+      tese: r.tese,
+      descricao: r.descricao || '',
+      data_referencia: r.data_referencia || '',
+      campos_preencher: r.campos_preencher || 0,
+      figuras: r.figuras || 0,
+      a_confirmar: r.a_confirmar || 0,
+      avisos: Array.isArray(r.avisos) ? r.avisos : [],
+    })),
+  };
+}
+
+/** Grava o resumo da peça na consulta (RLS do próprio usuário). Falha silenciosa: o Lu só fica sem saber da peça. */
+export async function salvarResumoPeca({ analiseId, resposta }) {
+  const resumo = resumoParaLu(resposta);
+  if (!analiseId || !resumo) return false;
+  try {
+    const { error } = await supabase.from('analises').update({ peca_resumo: resumo }).eq('id', analiseId);
+    if (error) {
+      console.warn('[peca] Falha ao gravar o resumo da peça para o Lu:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[peca] Erro ao gravar o resumo da peça para o Lu:', err);
+    return false;
+  }
+}

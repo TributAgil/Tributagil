@@ -10,7 +10,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download, Images } from 'lucide-react';
 import { lerEscritorio } from '../lib/escritorio';
-import { gerarPeca, baixarArquivo } from '../lib/peca';
+import { gerarPeca, baixarArquivo, salvarResumoPeca } from '../lib/peca';
 import { lerPerfilPeca, salvarPerfilPeca, perfilPecaVazio, CAMPOS_CLIENTE } from '../lib/perfilPeca';
 import ModalEscritorio from './ModalEscritorio';
 // a tela de figuras (e o leitor de PDF dela) só é baixada quando o advogado a abre
@@ -62,6 +62,10 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
     }
     setResultado(r);
     setFase('resultado');
+    // o Lu passa a conhecer a peça (resumo gravado na consulta); avisa o chat para recarregar
+    if (r.status === 'ok') {
+      salvarResumoPeca({ analiseId: analise.id, resposta: r }).then(() => window.dispatchEvent(new Event('tributagil:peca-gerada')));
+    }
     // os dados que entraram na peça viram os "últimos utilizados" (próxima peça já vem preenchida)
     if (r.status === 'ok' && r.dados_peca_usados) {
       salvarPerfilPeca({ userId: user?.id, analiseId: analise.id, usados: r.dados_peca_usados }).then((ok) => {
