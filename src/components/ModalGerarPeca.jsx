@@ -7,12 +7,14 @@
 // quantos campos [PREENCHER], avisos e o aviso fixo de revisão) e ESCOLHE qual baixar —
 // os modelos nunca são combinados. Peça bloqueada pelo motor ou sem modelo mostra o motivo.
 
-import React, { useEffect, useState } from 'react';
-import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download } from 'lucide-react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download, Images } from 'lucide-react';
 import { lerEscritorio } from '../lib/escritorio';
 import { gerarPeca, baixarArquivo } from '../lib/peca';
 import { lerPerfilPeca, salvarPerfilPeca, perfilPecaVazio, CAMPOS_CLIENTE } from '../lib/perfilPeca';
 import ModalEscritorio from './ModalEscritorio';
+// a tela de figuras (e o leitor de PDF dela) só é baixada quando o advogado a abre
+const PainelFiguras = lazy(() => import('./PainelFiguras'));
 
 const Lista = ({ itens, cor }) =>
   itens?.length ? (
@@ -31,6 +33,8 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
   const [incluirBloco, setIncluirBloco] = useState(true);
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState('');
+  // peça cujas figuras estão sendo montadas (abre o PainelFiguras por cima do modal)
+  const [pecaDasFiguras, setPecaDasFiguras] = useState(null);
   // últimos dados usados (Doc. do mandato + qualificação do cliente), editáveis antes de gerar
   const [perfil, setPerfil] = useState(perfilPecaVazio);
 
@@ -226,6 +230,14 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                   <span className="text-parchment/40"> (destacados em amarelo)</span>
                 </p>
                 <Lista itens={p.resumo.avisos} cor="text-amber-400" />
+                {p.figuras?.length > 0 && (
+                  <button
+                    onClick={() => setPecaDasFiguras(p)}
+                    className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-gold bg-gold/10 hover:bg-gold/20 border border-gold/30 rounded-xl"
+                  >
+                    <Images size={15} /> Montar as {p.figuras.length} figura(s) antes de baixar
+                  </button>
+                )}
                 <button
                   onClick={() => baixarArquivo(p.arquivo)}
                   className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl shadow-lg shadow-gold/20"
@@ -298,6 +310,16 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
           </p>
         )}
       </div>
+      {pecaDasFiguras && (
+        <Suspense fallback={null}>
+          <PainelFiguras
+            analiseId={analise.id}
+            figuras={pecaDasFiguras.figuras}
+            tituloPeca={pecaDasFiguras.resumo?.modelo}
+            onFechar={() => setPecaDasFiguras(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

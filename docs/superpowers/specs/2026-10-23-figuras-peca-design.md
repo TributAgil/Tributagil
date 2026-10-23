@@ -1,6 +1,6 @@
 # Assistente de figuras da peça (design)
 
-Data: 23/10/2026 · Branch: `feat/lu-novo` · Estado: etapas (a) e (b) implementadas e medidas; (c) e (d) pendentes.
+Data: 23/10/2026 · Branch: `feat/lu-novo` · Estado: etapas (a), (b) e (c) implementadas; (d) pendente.
 
 ## Problema
 Os modelos Word trazem marcadores `[INSERIR FIGURA N – …]`. Hoje o advogado procura à mão, em cada documento do caso, o
@@ -35,6 +35,15 @@ têm valor verificável em código e sempre exigem confirmação do advogado. Cu
 Aprendizados: o modelo acerta a linha, mas a caixa varia 2 a 3 unidades entre execuções (daí a margem); a conferência
 precisa usar o texto completo lido, não o abreviado.
 Medição: `node scripts/casos-ficticios/medir-localizacao-figuras.mjs P01 P03 D02 I01` (usa `.env.local`).
+
+## Etapa (c): tela de revisão (implementada)
+`PainelFiguras` + `EditorRecorte` (src/components), lógica em `src/lib/figuras.js`, leitor de PDF em `src/lib/pdfPaginas.js`.
+Botão "Montar as N figura(s) antes de baixar" em cada peça do resultado. Lista lateral com o estado de cada figura
+(dado conferido / revisar / não encontrada / confirmada); editor com a página, a caixa arrastável com alças, desenho de
+caixa nova no fundo da página, troca de página ou de documento, "Confirmar este recorte" (PNG), "Usar o meu próprio print",
+"Desfazer" e download individual ou em .zip. A tela, o pdf.js e o JSZip são carregados sob demanda (o pacote principal do
+site diminuiu). Testada no navegador com um PDF fictício: mover, redimensionar, desenhar, confirmar, enviar print, zip,
+erro com "Tentar de novo" e layout de celular. `pdfjs-dist` 4.10.38 (worker do próprio domínio, `isEvalSupported:false`).
 
 ## Garantias de qualidade
 - A lista bate com o Word em todas as peças dos 34 casos (`tests/figuras-peca.test.js`).
