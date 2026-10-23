@@ -1,6 +1,6 @@
 # Assistente de figuras da peça (design)
 
-Data: 23/10/2026 · Branch: `feat/lu-novo` · Estado: etapas (a), (b) e (c) implementadas; (d) pendente.
+Data: 23/10/2026 · Branch: `feat/lu-novo` · Estado: etapas (a), (b), (c) e (d) implementadas.
 
 ## Problema
 Os modelos Word trazem marcadores `[INSERIR FIGURA N – …]`. Hoje o advogado procura à mão, em cada documento do caso, o
@@ -24,7 +24,7 @@ O Lu continua para dúvidas do caso, com fonte, e pode receber um atalho para a 
 - **(b) Localização com o Gemini, em lote**: uma chamada por documento, pedindo página e região de cada figura.
 - **(c) Tela de revisão no navegador**: pdf.js desenha a página, destaca a região e recorta em canvas. Sem biblioteca
   pesada no servidor; o CSP do site já permite `worker-src blob:`.
-- **(d) Word com as imagens**: no clique final, o servidor regera o Word trocando cada marcador pela imagem (sem IA).
+- **(d) Word com as imagens** (implementada): no clique "Baixar o Word com as figuras", o próprio navegador abre o .docx que o servidor já devolveu e troca cada parágrafo `[INSERIR FIGURA N …]` pela imagem confirmada (`src/lib/docxFiguras.js`). Nada é reenviado ao servidor (sem limite de corpo da Vercel) e nenhuma IA é chamada. A legenda "Figura N - …" do modelo permanece abaixo da imagem; figura sem imagem confirmada mantém o marcador amarelo; marcador misturado a outro texto no mesmo parágrafo não é tocado. Imagens não-PNG ou acima de 1800 px são convertidas/reduzidas antes de entrar no Word. Testado nas 19 peças dos 34 casos (arquivo íntegro pelo `validar_docx.py`, texto do modelo idêntico) e no navegador com recortes reais.
   Cada recorte é comprimido antes do envio (limite de corpo da função).
 
 ## Resultado da etapa (b) com o Gemini real (23/10/2026)

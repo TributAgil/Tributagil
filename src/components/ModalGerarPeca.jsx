@@ -315,6 +315,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
           <PainelFiguras
             analiseId={analise.id}
             figuras={pecaDasFiguras.figuras}
+            arquivo={pecaDasFiguras.arquivo}
             tituloPeca={pecaDasFiguras.resumo?.modelo}
             onFechar={() => setPecaDasFiguras(null)}
           />

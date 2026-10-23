@@ -8,7 +8,7 @@
 // `servicos` é injetável para testar a tela sem Supabase nem Gemini; em produção usa os reais de src/lib/figuras.js.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Loader2, Images, AlertTriangle, CheckCircle2, CircleAlert, BadgeCheck, Download, ArrowLeft, Search } from 'lucide-react';
+import { X, Loader2, Images, AlertTriangle, CheckCircle2, CircleAlert, BadgeCheck, Download, ArrowLeft, Search, FileText } from 'lucide-react';
 import {
   localizarFigurasNaAnalise,
   baixarDocumentoDaAnalise,
@@ -19,6 +19,7 @@ import {
   nomeArquivoFigura,
 } from '../lib/figuras';
 import { abrirDocumento as abrirDocumentoReal } from '../lib/pdfPaginas';
+import { montarWordComFiguras } from '../lib/docxFiguras';
 import EditorRecorte from './figuras/EditorRecorte';
 
 const SERVICOS_REAIS = {
@@ -45,14 +46,16 @@ function baixarBlob(blob, nome) {
 }
 
 /**
- * @param {{ analiseId: string, figuras: object[], tituloPeca?: string, onFechar: () => void, servicos?: object }} props
+ * @param {{ analiseId: string, figuras: object[], arquivo?: {nome: string, mime: string, base64: string}, tituloPeca?: string, onFechar: () => void, servicos?: object }} props
  */
-export default function PainelFiguras({ analiseId, figuras, tituloPeca = '', onFechar, servicos = SERVICOS_REAIS }) {
+export default function PainelFiguras({ analiseId, figuras, arquivo = null, tituloPeca = '', onFechar, servicos = SERVICOS_REAIS }) {
   const [fase, setFase] = useState('procurando'); // 'procurando' | 'erro' | 'revisao'
   const [erro, setErro] = useState('');
   const [resultados, setResultados] = useState({});
   const [documentos, setDocumentos] = useState([]);
   const [selecionada, setSelecionada] = useState(figuras[0]?.numero);
+  const [montando, setMontando] = useState(false);
+  const [avisoWord, setAvisoWord] = useState('');
   const [imagens, setImagens] = useState({}); // numero -> { blob, url, origem, documento, pagina }
   const abertos = useRef(new Map()); // storage_path -> Promise<documento aberto>
   const imagensRef = useRef({});
@@ -141,6 +144,29 @@ export default function PainelFiguras({ analiseId, figuras, tituloPeca = '', onF
       zip.file(nomeArquivoFigura(f, extensao), i.blob);
     }
     baixarBlob(await zip.generateAsync({ type: 'blob' }), 'figuras-da-peca.zip');
+  };
+
+  // Etapa (d): o Word sai com as imagens confirmadas no lugar dos marcadores; as demais ficam como marcador amarelo
+  const baixarWord = async () => {
+    setMontando(true);
+    setAvisoWord('');
+    try {
+      const imagensDoWord = Object.fromEntries(
+        figuras.filter((f) => imagens[f.numero]).map((f) => [f.numero, { blob: imagens[f.numero].blob, descricao: f.legenda }]),
+      );
+      const r = await montarWordComFiguras(arquivo, imagensDoWord);
+      baixarBlob(r.blob, r.nome);
+      setAvisoWord(
+        r.restantes.length > 0
+          ? `Word baixado com ${r.inseridas.length} figura(s). ${r.restantes.length} continua(m) como marcador amarelo para você preencher.`
+          : `Word baixado com as ${r.inseridas.length} figura(s) nos lugares.`,
+      );
+    } catch (err) {
+      console.warn('[figuras] Falha ao montar o Word com as figuras:', err);
+      setAvisoWord('Não foi possível montar o Word com as figuras. Baixe as imagens (.zip) ou o Word sem figuras e insira à mão.');
+    } finally {
+      setMontando(false);
+    }
   };
 
   const contagemEstados = useMemo(() => {
@@ -308,10 +334,24 @@ export default function PainelFiguras({ analiseId, figuras, tituloPeca = '', onF
               <button
                 onClick={baixarZip}
                 disabled={resumo.confirmadas === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-parchment/80 bg-ink-700 hover:bg-ink-600 rounded-xl disabled:opacity-40"
               >
                 <Download size={14} /> Baixar as imagens (.zip)
               </button>
+              {arquivo && (
+                <button
+                  onClick={baixarWord}
+                  disabled={resumo.confirmadas === 0 || montando}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl disabled:opacity-40"
+                >
+                  {montando ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} Baixar o Word com as figuras
+                </button>
+              )}
+              {(avisoWord || (arquivo && resumo.confirmadas > 0 && resumo.faltam > 0)) && (
+                <p className="basis-full text-right text-xs text-parchment/60" aria-live="polite">
+                  {avisoWord || `${resumo.faltam} figura(s) sem imagem ficam no Word como marcador amarelo.`}
+                </p>
+              )}
             </div>
           </>
         )}

@@ -1191,7 +1191,7 @@ a partir dos mesmos modelos-base; as **minutas renderizadas com dados fictícios
 
 **Quadros e figuras:** o fluxograma/SmartArt da EPE de prescrição virou tabela *Tese | Fundamento* (padrão da
 de decadência); a linha do tempo virou **tabela** (data | evento | documento-fonte) — editável, sem imagem.
-Figuras não são recortadas nesta versão: entra `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`.
+O Word sai com `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`; no modal da peça, "Montar as figuras" propõe o recorte de cada uma nos documentos do caso, o advogado confirma/ajusta e baixa o Word já com as imagens nos lugares (`src/lib/docxFiguras.js`, tudo no navegador).
 
 **Campos ausentes:** `[PREENCHER: o que falta]` e `[INSERIR FIGURA …]` saem **destacados em amarelo** (pós-processamento
 do XML em `api/_render-peca.js`, respeitando a ordem de elementos do `rPr`).
