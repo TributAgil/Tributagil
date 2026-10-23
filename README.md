@@ -42,7 +42,7 @@ yarn dev
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
-| `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `text-embedding-004`, 768 dimensões) |
+| `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `gemini-embedding-001`, 768 dimensões; o antigo `text-embedding-004` foi desativado pelo Google e, se vier nesta variável, é ignorado) |
 | `LU_LIMIAR_SIMILARIDADE` | servidor | — | Limiar de similaridade (0–1) do Lu antes de responder "não sei" (padrão `0.6`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | só local | — | Usada apenas por `scripts/seed-legislacao.mjs`. Nunca configurar na Vercel |
 
@@ -116,7 +116,7 @@ api/
   contato.js              Envio de e-mail do "Central de Suporte" (Edge, honeypot, anexo)
   lu.js                   Chat do Lu: retrieval (documentos do caso + legislação) + geração
   indexar-caso.js         Extrai texto, chunka e grava embeddings dos documentos de um caso
-  _embeddings.js          Helper de embedding (Gemini text-embedding-004), usado por lu.js e indexar-caso.js
+  _embeddings.js          Helper de embedding (Gemini gemini-embedding-001, 768 dimensões), usado por lu.js e indexar-caso.js
   _legislacao-tributagil.js  Corpus curado de legislação/jurisprudência (ver scripts/seed-legislacao.mjs)
 scripts/
   seed-legislacao.mjs     Roda uma vez, localmente: embeda e grava o corpus de legislação no Supabase
@@ -501,6 +501,9 @@ create policy "documento_chunks: leitura própria" on public.documento_chunks fo
 
 create index if not exists documento_chunks_embedding_idx
   on public.documento_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+-- ATENÇÃO (migração lu_busca_exata_sem_ivfflat, 23/10/2026): este índice IVFFlat foi REMOVIDO em produção. Com lists=100 em
+-- tabelas de dezenas de linhas a busca varre uma lista quase vazia e devolve 0 a 2 resultados. A busca exata, restrita ao caso
+-- pelo índice btree (caso_id, ...), é correta e rápida. Só recrie um índice (de preferência HNSW) com dezenas de milhares de linhas.
 
 -- Marcadores de indexação no PRÓPRIO `documentos_caso` — permite pular um
 -- documento já indexado ANTES de gastar qualquer chamada de IA (extração +
@@ -587,6 +590,7 @@ create policy "legislacao_chunks: leitura autenticada" on public.legislacao_chun
 
 create index if not exists legislacao_chunks_embedding_idx
   on public.legislacao_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 50);
+-- idem: índice removido (17 linhas; a busca exata basta).
 
 create or replace function public.buscar_legislacao_chunks(
   p_query_embedding vector(768), p_limite integer default 6
