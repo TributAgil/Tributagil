@@ -876,7 +876,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
 
       </main>
 
-      <ChatLuFlutuante casoId={casoId} analiseId={analiseId} user={user} />
+      <ChatLuFlutuante casoId={casoId} analiseId={analiseId} user={user} resultado={resultado} />
 
       {mostrarPeca && <ModalGerarPeca analise={{ id: analiseId }} user={user} onFechar={() => setMostrarPeca(false)} />}
 

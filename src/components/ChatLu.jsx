@@ -4,12 +4,16 @@
 // (documentos do caso + legislação cadastrada). Só fica disponível depois
 // que o parecer é emitido e salvo (precisa de um `casoId`).
 //
-// Cota fixa de 10 perguntas por CONSULTA DE ANÁLISE (cada linha de
-// `analises` — a original e cada reanálise, já que cada uma consome 1
-// crédito próprio — tem sua própria cota, nunca compartilhada com outras
-// versões do mesmo caso). Mostrada de forma permanente no cabeçalho, decai
-// a cada pergunta RESPONDIDA ("não sei" e erros não descontam, ver
-// api/lu.js). Ao chegar em 0, a caixa de pergunta é desabilitada.
+// Duas famílias de pergunta:
+//   1. PERGUNTAS PRONTAS (catálogo em src/lib/luPreMontadas.js): respondidas só por
+//      código, a partir do parecer e do resumo da peça. Resposta imediata, sem IA,
+//      sem rede e SEM descontar da cota.
+//   2. PERGUNTAS COM IA (campo livre e sugestões): cota fixa de 5 por CONSULTA DE
+//      ANÁLISE (cada linha de `analises` — a original e cada reanálise — tem sua
+//      própria cota). Mostrada de forma permanente no cabeçalho, decai a cada
+//      pergunta RESPONDIDA com fonte conferida ("não sei", erros e resposta sem fonte
+//      não descontam, ver api/lu.js). Ao chegar em 0, só o campo livre é desabilitado:
+//      as perguntas prontas continuam liberadas.
 //
 // EXIGÊNCIA DE DOCUMENTO: o Lu só responde quando a busca encontra pelo
 // menos 1 documento do caso relevante — legislação sozinha não é
@@ -32,12 +36,13 @@
 // da cota (só uma resposta gerada com sucesso desconta, ver api/lu.js).
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban, MailWarning, ArrowLeft } from 'lucide-react';
+import { Send, Loader2, Sparkles, BookOpen, FileText, AlertCircle, RefreshCw, CheckCircle2, Ban, MailWarning, ArrowLeft, ListChecks } from 'lucide-react';
 import { perguntarLu, reindexarCaso, sinalizarIndexacaoTravadaAutomatico } from '../lib/lu';
 import { buscarStatusIndexacaoCaso } from '../lib/casos';
-import { buscarPerguntasLuDisponiveis } from '../lib/analises';
+import { buscarPerguntasLuDisponiveis, buscarPecaResumoLu } from '../lib/analises';
+import { GRUPOS_PRE_MONTADAS, SUGESTOES_IA, LIMITE_PERGUNTAS_IA, responderPreMontada } from '../lib/luPreMontadas';
+import VisorFonte from './VisorFonte';
 
-const LIMITE_PERGUNTAS = 10;
 const INTERVALO_POLL_MS = 3000;
 // Depois de ~45s ainda carregando, mostra um aviso de demora (não desbloqueia).
 const AVISOS_ANTES_DE_DEMORA = Math.ceil(45_000 / INTERVALO_POLL_MS);
@@ -45,59 +50,88 @@ const AVISOS_ANTES_DE_DEMORA = Math.ceil(45_000 / INTERVALO_POLL_MS);
 // automaticamente a Central de Suporte com o relato pronto.
 const TENTATIVAS_ANTES_DE_TRAVADO = Math.ceil(120_000 / INTERVALO_POLL_MS);
 
-// Sugestões pré-montadas, restritas a 3 frentes de uso real do advogado
-// tributarista (sem viés didático — o público já domina o protocolo do
-// direito tributário): fundamentação legal, estratégia processual e
-// conferência de dados. Cada clique consome 1 das 10 perguntas da consulta,
-// então o critério de inclusão é "vale o crédito", não cobertura ampla.
-const SUGESTOES_POR_CATEGORIA = [
-  {
-    categoria: 'Fundamentação legal',
-    perguntas: [
-      'Qual o fundamento legal exato da conclusão mais favorável deste parecer?',
-      'Essa decadência se enquadra no art. 150, §4º ou no art. 173, I do CTN — e por quê?',
-    ],
-  },
-  {
-    categoria: 'Estratégia processual',
-    perguntas: [
-      'Entre exceção de pré-executividade e embargos, qual você recomenda aqui e por quê?',
-      'Quais são os próximos passos recomendados para este caso?',
-    ],
-  },
-  {
-    categoria: 'Conferência de dados',
-    perguntas: [
-      'Existe alguma data usada no cálculo que ainda precisa ser confirmada nos documentos?',
-      'Em que documento consta a data de citação do executado?',
-    ],
-  },
-];
-
-function FontesConsultadas({ fontes }) {
+function FontesConsultadas({ fontes, onAbrir }) {
   if (!fontes || fontes.length === 0) return null;
   return (
     <div className="mt-3 space-y-1.5 border-t border-line/60 pt-3">
       <p className="text-[10px] font-bold uppercase tracking-wider text-parchment/40">Fontes consultadas</p>
       <ul className="space-y-1">
-        {fontes.map((f, i) => (
-          <li key={i} className="flex items-start gap-1.5 text-xs text-parchment/55">
-            {f.tipo === 'legislacao' ? (
-              <BookOpen size={12} className="mt-0.5 flex-shrink-0 text-gold/70" />
-            ) : (
-              <FileText size={12} className="mt-0.5 flex-shrink-0 text-parchment/40" />
-            )}
-            {f.tipo === 'legislacao' ? (
-              <span>{f.norma} {f.identificador}</span>
-            ) : (
-              <span>
-                {f.documento}
-                {f.pagina != null ? ` — pág. ${f.pagina}` : ''}
-              </span>
-            )}
-          </li>
-        ))}
+        {fontes.map((f) => {
+          const clicavel = Boolean(f.documento);
+          const rotulo =
+            f.tipo === 'legislacao'
+              ? `${f.norma} ${f.identificador}`
+              : f.tipo === 'documento'
+                ? `${f.documento}${f.pagina != null ? `, pág. ${f.pagina}` : ''}`
+                : f.documento
+                  ? `${f.rotulo} (${f.documento})`
+                  : f.rotulo;
+          return (
+            <li key={f.n} className="flex items-start gap-1.5 text-xs text-parchment/55">
+              <span className="mt-0.5 w-4 flex-shrink-0 text-right font-semibold text-gold/80">{f.n}</span>
+              {f.tipo === 'legislacao' ? (
+                <BookOpen size={12} className="mt-0.5 flex-shrink-0 text-gold/70" />
+              ) : (
+                <FileText size={12} className="mt-0.5 flex-shrink-0 text-parchment/40" />
+              )}
+              {clicavel ? (
+                <button type="button" onClick={() => onAbrir(f)} className="text-left underline decoration-dotted underline-offset-2 hover:text-parchment" title="Abrir o documento">
+                  {rotulo}
+                </button>
+              ) : (
+                <span>{rotulo}</span>
+              )}
+            </li>
+          );
+        })}
       </ul>
+    </div>
+  );
+}
+
+/** Catálogo da tela inicial: perguntas prontas (sem IA) e sugestões com IA (cada uma usa 1 da cota). */
+function CatalogoPerguntas({ T, onPronta, onIA, disponiveis, limiteAtingido }) {
+  return (
+    <div className="space-y-4">
+      <p className={`text-sm ${T.textoSecundario}`}>
+        Escolha uma pergunta pronta, com resposta imediata que não usa as suas perguntas, ou escreva a sua.
+      </p>
+      {GRUPOS_PRE_MONTADAS.map((grupo) => (
+        <div key={grupo.grupo}>
+          <p className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider ${T.textoTerciario}`}>{grupo.grupo}</p>
+          <div className="flex flex-col gap-2">
+            {grupo.itens.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onPronta(item)}
+                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${T.sugestaoBotao}`}
+              >
+                {item.pergunta}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div>
+        <p className={`mb-0.5 text-[10px] font-bold uppercase tracking-wider ${T.textoTerciario}`}>Perguntas com IA</p>
+        <p className={`mb-1.5 text-[11px] ${T.textoTerciario}`}>
+          Cada uma usa 1 das {LIMITE_PERGUNTAS_IA} perguntas com IA desta consulta{disponiveis != null ? ` (restam ${disponiveis})` : ''}.
+        </p>
+        <div className="flex flex-col gap-2">
+          {SUGESTOES_IA.map((texto) => (
+            <button
+              key={texto}
+              type="button"
+              disabled={limiteAtingido}
+              onClick={() => onIA(texto)}
+              className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${T.sugestaoBotao}`}
+            >
+              {texto}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -107,7 +141,7 @@ function ContadorPerguntas({ disponiveis, invertido }) {
   if (disponiveis == null) {
     return <p className={`text-xs ${invertido ? 'text-ink/50' : 'text-parchment/35'}`}>Carregando cota de perguntas...</p>;
   }
-  const pct = Math.max(0, Math.min(100, (disponiveis / LIMITE_PERGUNTAS) * 100));
+  const pct = Math.max(0, Math.min(100, (disponiveis / LIMITE_PERGUNTAS_IA) * 100));
   const zerado = disponiveis <= 0;
   const baixo = disponiveis > 0 && disponiveis <= 2;
   const corNeutra = invertido ? 'text-ink/70' : 'text-parchment/50';
@@ -115,10 +149,10 @@ function ContadorPerguntas({ disponiveis, invertido }) {
   const corBarraNormal = invertido ? 'bg-ink' : 'bg-gold';
 
   return (
-    <div className="w-28 flex-shrink-0">
+    <div className="w-36 flex-shrink-0">
       <div className="mb-1 flex items-center justify-between text-[11px]">
         <span className={zerado ? 'font-semibold text-red-700' : baixo ? 'font-semibold text-amber-700' : corNeutra}>
-          {disponiveis} de {LIMITE_PERGUNTAS} perguntas
+          {disponiveis} de {LIMITE_PERGUNTAS_IA} perguntas com IA
         </span>
       </div>
       <div className={`h-1.5 overflow-hidden rounded-full ${corTrilha}`}>
@@ -199,13 +233,16 @@ function temaChat(invertido) {
 /**
  * @param {{ casoId: string | null, analiseId: string | null, user?: object, invertido?: boolean }} props
  */
-export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
+export default function ChatLu({ casoId, analiseId, user, resultado, invertido = false }) {
   const T = temaChat(invertido);
   const [mensagens, setMensagens] = useState([]); // { papel: 'usuario'|'lu', texto, fontes?, limite? }
   const [pergunta, setPergunta] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState(null);
   const [disponiveis, setDisponiveis] = useState(null); // null = carregando/desconhecido
+  const [pecaResumo, setPecaResumo] = useState(null); // resumo da última peça gerada (null = nenhuma)
+  const [fonteAberta, setFonteAberta] = useState(null);
+  const [verCatalogo, setVerCatalogo] = useState(true);
   const [reindexando, setReindexando] = useState(false);
   const [reindexOk, setReindexOk] = useState(null); // resultado da última reindexação manual
   // 'carregando' | 'sem-conteudo' | 'pronto'
@@ -231,6 +268,22 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
     });
     return () => {
       vivo = false;
+    };
+  }, [analiseId]);
+
+  // Resumo da última peça gerada: lido ao abrir e de novo quando a peça é gerada (evento do ModalGerarPeca)
+  useEffect(() => {
+    if (!analiseId) return;
+    let vivo = true;
+    const carregar = () =>
+      buscarPecaResumoLu(analiseId).then((v) => {
+        if (vivo) setPecaResumo(v);
+      });
+    carregar();
+    window.addEventListener('tributagil:peca-gerada', carregar);
+    return () => {
+      vivo = false;
+      window.removeEventListener('tributagil:peca-gerada', carregar);
     };
   }, [analiseId]);
 
@@ -299,18 +352,19 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
 
       setErro(null);
       setPergunta('');
+      setVerCatalogo(false);
       setMensagens((prev) => [...prev, { papel: 'usuario', texto }]);
       setEnviando(true);
 
       try {
-        const historico = mensagens.slice(-6).map((m) => ({ papel: m.papel, texto: m.texto }));
-        const { resposta, fontes, perguntasDisponiveis, limiteAtingido: atingiuAgora } = await perguntarLu({
+        const historico = mensagens.filter((m) => !m.pronta).slice(-6).map((m) => ({ papel: m.papel, texto: m.texto }));
+        const { resposta, fontes, perguntasDisponiveis, limiteAtingido: atingiuAgora, semFonteConferida } = await perguntarLu({
           casoId,
           analiseId,
           pergunta: texto,
           historico,
         });
-        setMensagens((prev) => [...prev, { papel: 'lu', texto: resposta, fontes, limite: !!atingiuAgora }]);
+        setMensagens((prev) => [...prev, { papel: 'lu', texto: resposta, fontes, limite: !!atingiuAgora, semFonteConferida: !!semFonteConferida }]);
         if (Number.isFinite(perguntasDisponiveis)) setDisponiveis(perguntasDisponiveis);
       } catch (err) {
         console.error('[ChatLu] Falha ao perguntar:', err);
@@ -320,6 +374,16 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
       }
     },
     [pergunta, enviando, casoId, analiseId, limiteAtingido, mensagens],
+  );
+
+  // Pergunta pronta: respondida aqui mesmo, por código. Não chama o servidor e não mexe na cota.
+  const perguntarPronta = useCallback(
+    (item) => {
+      const { texto, fontes, semPeca } = responderPreMontada(item.id, { resultado, pecaResumo });
+      setVerCatalogo(false);
+      setMensagens((prev) => [...prev, { papel: 'usuario', texto: item.pergunta }, { papel: 'lu', texto, fontes, pronta: true, semPeca }]);
+    },
+    [resultado, pecaResumo],
   );
 
   const handleSubmit = (e) => {
@@ -446,8 +510,17 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <ContadorPerguntas disponiveis={disponiveis} invertido={invertido} />
+          <button
+            type="button"
+            onClick={() => setVerCatalogo((v) => !v)}
+            title="Mostrar ou esconder as perguntas prontas"
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${T.botaoBorda}`}
+          >
+            <ListChecks size={12} />
+            <span className="hidden sm:inline">Perguntas prontas</span>
+          </button>
           <button
             type="button"
             onClick={handleReindexar}
@@ -474,33 +547,15 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
         </div>
       )}
 
+      {!pecaResumo && (
+        <p className={`px-4 pt-2 text-[11px] opacity-60 ${T.textoSecundario}`}>
+          Nenhuma peça foi gerada para esta consulta ainda. O Lu responde com base no parecer e nos documentos.
+        </p>
+      )}
+
       <div className="flex min-h-[12rem] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
-        {mensagens.length === 0 && !limiteAtingido && (
-          <div className="space-y-4">
-            <p className={`text-sm ${T.textoSecundario}`}>
-              Pergunte sobre os documentos deste caso ou sobre a legislação de prescrição/decadência
-              aplicada no parecer.
-            </p>
-            {SUGESTOES_POR_CATEGORIA.map((grupo) => (
-              <div key={grupo.categoria}>
-                <p className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider ${T.textoTerciario}`}>
-                  {grupo.categoria}
-                </p>
-                <div className="flex flex-col gap-2">
-                  {grupo.perguntas.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => enviar(s)}
-                      className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${T.sugestaoBotao}`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+        {verCatalogo && (
+          <CatalogoPerguntas T={T} onPronta={perguntarPronta} onIA={(t) => enviar(t)} disponiveis={disponiveis} limiteAtingido={limiteAtingido} />
         )}
 
         {mensagens.map((m, i) => (
@@ -514,8 +569,12 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
                     : T.bolhaLu
               }`}
             >
+              {m.semFonteConferida && (
+                <p className="mb-2 text-xs font-semibold text-amber-400">Resposta sem fonte conferida: confira nos documentos antes de usar.</p>
+              )}
               <p className="whitespace-pre-wrap">{m.texto}</p>
-              {m.papel === 'lu' && <FontesConsultadas fontes={m.fontes} />}
+              {m.papel === 'lu' && <FontesConsultadas fontes={m.fontes} onAbrir={setFonteAberta} />}
+              {m.pronta && <p className="mt-2 text-[10px] uppercase tracking-wider opacity-50">Resposta pronta, sem IA</p>}
             </div>
           </div>
         ))}
@@ -539,8 +598,8 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
       {limiteAtingido && (
         <div className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
           <Ban size={13} className="mt-0.5 flex-shrink-0" />
-          Você já usou as 10 perguntas disponíveis para esta consulta. Uma reanálise deste caso (nova
-          consulta) dá outras 10.
+          Você já usou as 5 perguntas com IA desta consulta. As perguntas prontas continuam liberadas, e
+          uma reanálise deste caso (nova consulta) dá outras 5.
         </div>
       )}
 
@@ -549,7 +608,7 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
           type="text"
           value={pergunta}
           onChange={(e) => setPergunta(e.target.value)}
-          placeholder={limiteAtingido ? 'Cota de perguntas desta consulta esgotada' : 'Pergunte ao Lu sobre este caso...'}
+          placeholder={limiteAtingido ? 'Perguntas com IA esgotadas nesta consulta' : disponiveis != null ? `Pergunta livre (usa 1 das ${disponiveis} perguntas com IA)` : 'Pergunta livre ao Lu...'}
           disabled={enviando || limiteAtingido}
           maxLength={2000}
           className={`flex-1 rounded-lg border px-3 py-2.5 text-sm outline-none transition-all focus:ring-2 disabled:opacity-60 ${T.inputBorda}`}
@@ -563,6 +622,8 @@ export default function ChatLu({ casoId, analiseId, user, invertido = false }) {
           {enviando ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
         </button>
       </form>
+
+      {fonteAberta && <VisorFonte fonte={fonteAberta} casoId={casoId} onFechar={() => setFonteAberta(null)} />}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import ChatLu from './ChatLu';
 
-export default function ChatLuFlutuante({ casoId, analiseId, user }) {
+export default function ChatLuFlutuante({ casoId, analiseId, user, resultado }) {
   const [aberto, setAberto] = useState(false);
 
   // O botão fica SEMPRE visível (mesmo sem casoId ainda) — o próprio ChatLu
@@ -43,7 +43,7 @@ export default function ChatLuFlutuante({ casoId, analiseId, user }) {
             maxHeight: 'calc(100vh - 6rem)',
           }}
         >
-          <ChatLu casoId={casoId} analiseId={analiseId} user={user} invertido />
+          <ChatLu casoId={casoId} analiseId={analiseId} user={user} resultado={resultado} invertido />
         </div>
       )}
     </>
