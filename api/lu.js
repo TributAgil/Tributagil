@@ -4,30 +4,41 @@
 // o parecer de um caso é emitido. Responde SOMENTE com base em:
 //   1. Documentos daquele caso específico (retrieval escopado por `caso_id`,
 //      nunca mistura casos de usuários diferentes).
-//   2. Base de legislação/jurisprudência tributária (global, curada).
+//   2. O parecer da consulta e o resumo da última peça gerada (lidos do banco
+//      com o token do próprio usuário, nunca enviados pelo navegador).
+//   3. Base de legislação/jurisprudência tributária (global, curada).
+//
+// Citações: o contexto vai em blocos numerados ([D#] documento, [P#] parecer,
+// [A#] peça, [L#] legislação). O modelo cita por esses identificadores e o
+// código confere (api/_lu-citacoes.js): identificador inventado é apagado, e
+// resposta sem nenhuma citação válida volta marcada "sem fonte conferida" e
+// não desconta da cota. As perguntas prontas da tela não passam por aqui.
 //
 // Se a busca não retornar nada com boa correspondência em nenhuma das duas
 // bases, devolve um "não sei" explícito SEM chamar o modelo de geração —
 // garante o comportamento por código, não só por prompt.
 //
 // Cota: cada CONSULTA DE ANÁLISE (linha de `analises` — a original e cada
-// reanálise, já que cada uma consome 1 crédito próprio) tem direito a 10
-// perguntas ao Lu (`analises.perguntas_lu_disponiveis`), nunca
+// reanálise, já que cada uma consome 1 crédito próprio) tem direito a 5
+// perguntas com IA ao Lu (`analises.perguntas_lu_disponiveis`), nunca
 // compartilhada com outras versões do mesmo caso. Só uma pergunta
 // RESPONDIDA COM SUCESSO desconta da cota — um "não sei" por falta de
 // contexto ou qualquer erro do sistema não descontam (o decremento só
 // acontece no fim do caminho feliz, depois de já ter gerado a resposta).
 //
-// Exigência de documento: só gera resposta quando a busca encontra pelo
-// menos 1 chunk de DOCUMENTO do caso com boa correspondência — legislação
-// sozinha não é suficiente (evita virar uma busca de legislação genérica
-// desvinculada do caso, gastando a cota à toa).
+// Exigência de fonte do caso: só gera resposta quando há pelo menos 1 fonte do
+// CASO (trecho de documento com boa correspondência, o parecer ou o resumo da
+// peça) — legislação sozinha não é suficiente (evita virar uma busca de
+// legislação genérica desvinculada do caso, gastando a cota à toa).
 //
 // Runtime: Node (mesmo padrão de autenticação de api/gemini.js).
 
 import { rateLimit, ipDoRequest } from './_ratelimit.js';
 import { gerarEmbedding } from './_embeddings.js';
 import { chatbotLiberadoParaPerfil } from './_chatbot-acesso.js';
+import { chamarGemini, ErroGemini } from './_gemini-resiliente.js';
+import { montarContextoLu, fonteParaCliente } from './_lu-contexto.js';
+import { conferirCitacoes } from './_lu-citacoes.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
 // Supabase: SOMENTE do ambiente do servidor — NUNCA aceitos do corpo da
@@ -39,6 +50,7 @@ const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_U
 const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 
+const LIMITE_PERGUNTAS = 5;
 const RL_LIMITE = 20;
 const RL_JANELA_MS = 60_000;
 const K_DOCUMENTOS = 6;
@@ -48,24 +60,25 @@ const K_LEGISLACAO = 6;
 // observar o comportamento real (decisão confirmada por Luan).
 const LIMIAR_SIMILARIDADE = Number.parseFloat(process.env.LU_LIMIAR_SIMILARIDADE ?? '0.6');
 const RESPOSTA_NAO_SEI =
-  'Não encontrei essa informação nos documentos deste caso. Não vou responder com base só na ' +
-  'legislação, sem nenhum documento do caso relacionado — confira diretamente nos autos ou reformule a pergunta.';
+  'Não encontrei essa informação nos documentos nem no parecer deste caso. Não vou responder com base só na ' +
+  'legislação, sem nenhuma fonte do caso relacionada. Confira diretamente nos autos ou reformule a pergunta.';
 const RESPOSTA_LIMITE_ATINGIDO =
-  'Você já usou as 10 perguntas disponíveis para esta consulta. Uma reanálise deste caso (nova ' +
-  'consulta) dá outras 10 — cada versão tem sua própria cota, independente das demais.';
+  'Você já usou as 5 perguntas com IA disponíveis para esta consulta. As perguntas prontas continuam liberadas, ' +
+  'e uma reanálise deste caso (nova consulta) dá outras 5.';
 
 const SYSTEM_LU = `Você é Lu, o assistente jurídico do TributÁgil. Trate o usuário com cordialidade profissional, no tratamento masculino ao se referir a si mesmo.
 
 Você é o melhor assistente possível para um advogado tributarista: conhece a fundo a legislação tributária sobre prescrição e decadência e os documentos DESTE caso específico — e nada além disso. Tom técnico e direto, sem enrolação; seja didático quando o usuário pedir uma explicação mais simples.
 
 REGRAS INEGOCIÁVEIS:
-1. Responda apenas com base no contexto fornecido pelos documentos do caso e pela legislação cadastrada, ambos anexados nesta mensagem. Nunca utilize conhecimento geral fora desse contexto.
-2. Se a informação ou a lei consultada não estiver presente nos documentos ou na base de legislação fornecida, declare explicitamente que não possui essa informação, em vez de inferir ou complementar.
-3. Nunca misture ou mencione informações de outro caso — você só enxerga o contexto anexado a esta mensagem.
-4. TODA resposta baseada em legislação deve indicar o artigo, parágrafo, súmula ou tema de recurso repetitivo exato utilizado (use o formato "[norma] [identificador]" já presente nos blocos de contexto).
-5. TODA resposta baseada em documentos do caso deve indicar o documento de origem e a página (use o formato "[documento] pág. [página]" já presente nos blocos de contexto).
-6. Encerre toda resposta com uma seção "Fontes consultadas", listando cada citação usada, uma por linha.
-7. Se a resposta combinar mais de uma fonte, deixe rastreável qual afirmação vem de qual fonte.`;
+1. Responda apenas com base no contexto fornecido: parecer do caso, resumo da peça, documentos do caso e legislação cadastrada, todos anexados nesta mensagem. Nunca utilize conhecimento geral fora desse contexto.
+2. Se a informação ou a lei consultada não estiver presente no contexto fornecido, declare explicitamente que não possui essa informação, em vez de inferir ou complementar.
+3. Nunca misture ou mencione informações de outro caso, você só enxerga o contexto anexado a esta mensagem.
+4. Cada afirmação deve terminar com a citação do bloco de onde veio, usando EXATAMENTE o identificador do bloco entre colchetes, como [D1], [P2], [A1] ou [L3]. Para duas fontes, [D1][P2]. Nunca invente um identificador e nunca cite um bloco que não esteja no contexto.
+5. Documentos do caso são os blocos [D#] (a citação já indica documento e página). O parecer são os blocos [P#]. O resumo da peça são os blocos [A#]. Legislação são os blocos [L#].
+6. NÃO escreva uma seção "Fontes consultadas": a tela já mostra as fontes a partir das suas citações.
+7. Se a peça não foi gerada (aviso no contexto), diga isso quando perguntarem sobre ela.
+8. Nunca use travessão. Seja direto.`;
 
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -119,7 +132,7 @@ export async function POST(request) {
   // Lê o saldo atual; se já está em 0, nem gera embedding. Se a leitura
   // falhar (migração pendente), trata como "desconhecido" e segue sem
   // bloquear — mesma filosofia "nunca quebra" do resto do app.
-  const disponiveisAntes = await lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, analiseId });
+  const { disponiveis: disponiveisAntes, resultado, pecaResumo } = await lerAnalise({ supabaseUrl, supabaseAnonKey, userToken, analiseId });
   if (disponiveisAntes !== null && disponiveisAntes <= 0) {
     return json({ resposta: RESPOSTA_LIMITE_ATINGIDO, fontes: [], limiteAtingido: true, perguntasDisponiveis: 0 }, 200);
   }
@@ -162,40 +175,15 @@ export async function POST(request) {
     (l) => l.similaridade >= LIMIAR_SIMILARIDADE,
   );
 
-  // ---- Exige pelo menos 1 documento do CASO encontrado: "não sei" explícito,
-  // sem gastar geração, se não houver. Legislação sozinha (mesmo com
-  // correspondência) não é suficiente — sem isso o Lu viraria uma busca de
-  // legislação genérica, sem relação com os documentos do caso, gastando a
-  // cota à toa. Não desconta da cota — só resposta de fato gerada consome.
-  if (docs.length === 0) {
+  // ---- Contexto numerado (parecer, peça, documentos, legislação) ----------
+  const contexto = montarContextoLu({ docs, legislacao, resultado, pecaResumo });
+
+  // Exige pelo menos 1 fonte do CASO (documento, parecer ou peça): "não sei"
+  // explícito, sem gastar geração, se não houver. Legislação sozinha (mesmo com
+  // correspondência) não basta. Não desconta da cota: só resposta gerada consome.
+  if (!contexto.temFonteDoCaso) {
     return json({ resposta: RESPOSTA_NAO_SEI, fontes: [], perguntasDisponiveis: disponiveisAntes }, 200);
   }
-
-  // ---- Monta o contexto recuperado + fontes estruturadas (backstop da UI) ----
-  const blocosDocs = docs.map(
-    (d) => `[DOCUMENTO: ${d.documento_nome || 'documento'} — pág. ${d.pagina ?? '—'}]\n${d.conteudo}`,
-  );
-  const blocosLegislacao = legislacao.map(
-    (l) => `[LEI: ${l.norma} ${l.identificador}]\n${l.texto_integral}`,
-  );
-
-  const fontes = [
-    ...docs.map((d) => ({
-      tipo: 'documento',
-      documento: d.documento_nome || 'documento',
-      pagina: d.pagina ?? null,
-      trecho: String(d.conteudo || '').slice(0, 280),
-    })),
-    ...legislacao.map((l) => ({
-      tipo: 'legislacao',
-      norma: l.norma,
-      identificador: l.identificador,
-    })),
-  ];
-
-  const contextoTexto =
-    (blocosDocs.length ? `--- DOCUMENTOS DO CASO ---\n${blocosDocs.join('\n\n')}\n\n` : '') +
-    (blocosLegislacao.length ? `--- LEGISLAÇÃO E JURISPRUDÊNCIA ---\n${blocosLegislacao.join('\n\n')}` : '');
 
   const contents = [
     ...historico
@@ -203,7 +191,7 @@ export async function POST(request) {
       .map((m) => ({ role: m.papel === 'lu' ? 'model' : 'user', parts: [{ text: String(m.texto).slice(0, 2000) }] })),
     {
       role: 'user',
-      parts: [{ text: `Contexto recuperado para esta pergunta:\n\n${contextoTexto}\n\n--- PERGUNTA ---\n${pergunta}` }],
+      parts: [{ text: `Contexto recuperado para esta pergunta:\n\n${contexto.texto}\n\n--- PERGUNTA ---\n${pergunta}` }],
     },
   ];
 
@@ -212,24 +200,16 @@ export async function POST(request) {
   const temperatura = Number.parseFloat(process.env.GEMINI_TEMPERATURE ?? '0.2');
 
   try {
-    const resp = await fetch(
-      `${GEMINI}/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_LU }] },
-          contents,
-          generationConfig: { temperature: Number.isFinite(temperatura) ? temperatura : 0.2 },
-        }),
-      },
-    );
-
-    if (!resp.ok) {
-      const detalhe = await resp.text().catch(() => '');
-      console.error('[api/lu] Gemini respondeu erro:', resp.status, detalhe.slice(0, 500));
-      return json({ error: `Falha ao gerar a resposta (HTTP ${resp.status}).` }, 502);
-    }
+    const { resp } = await chamarGemini({
+      montarUrl: (m) => `${GEMINI}/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      corpo: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_LU }] },
+        contents,
+        generationConfig: { temperature: Number.isFinite(temperatura) ? temperatura : 0.2 },
+      }),
+      modelo,
+      rotulo: 'lu',
+    });
 
     const data = await resp.json();
     const texto = data?.candidates?.[0]?.content?.parts?.map((p) => p?.text || '').join('') || '';
@@ -237,11 +217,20 @@ export async function POST(request) {
       return json({ error: 'A IA não retornou uma resposta. Tente reformular a pergunta.' }, 502);
     }
 
-    // ---- Só AQUI, com a resposta já gerada, desconta 1 pergunta da cota ----
+    // ---- Conferência das citações em código ----
+    const conferida = conferirCitacoes(texto, contexto.blocos);
+    if (conferida.semFonte) {
+      // Nenhuma citação válida: a resposta aparece marcada e NÃO desconta da cota
+      return json({ resposta: conferida.texto, fontes: [], semFonteConferida: true, perguntasDisponiveis: disponiveisAntes }, 200);
+    }
+    const fontes = conferida.usados.map((b, i) => fonteParaCliente(b, i + 1));
+
+    // ---- Só AQUI, com a resposta já gerada e conferida, desconta 1 pergunta da cota ----
     const perguntasDisponiveis = await decrementarPerguntas({ supabaseUrl, supabaseAnonKey, userToken, analiseId, disponiveisAntes });
 
-    return json({ resposta: texto, fontes, perguntasDisponiveis }, 200);
+    return json({ resposta: conferida.texto, fontes, perguntasDisponiveis }, 200);
   } catch (err) {
+    if (err instanceof ErroGemini) return json({ error: err.mensagemUsuario }, err.statusHttp);
     console.error('[api/lu] Erro ao gerar resposta:', err);
     return json({ error: 'Erro ao conectar com a IA.' }, 502);
   }
@@ -255,25 +244,33 @@ function json(data, status) {
 }
 
 /**
- * Lê `analises.perguntas_lu_disponiveis` (leitura simples, coberta pela
- * mesma policy de SELECT de `analises` — sem custo de IA). É por CONSULTA
- * (linha de `analises`), não por caso — uma reanálise tem cota própria.
- * Devolve `null` se não der para ler (migração pendente, coluna ausente) —
- * nesse caso o chamador trata como "desconhecido" e não bloqueia.
+ * Lê da consulta (`analises`), numa só chamada e com o token do usuário (RLS): a cota de perguntas com IA, o parecer
+ * (`resultado`) e o resumo da última peça (`peca_resumo`). É por CONSULTA, não por caso: uma reanálise tem cota própria.
+ * `disponiveis` vem limitado a LIMITE_PERGUNTAS (consultas antigas nasceram com 10). `null` = desconhecido (migração
+ * pendente): o chamador não bloqueia. Se a coluna `peca_resumo` ainda não existe, repete a leitura sem ela.
  */
-async function lerPerguntasDisponiveis({ supabaseUrl, supabaseAnonKey, userToken, analiseId }) {
-  try {
+async function lerAnalise({ supabaseUrl, supabaseAnonKey, userToken, analiseId }) {
+  const ler = async (colunas) => {
     const resp = await fetch(
-      `${supabaseUrl}/rest/v1/analises?id=eq.${encodeURIComponent(analiseId)}&select=perguntas_lu_disponiveis&limit=1`,
+      `${supabaseUrl}/rest/v1/analises?id=eq.${encodeURIComponent(analiseId)}&select=${colunas}&limit=1`,
       { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}` } },
     );
-    if (!resp.ok) return null;
-    const linhas = await resp.json().catch(() => []);
-    const valor = linhas?.[0]?.perguntas_lu_disponiveis;
-    return Number.isFinite(valor) ? valor : null;
+    if (!resp.ok) return undefined;
+    return (await resp.json().catch(() => []))?.[0] || null;
+  };
+  try {
+    let linha = await ler('perguntas_lu_disponiveis,resultado,peca_resumo');
+    if (linha === undefined) linha = await ler('perguntas_lu_disponiveis,resultado'); // migração do resumo ainda pendente
+    if (!linha) return { disponiveis: null, resultado: null, pecaResumo: null };
+    const v = linha.perguntas_lu_disponiveis;
+    return {
+      disponiveis: Number.isFinite(v) ? Math.min(v, LIMITE_PERGUNTAS) : null,
+      resultado: linha.resultado || null,
+      pecaResumo: linha.peca_resumo || null,
+    };
   } catch (err) {
-    console.warn('[api/lu] Falha ao ler a cota de perguntas:', err.message);
-    return null;
+    console.warn('[api/lu] Falha ao ler a análise:', err.message);
+    return { disponiveis: null, resultado: null, pecaResumo: null };
   }
 }
 
