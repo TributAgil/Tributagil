@@ -131,7 +131,7 @@ export function destacarMarcadores(xml) {
  * campo usado em dois lugares nem deixa de contar um que o template não usou.
  * @returns {Promise<{ preencher: number, figuras: number, confirmar: number }>}
  */
-export async function contarMarcadores(docx) {
+async function textoDoDocx(docx) {
   const zip = await JSZip.loadAsync(docx);
   let texto = '';
   for (const nome of Object.keys(zip.files)) {
@@ -142,6 +142,27 @@ export async function contarMarcadores(docx) {
       .map((p) => [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => desescXml(m[1])).join(''))
       .join('\n');
   }
+  return texto;
+}
+
+/**
+ * Lista as figuras que RESTARAM no .docx já renderizado, na ordem do documento, juntando cada número com os
+ * metadados de api/_contexto-peca.js (`contexto.figuras_meta`). Sai do documento final, e não do contexto, pelo mesmo
+ * motivo de contarMarcadores: só entra o que o template de fato usou. Número sem metadado vira item "desconhecida".
+ * @param {Buffer} docx
+ * @param {Array<{numero: number}>} [meta]
+ */
+export async function figurasDoDocx(docx, meta = []) {
+  const texto = await textoDoDocx(docx);
+  const numeros = [...new Set([...texto.matchAll(/\[INSERIR FIGURA (\d+)/g)].map((m) => Number(m[1])))];
+  const porNumero = new Map(meta.map((f) => [f.numero, f]));
+  return numeros.map(
+    (n) => porNumero.get(n) || { numero: n, chave: 'desconhecida', legenda: `Figura ${n}`, descricao: '', documento_fonte: '', cda: '', periodo: '', evidenciar: [] },
+  );
+}
+
+export async function contarMarcadores(docx) {
+  const texto = await textoDoDocx(docx);
   // marcadores aninhados ("[INSERIR FIGURA … [PREENCHER: x]]") contam como UM
   const faixas = acharMarcadores(texto);
   const tipo = (i) => texto.slice(faixas[i][0], faixas[i][0] + 12);

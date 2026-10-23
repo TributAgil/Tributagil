@@ -38,7 +38,7 @@ import { ErroGemini } from './_gemini-resiliente.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
 import { avaliarPecas } from './_motor-peca.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
-import { renderizarPeca, contarMarcadores } from './_render-peca.js';
+import { renderizarPeca, contarMarcadores, figurasDoDocx } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
 import { creditosParaGerarPeca } from './_politica-peca.js';
 import { agruparBloqueios, orientacaoBloqueios, resumoCurtoPeca } from './_bloqueios-peca.js';
@@ -322,6 +322,7 @@ async function processar(request, ctx) {
       return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
     }
     const marcadores = await contarMarcadores(docx);
+    const figuras = await figurasDoDocx(docx, contexto.figuras_meta);
     pecas.push({
       ...resumoSemArquivo(avaliacao),
       resumo: {
@@ -344,6 +345,8 @@ async function processar(request, ctx) {
         avisos: [...avaliacao.avisos, ...avisosLogo],
         aviso_fixo: AVISO_FIXO,
       },
+      // cada figura que o advogado ainda precisa anexar (na ordem do documento): o que mostrar e de qual documento
+      figuras,
       arquivo: {
         nome: nomeArquivoPeca(avaliacao.template, dados.executado.nome, agora),
         mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

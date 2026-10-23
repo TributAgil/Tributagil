@@ -239,6 +239,15 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
 
   let figura = 0;
   const proxFig = () => ++figura;
+  // Metadados de CADA figura numerada: o que ela mostra, de qual documento deve vir e qual dado precisa aparecer nela.
+  // Alimenta o assistente de figuras (localizar a página e recortar a imagem). A lista final só inclui o que de fato
+  // sobrou no Word renderizado (ver figurasDoDocx em _render-peca.js), então um template que não usa a figura não a lista.
+  const figurasMeta = [];
+  const novaFigura = (fazMeta) => {
+    const numero = proxFig();
+    figurasMeta.push({ numero, ...fazMeta(numero) });
+    return numero;
+  };
   const protestosTodos = [];
   const eventosProtesto = (insc) =>
     (insc?.eventos_interruptivos || []).filter((e) => String(e?.tipo).toLowerCase() === 'protesto' && parseBR(e?.data));
@@ -254,8 +263,25 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
         const tipo = c.tipo_declaracao || 'declaração';
         const fonteRecibo = fonteStr((insc.periodos || []).find((p) => p.periodo === c.periodo)?.data_entrega_declaracao) || preencher('nome do arquivo do recibo');
         const fonteExtrato = c.fonteVencimento || preencher('nome do arquivo do extrato');
-        const nRecibo = proxFig();
-        const nExtrato = proxFig();
+        const docRecibo = fonteStr((insc.periodos || []).find((p) => p.periodo === c.periodo)?.data_entrega_declaracao);
+        const nRecibo = novaFigura((n) => ({
+          chave: 'recibo_declaracao',
+          legenda: `Figura ${n} - Excerto do recibo de entrega da ${tipo} ${c.periodo}`,
+          descricao: `Recibo de entrega da ${tipo} do período ${c.periodo}`,
+          documento_fonte: docRecibo,
+          cda: insc.numero_cda || '',
+          periodo: c.periodo,
+          evidenciar: [{ campo: `data de entrega da ${tipo}`, valor: formatarDataBR(c.entrega) }],
+        }));
+        const nExtrato = novaFigura((n) => ({
+          chave: 'extrato_vencimento',
+          legenda: `Figura ${n} - Excerto do extrato da CDA`,
+          descricao: `Extrato da CDA com a data de vencimento do período ${c.periodo}`,
+          documento_fonte: c.fonteVencimento || '',
+          cda: insc.numero_cda || '',
+          periodo: c.periodo,
+          evidenciar: [{ campo: 'data de vencimento', valor: formatarDataBR(c.vencimento) }],
+        }));
         add(c.termoInicial, `Termo inicial do prazo prescricional do período ${c.periodo} (${c.regraTermo === 'entrega_da_declaracao' ? `entrega da ${tipo}` : 'vencimento do tributo'})`, c.regraTermo === 'entrega_da_declaracao' ? fonteRecibo : fonteExtrato);
         add(c.consumacao, `Consumação do prazo prescricional do período ${c.periodo}`, 'cálculo (art. 174 do CTN)');
         return {
@@ -275,11 +301,40 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
         };
       });
 
-      const nPaf = proxFig();
-      // a Revisão PGFN não tem a figura do ajuizamento (não há execução): não gasta número, para a sequência não pular
-      const nAju = avaliacao?.template === TEMPLATES.REVISAO_PGFN_PRESCRICAO ? null : proxFig();
-      const nNeg = proxFig();
       const paf = v(insc.processo_administrativo, 'nº do processo administrativo');
+      const nPaf = novaFigura((n) => ({
+        chave: 'processo_administrativo',
+        legenda: `Figura ${n} - Excerto do PAF ${paf} (documento anexo)`,
+        descricao: `Processo administrativo ${paf}, com as datas de entrega das declarações`,
+        documento_fonte: '',
+        cda: insc.numero_cda || '',
+        periodo: '',
+        evidenciar: [
+          { campo: 'processo administrativo', valor: String(insc.processo_administrativo || '') },
+          { campo: 'datas de entrega das declarações', valor: listaComE(dosCredito.map((c) => formatarDataBR(c.entrega))) },
+        ],
+      }));
+      // a Revisão PGFN não tem a figura do ajuizamento (não há execução): não gasta número, para a sequência não pular
+      const nAju = avaliacao?.template === TEMPLATES.REVISAO_PGFN_PRESCRICAO
+        ? null
+        : novaFigura((n) => ({
+          chave: 'ajuizamento',
+          legenda: `Figura ${n} - Excerto da petição inicial da execução fiscal`,
+          descricao: 'Petição inicial da execução fiscal, com a data do ajuizamento',
+          documento_fonte: fonteStr(processo.data_ajuizamento),
+          cda: insc.numero_cda || '',
+          periodo: '',
+          evidenciar: [{ campo: 'data do ajuizamento', valor: dataStr(processo.data_ajuizamento) }],
+        }));
+      const nNeg = novaFigura((n) => ({
+        chave: 'negociacoes',
+        legenda: `Figura ${n} - Excerto do extrato da CDA`,
+        descricao: 'Extrato de débito: campo de negociações (parcelamentos) sem nenhum evento',
+        documento_fonte: '',
+        cda: insc.numero_cda || '',
+        periodo: '',
+        evidenciar: [{ campo: 'campo de negociações', valor: 'sem eventos' }],
+      }));
       const maxConsumacao = Math.max(...dosCredito.map((c) => c.consumacao.getTime()));
 
       const protestos = eventosProtesto(insc).map((e) => {
@@ -426,7 +481,15 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     const fontesNot = unicos(avaliados.map((c) => c.fonteNotificacao));
     const fonteNot = fontesNot.length ? listaComE(fontesNot) : preencher('documento da notificação do lançamento');
     contexto.fonte_notificacao = fonteNot;
-    nFig = proxFig();
+    nFig = novaFigura((n) => ({
+      chave: 'notificacao_lancamento',
+      legenda: `Figura ${n} - Excerto da notificação do lançamento`,
+      descricao: 'Auto de infração / notificação de lançamento, com a data de ciência',
+      documento_fonte: fontesNot.join('; '),
+      cda: unicos(creditos.map((c) => c.cda)).join('; '),
+      periodo: unicos(creditos.map((c) => c.periodo)).join('; '),
+      evidenciar: unicos(avaliados.map((c) => formatarDataBR(c.notificacao))).map((d) => ({ campo: 'data de ciência do lançamento', valor: d })),
+    }));
     contexto.fig_notificacao = `[INSERIR FIGURA ${nFig} – excerto do auto de infração / notificação de lançamento com a data de ciência, fonte: ${fonteNot}]`;
     contexto.fig_notificacao_legenda = `Figura ${nFig} - Excerto da notificação do lançamento`;
     contexto.houve_protesto = protestosTodos.length > 0;
@@ -464,7 +527,15 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     contexto.ha_ciclos_interrompidos = contexto.ciclos_interrompidos.length > 0;
     contexto.houve_protesto = protestadas.length > 0;
     contexto.cdas_protestadas_lista = listaComE(protestadas.map((i) => i.numero_cda));
-    const nFigInt = proxFig();
+    const nFigInt = novaFigura((n) => ({
+      chave: 'ciencia_fazenda',
+      legenda: `Figura ${n} - Excerto da ciência da Fazenda sobre a não localização`,
+      descricao: 'Intimação / ciência da Fazenda sobre a não localização do devedor ou de bens',
+      documento_fonte: ic.fonteIntimacao || '',
+      cda: nomeCdas.join('; '),
+      periodo: '',
+      evidenciar: [{ campo: 'data da ciência da Fazenda', valor: ic.dataIntimacao || '' }],
+    }));
     contexto.fig_intimacao = `[INSERIR FIGURA ${nFigInt} – excerto da intimação/ciência da Fazenda sobre a não localização, fonte: ${contexto.fonte_intimacao}]`;
     contexto.fig_intimacao_legenda = `Figura ${nFigInt} - Excerto da ciência da Fazenda sobre a não localização`;
 
@@ -498,5 +569,6 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     .sort((a, b) => a.ts - b.ts)
     .map(({ data, evento, fonte }) => ({ data, evento, fonte: fonte || preencher('documento-fonte') }));
 
+  contexto.figuras_meta = figurasMeta;
   return contexto;
 }

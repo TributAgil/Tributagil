@@ -141,6 +141,11 @@ describe('caso feliz — EPE prescrição', () => {
     ]);
     expect(peca.resumo.aviso_fixo).toBe('Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.');
     expect(peca.resumo.figuras).toBe(7);
+    // a lista detalhada de figuras (para o assistente de figuras) acompanha a contagem e traz o dado a evidenciar
+    expect(peca.figuras).toHaveLength(7);
+    expect(peca.figuras.map((f) => f.numero)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(peca.figuras[0]).toMatchObject({ chave: 'recibo_declaracao', legenda: expect.stringMatching(/^Figura 1 - /) });
+    expect(peca.figuras[0].evidenciar[0].valor).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     expect(peca.arquivo.nome).toMatch(/^EPE_Prescricao_Maria_Exemplo_da_Silva_\d{4}-\d{2}-\d{2}\.docx$/);
 
     const { texto } = await abrir(peca.arquivo);
