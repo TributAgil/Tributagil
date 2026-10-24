@@ -1,12 +1,11 @@
 // api/_chatbot-acesso.js
 //
 // Ponto ÚNICO de decisão sobre acesso ao chatbot Lu (chat + indexação).
-// Hoje sempre libera — decisão explícita enquanto a segmentação de perfis
-// é desenvolvida em branch isolada (mesma instrução que tirou a checagem de
-// plano do Lu). Quando essa segmentação existir (ex.: plano "com chatbot" x
-// "sem chatbot", como uma classificação separada da de créditos de análise),
-// o corte entra AQUI — tanto api/lu.js quanto api/indexar-caso.js já chamam
-// esta função, então nenhum outro lugar do código precisa mudar.
+// Desligado por decisão do Luan (24/10/2026): o Lu fica em segundo plano e
+// não pode ser usado nem gerar custo de Gemini. Para religar, volte a
+// devolver `{ liberado: true }` (ou o corte por perfil/plano) AQUI: tanto
+// api/lu.js quanto api/indexar-caso.js já chamam esta função, então nenhum
+// outro lugar do servidor precisa mudar.
 //
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
 
@@ -15,5 +14,5 @@
  * @returns {{ liberado: true } | { liberado: false, motivo: string }}
  */
 export function chatbotLiberadoParaPerfil(_ctx = {}) {
-  return { liberado: true };
+  return { liberado: false, motivo: 'O chatbot Lu está temporariamente indisponível.' };
 }

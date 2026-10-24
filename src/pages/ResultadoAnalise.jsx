@@ -25,7 +25,6 @@ import {
   History,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
-import ChatLuFlutuante from '../components/ChatLuFlutuante';
 import ModalGerarPeca from '../components/ModalGerarPeca';
 import { podeGerarPeca, cenarioPrevio } from '../lib/peca';
 import Logo from '../components/Logo';
@@ -875,8 +874,6 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
         )}
 
       </main>
-
-      <ChatLuFlutuante casoId={casoId} analiseId={analiseId} user={user} />
 
       {mostrarPeca && <ModalGerarPeca analise={{ id: analiseId }} user={user} onFechar={() => setMostrarPeca(false)} />}
 
