@@ -1298,7 +1298,8 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   continua de onde parou; fechar o modal pede confirmação). Gerar a peça de novo descarta tudo. O SQL para salvar a
   peça com versões está em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql) (tabelas `pecas` e
   `pecas_versoes`, RPC `salvar_versao_peca`, bucket privado `pecas`), **ainda não aplicado em produção**; o código
-  que usa essas tabelas vem depois de aplicado.
+  que usa essas tabelas vem depois de aplicado. Regras decididas: uma peça por análise e tese (gerar de novo apaga
+  a anterior, de vez) e só as **3 últimas versões** de cada peça (salvar a 4ª apaga a mais antiga).
 
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 

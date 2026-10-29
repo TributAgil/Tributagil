@@ -4,18 +4,22 @@
 -- duplica nada). Ainda NÃO aplicado em produção.
 --
 -- O QUE FICA SALVO
---   pecas          uma linha por peça gerada (análise + tese). O .docx ORIGINAL que /api/gerar-peca devolveu fica no
---                  bucket `pecas`; com ele, reabrir a peça não chama o Gemini de novo. Guarda também o resumo, a lista
---                  de figuras e o resultado da busca das figuras (para não repetir a busca, que custa IA).
+--   pecas          UMA peça por análise e tese. O .docx ORIGINAL que /api/gerar-peca devolveu fica no bucket `pecas`;
+--                  com ele, reabrir a peça não chama o Gemini de novo. Guarda também o resumo, a lista de figuras e o
+--                  resultado da busca das figuras (para não repetir a busca, que custa IA).
 --   pecas_versoes  cada "Aplicar/Salvar" do editor vira uma versão numerada (1, 2, 3…): as alterações de texto
---                  (o mesmo JSON que o editor já usa) e as imagens confirmadas (caminhos no bucket `pecas`). A peça
---                  revisada é remontada no navegador a partir do original + versão — o Word final não é guardado.
+--                  (o mesmo JSON que o editor já usa) e as imagens confirmadas (caminhos no bucket `pecas`). Ficam só
+--                  as 3 ÚLTIMAS: salvar a 4ª apaga a mais antiga. A peça revisada é remontada no navegador a partir do
+--                  original + versão — o Word final não é guardado.
 --   bucket pecas   privado; cada usuário só enxerga a própria pasta (primeiro segmento do caminho = auth.uid()).
 --                  Caminhos: <user_id>/<analise_id>/<peca_id>/original.docx
 --                            <user_id>/<analise_id>/<peca_id>/figuras/<numero>-<carimbo>.png
 --
 -- REGRAS
---   * Versão é histórico: o app só insere e lê (sem update/delete pelo app). Some junto com a peça.
+--   * Gerar a peça de novo SUBSTITUI a anterior: a peça antiga e as versões dela são apagadas de vez (o app apaga a
+--     linha antes de gravar a nova; o índice único (analise_id, tese) garante que nunca ficam duas).
+--   * Versão só é criada pela RPC salvar_versao_peca (que numera e mantém as 3 últimas); o app lê, mas não insere,
+--     altera nem apaga versão diretamente. Some junto com a peça.
 --   * Peça é rascunho do advogado (não é prova, ao contrário de documentos_caso): o dono pode apagar a peça e os
 --     arquivos dela.
 --   * Apagar a análise (inclusive pelo "Excluir meus dados", RPC excluir_caso_completo) apaga as peças e as versões
@@ -51,7 +55,8 @@ create table if not exists public.pecas (
   )
 );
 
-create index if not exists pecas_analise_tese_idx on public.pecas (analise_id, tese, created_at desc);
+-- uma peça por análise e tese: gerar de novo substitui (apaga a anterior), nunca acumula
+create unique index if not exists pecas_analise_tese_unq on public.pecas (analise_id, tese);
 create index if not exists pecas_user_idx on public.pecas (user_id);
 
 drop trigger if exists pecas_updated_at on public.pecas;
@@ -116,19 +121,16 @@ drop policy if exists "pecas_versoes: leitura própria" on public.pecas_versoes;
 create policy "pecas_versoes: leitura própria" on public.pecas_versoes for select to authenticated
   using (auth.uid() = user_id);
 
--- versão só de peça PRÓPRIA; sem policy de update/delete: versão é histórico
+-- sem policy de insert/update/delete: versão só nasce pela RPC abaixo (que numera e mantém as 3 últimas)
 drop policy if exists "pecas_versoes: inserção própria" on public.pecas_versoes;
-create policy "pecas_versoes: inserção própria" on public.pecas_versoes for insert to authenticated
-  with check (
-    auth.uid() = user_id
-    and exists (select 1 from public.pecas p where p.id = peca_id and p.user_id = auth.uid())
-  );
 
 -- ---------------------------------------------------------------------------------------------------------------------
--- RPC: salvar uma versão (numeração sem buraco nem repetição, mesmo com dois cliques ao mesmo tempo)
+-- RPC: salvar uma versão e manter só as 3 últimas
 -- ---------------------------------------------------------------------------------------------------------------------
--- SECURITY INVOKER: roda com as permissões do próprio usuário, sob a RLS acima (não precisa de privilégio extra).
--- O UPDATE trava a linha da peça até o fim da transação: duas gravações simultâneas viram 1 e 2, nunca 1 e 1.
+-- SECURITY DEFINER (como excluir_caso_completo): é o único caminho que cria e apaga versão, então precisa passar por
+-- cima da falta de policy de insert/delete; a dona da peça é conferida aqui dentro, com auth.uid().
+-- O SELECT … FOR UPDATE trava a linha da peça até o fim da transação: duas gravações simultâneas viram N e N+1, nunca
+-- o mesmo número. O número sai da maior versão já gravada (não de versao_atual, que o app consegue alterar).
 create or replace function public.salvar_versao_peca(
   p_peca_id uuid,
   p_alteracoes jsonb,
@@ -137,26 +139,32 @@ create or replace function public.salvar_versao_peca(
   p_figuras_confirmadas integer
 ) returns integer
 language plpgsql
-security invoker
+security definer
 set search_path = public
 as $$
 declare
+  v_user_id uuid := auth.uid();
   v_numero integer;
+  v_manter constant integer := 3; -- versões guardadas por peça
 begin
-  if auth.uid() is null then raise exception 'NAO_AUTENTICADO'; end if;
+  if v_user_id is null then raise exception 'NAO_AUTENTICADO'; end if;
 
-  update public.pecas
-     set versao_atual = versao_atual + 1
-   where id = p_peca_id and user_id = auth.uid()
-  returning versao_atual into v_numero;
-  if v_numero is null then raise exception 'PECA_NAO_ENCONTRADA'; end if;
+  perform 1 from public.pecas where id = p_peca_id and user_id = v_user_id for update;
+  if not found then raise exception 'PECA_NAO_ENCONTRADA'; end if;
+
+  select coalesce(max(numero), 0) + 1 into v_numero from public.pecas_versoes where peca_id = p_peca_id;
 
   insert into public.pecas_versoes (peca_id, user_id, numero, alteracoes, imagens, total_alteracoes, figuras_confirmadas)
   values (
-    p_peca_id, auth.uid(), v_numero,
+    p_peca_id, v_user_id, v_numero,
     coalesce(p_alteracoes, '{}'::jsonb), coalesce(p_imagens, '{}'::jsonb),
     greatest(coalesce(p_total_alteracoes, 0), 0), greatest(coalesce(p_figuras_confirmadas, 0), 0)
   );
+
+  -- só as 3 últimas: a mais antiga sai (as imagens que só ela usava viram arquivo órfão, para a limpeza do bucket)
+  delete from public.pecas_versoes where peca_id = p_peca_id and numero <= v_numero - v_manter;
+
+  update public.pecas set versao_atual = v_numero where id = p_peca_id;
   return v_numero;
 end;
 $$;
@@ -195,10 +203,12 @@ commit;
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Depois de aplicar (código, não SQL):
---   * o app passa a gravar a peça ao gerar (original no bucket + linha em `pecas`) e cada "Aplicar" vira
---     salvar_versao_peca(); ao abrir a análise, a última peça salva é carregada sem chamar o Gemini;
+--   * o app passa a gravar a peça ao gerar (original no bucket + linha em `pecas`; gerar de novo apaga antes a peça
+--     anterior da mesma tese e os arquivos dela) e cada "Aplicar" vira salvar_versao_peca(); ao abrir a análise, a
+--     peça salva é carregada sem chamar o Gemini;
 --   * "Excluir meus dados" também apaga a pasta <user_id>/<analise_id>/ do bucket `pecas`, e a limpeza diária
---     (scripts/limpar-orfaos-storage.mjs) passa a remover arquivos de `pecas` sem linha correspondente;
+--     (scripts/limpar-orfaos-storage.mjs) passa a remover arquivos de `pecas` que nenhuma peça ou versão usa mais
+--     (inclusive as imagens das versões que saíram pelo limite de 3);
 --   * scripts/teste-rls-isolamento.mjs ganha o caso "B não lê a peça de A".
 --
 -- Para desfazer (apaga TODAS as peças salvas):
