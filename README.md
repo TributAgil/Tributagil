@@ -1268,6 +1268,28 @@ create policy "casos: atualização própria" on public.casos for update
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 ```
 
+### Edição do texto por tópicos (antes de baixar)
+
+No modal da peça, **"Editar o texto da peça"** abre a peça dividida nos tópicos do modelo (Abertura, DOS FATOS,
+DA PRESCRIÇÃO…, DOS PEDIDOS). O advogado altera o texto de cada parágrafo (negrito, itálico, sublinhado), cria
+parágrafo com Enter, remove parágrafo e vê ao lado o que ainda está em amarelo (`[PREENCHER]`, `[CONFIRMAR]`,
+figuras), com clique que leva ao trecho. "Aplicar à peça" gera o Word editado; o download e o "Montar as figuras"
+passam a usar essa versão.
+
+- **Custo zero e sem servidor:** roda no navegador sobre o `.docx` que `/api/gerar-peca` já devolveu
+  (`src/lib/docxEdicao.js`, `src/lib/edicaoTexto.js`, `src/components/EditorPeca.jsx`). Nenhuma IA é chamada.
+- **Cara do escritório preservada:** só o parágrafo alterado é reescrito, mantendo o `pPr` (recuo, espaçamento,
+  alinhamento) e a fonte/tamanho/cor do texto que já estava nele; o resto do documento sai byte a byte igual.
+  Marcadores que restarem voltam em amarelo. Os tópicos são detectados pelo formato dos títulos (parágrafo curto,
+  todo em negrito, sem pontuação final), porque os modelos não usam estilos de título.
+- **Etiquetas:** nota de rodapé, campos automáticos (numeração "Figura N", data) e imagem em linha aparecem como uma
+  etiqueta fixa no meio do texto e saem intactos no Word.
+- **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
+  figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Não fica salvo:** as alterações vivem enquanto o modal está aberto (reabrir o editor continua de onde parou;
+  fechar o modal pede confirmação). Gerar a peça de novo descarta as alterações. Persistir versões da peça no banco
+  é o próximo passo.
+
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 
 Este repositório **não deve ser instalado com `npm`/`yarn install` fora de uma máquina com o yarn de sempre**:

@@ -6,15 +6,18 @@
 // arquivo; (3) o usuário vê o resumo de cada peça disponível (modelo, CDAs/períodos,
 // quantos campos [PREENCHER], avisos e o aviso fixo de revisão) e ESCOLHE qual baixar —
 // os modelos nunca são combinados. Peça bloqueada pelo motor ou sem modelo mostra o motivo.
+// Antes de baixar, o advogado pode (4) editar o texto por tópicos (EditorPeca, no navegador, sem IA) e (5) montar as
+// figuras; o download e as figuras usam sempre a versão editada, quando houver.
 
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download, Images } from 'lucide-react';
+import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download, Images, PenLine } from 'lucide-react';
 import { lerEscritorio } from '../lib/escritorio';
 import { gerarPeca, baixarArquivo } from '../lib/peca';
 import { lerPerfilPeca, salvarPerfilPeca, perfilPecaVazio, CAMPOS_CLIENTE } from '../lib/perfilPeca';
 import ModalEscritorio from './ModalEscritorio';
 // a tela de figuras (e o leitor de PDF dela) só é baixada quando o advogado a abre
 const PainelFiguras = lazy(() => import('./PainelFiguras'));
+const EditorPeca = lazy(() => import('./EditorPeca'));
 
 const Lista = ({ itens, cor }) =>
   itens?.length ? (
@@ -35,6 +38,10 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
   const [erro, setErro] = useState('');
   // peça cujas figuras estão sendo montadas (abre o PainelFiguras por cima do modal)
   const [pecaDasFiguras, setPecaDasFiguras] = useState(null);
+  // peça cujo texto está sendo editado (abre o EditorPeca por cima do modal)
+  const [pecaEmEdicao, setPecaEmEdicao] = useState(null);
+  // por tese: { estado, arquivo, total, contagem } — o arquivo editado substitui o original no download e nas figuras
+  const [edicoes, setEdicoes] = useState({});
   // últimos dados usados (Doc. do mandato + qualificação do cliente), editáveis antes de gerar
   const [perfil, setPerfil] = useState(perfilPecaVazio);
 
@@ -61,6 +68,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
       return;
     }
     setResultado(r);
+    setEdicoes({}); // peça nova: as alterações eram sobre a anterior
     setFase('resultado');
     // os dados que entraram na peça viram os "últimos utilizados" (próxima peça já vem preenchida)
     if (r.status === 'ok' && r.dados_peca_usados) {
@@ -85,15 +93,26 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
     );
   }
 
+  const arquivoDa = (p) => edicoes[p.tese]?.arquivo || p.arquivo;
+  const fecharModal = () => {
+    const editadas = Object.values(edicoes).some((e) => e.total > 0);
+    if (editadas && !window.confirm('As alterações feitas no texto da peça não ficam salvas depois de fechar. Fechar mesmo assim?')) return;
+    onFechar();
+  };
+
+  // depois de editar, a contagem do que falta vem do texto editado (a do servidor é da peça original)
+  const pendenciasDa = (p) =>
+    edicoes[p.tese]?.contagem || { preencher: p.resumo.campos_preencher, confirmar: p.resumo.a_confirmar };
+
   const r = resultado;
   const disponiveis = (r?.pecas || []).filter((p) => p.status === 'ok');
   const indisponiveis = (r?.pecas || []).filter((p) => p.status !== 'ok');
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fase === 'gerando' ? undefined : onFechar} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fase === 'gerando' ? undefined : fecharModal} />
       <div className="relative bg-ink-800 rounded-2xl shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto border border-line">
         {fase !== 'gerando' && (
-          <button onClick={onFechar} className="absolute right-4 top-4 text-parchment/40 hover:text-parchment transition-colors" aria-label="Fechar">
+          <button onClick={fecharModal} className="absolute right-4 top-4 text-parchment/40 hover:text-parchment transition-colors" aria-label="Fechar">
             <X size={18} />
           </button>
         )}
@@ -221,15 +240,26 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                 </div>
                 <p className="text-parchment">
                   <span className="text-parchment/50">A preencher no Word: </span>
-                  {p.resumo.campos_preencher} campo(s) <span className="text-parchment/40">+</span> {p.resumo.figuras} figura(s) a inserir
-                  {p.resumo.a_confirmar > 0 && (
+                  {pendenciasDa(p).preencher} campo(s) <span className="text-parchment/40">+</span> {p.resumo.figuras} figura(s) a inserir
+                  {pendenciasDa(p).confirmar > 0 && (
                     <>
-                      {' '}<span className="text-parchment/40">+</span> {p.resumo.a_confirmar} trecho(s) a confirmar
+                      {' '}<span className="text-parchment/40">+</span> {pendenciasDa(p).confirmar} trecho(s) a confirmar
                     </>
                   )}
                   <span className="text-parchment/40"> (destacados em amarelo)</span>
                 </p>
+                {edicoes[p.tese]?.total > 0 && (
+                  <p className="text-xs text-gold flex items-center gap-1.5">
+                    <PenLine size={12} /> Texto editado: {edicoes[p.tese].total} alteração(ões). O download já sai com elas.
+                  </p>
+                )}
                 <Lista itens={p.resumo.avisos} cor="text-amber-400" />
+                <button
+                  onClick={() => setPecaEmEdicao(p)}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-parchment bg-ink-700 hover:bg-ink-600 border border-line rounded-xl"
+                >
+                  <PenLine size={15} /> {edicoes[p.tese]?.total > 0 ? 'Continuar editando o texto' : 'Editar o texto da peça'}
+                </button>
                 {p.figuras?.length > 0 && (
                   <button
                     onClick={() => setPecaDasFiguras(p)}
@@ -239,7 +269,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                   </button>
                 )}
                 <button
-                  onClick={() => baixarArquivo(p.arquivo)}
+                  onClick={() => baixarArquivo(arquivoDa(p))}
                   className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-ink bg-gold hover:bg-gold/90 rounded-xl shadow-lg shadow-gold/20"
                 >
                   <Download size={15} /> Baixar {p.resumo.tese.toLowerCase()} (.docx)
@@ -263,7 +293,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{disponiveis[0].resumo.aviso_fixo}</span>
             </p>
 
-            <button onClick={onFechar} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
+            <button onClick={fecharModal} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
               Fechar
             </button>
           </div>
@@ -315,9 +345,28 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
           <PainelFiguras
             analiseId={analise.id}
             figuras={pecaDasFiguras.figuras}
-            arquivo={pecaDasFiguras.arquivo}
+            arquivo={arquivoDa(pecaDasFiguras)}
             tituloPeca={pecaDasFiguras.resumo?.modelo}
             onFechar={() => setPecaDasFiguras(null)}
+          />
+        </Suspense>
+      )}
+      {pecaEmEdicao && (
+        <Suspense fallback={null}>
+          <EditorPeca
+            // sempre a peça ORIGINAL + o estado das alterações: reabrir continua de onde parou
+            arquivo={pecaEmEdicao.arquivo}
+            estadoInicial={edicoes[pecaEmEdicao.tese]?.estado}
+            tituloPeca={pecaEmEdicao.resumo?.modelo}
+            onFechar={() => setPecaEmEdicao(null)}
+            onAplicar={(e) => {
+              const tese = pecaEmEdicao.tese;
+              setEdicoes((atual) => {
+                const { [tese]: _anterior, ...resto } = atual;
+                return e.total > 0 ? { ...resto, [tese]: e } : resto;
+              });
+              setPecaEmEdicao(null);
+            }}
           />
         </Suspense>
       )}
