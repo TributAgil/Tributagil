@@ -1294,9 +1294,11 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
-- **Não fica salvo:** as alterações e os recortes vivem enquanto o modal está aberto (reabrir o editor continua de
-  onde parou; fechar o modal pede confirmação). Gerar a peça de novo descarta tudo. Persistir versões da peça no banco
-  é o próximo passo.
+- **Não fica salvo (ainda):** as alterações e os recortes vivem enquanto o modal está aberto (reabrir o editor
+  continua de onde parou; fechar o modal pede confirmação). Gerar a peça de novo descarta tudo. O SQL para salvar a
+  peça com versões está em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql) (tabelas `pecas` e
+  `pecas_versoes`, RPC `salvar_versao_peca`, bucket privado `pecas`), **ainda não aplicado em produção**; o código
+  que usa essas tabelas vem depois de aplicado.
 
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 
