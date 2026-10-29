@@ -1,7 +1,7 @@
 // src/lib/pdfPaginas.js
 //
 // Abre um documento do caso (PDF ou imagem) no navegador e desenha/recorta páginas em canvas, para a tela de revisão das
-// figuras. A biblioteca pdf.js é carregada SOB DEMANDA (import dinâmico): só quem abre "Montar as figuras" baixa esse
+// figuras. A biblioteca pdf.js é carregada SOB DEMANDA (import dinâmico): só quem abre uma figura no editor da peça baixa esse
 // código; o resto do site não pesa nada.
 //
 // CSP do site (vercel.json): o worker do pdf.js é servido do próprio domínio (worker-src 'self') e `isEvalSupported:

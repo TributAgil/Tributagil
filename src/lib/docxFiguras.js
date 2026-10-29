@@ -161,6 +161,18 @@ export function base64ParaBytes(base64) {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
+/** Entrega um Blob como download no navegador. */
+export function baixarBlob(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** "Peca.docx" → "Peca-com-figuras.docx" */
 export function nomeComFiguras(nome) {
   return /\.docx$/i.test(nome || '') ? nome.replace(/\.docx$/i, '-com-figuras.docx') : `${nome || 'peca'}-com-figuras.docx`;
@@ -183,18 +195,26 @@ async function paraPng(blob) {
 }
 
 /**
+ * Imagens confirmadas (Blob) → bytes PNG prontos para inserirFigurasNoDocx.
+ * @param {Record<number, { blob: Blob, descricao?: string }>} imagens
+ */
+export async function prepararImagens(imagens) {
+  const prontas = {};
+  for (const [numero, i] of Object.entries(imagens)) {
+    const png = i.blob.type === 'image/png' && i.blob.size < 6 * 1024 * 1024 ? i.blob : await paraPng(i.blob);
+    prontas[numero] = { bytes: new Uint8Array(await png.arrayBuffer()), descricao: i.descricao };
+  }
+  return prontas;
+}
+
+/**
  * Monta o Word com as figuras confirmadas.
  * @param {{ nome: string, base64: string }} arquivo  o .docx devolvido pelo servidor
  * @param {Record<number, { blob: Blob }>} imagens    imagens confirmadas, por número da figura
  * @returns {Promise<{ blob: Blob, nome: string, inseridas: number[], restantes: number[] }>}
  */
 export async function montarWordComFiguras(arquivo, imagens) {
-  const prontas = {};
-  for (const [numero, i] of Object.entries(imagens)) {
-    const png = i.blob.type === 'image/png' && i.blob.size < 6 * 1024 * 1024 ? i.blob : await paraPng(i.blob);
-    prontas[numero] = { bytes: new Uint8Array(await png.arrayBuffer()), descricao: i.descricao };
-  }
-  const r = await inserirFigurasNoDocx(base64ParaBytes(arquivo.base64), prontas);
+  const r = await inserirFigurasNoDocx(base64ParaBytes(arquivo.base64), await prepararImagens(imagens));
   const blob = new Blob([r.docx], { type: arquivo.mime || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
   return { blob, nome: nomeComFiguras(arquivo.nome), inseridas: r.inseridas, restantes: r.restantes };
 }

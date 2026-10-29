@@ -1,30 +1,44 @@
 // src/components/EditorPeca.jsx
 //
-// Aba "Editar o texto" da peça: depois de a peça estar pronta e ANTES de baixar o Word, o advogado ajusta o texto por
-// tópicos ("DOS FATOS", "DA PRESCRIÇÃO…"), com negrito, itálico e sublinhado, acrescenta ou remove parágrafos e vê, ao
-// lado, o que ainda está em amarelo para preencher. Tudo roda no navegador sobre o .docx que o servidor já devolveu:
-// nenhuma IA é chamada e a formatação do modelo do escritório é preservada (ver src/lib/docxEdicao.js).
+// "Revisar a peça": depois de a peça estar pronta e ANTES de baixar o Word, o advogado ajusta o texto por tópicos
+// ("DOS FATOS", "DA PRESCRIÇÃO…"), com negrito, itálico e sublinhado, acrescenta ou remove parágrafos, vê ao lado o que
+// ainda está em amarelo e monta as FIGURAS no lugar delas, no meio do texto: cada lugar de figura abre o recorte ali
+// mesmo (busca nos documentos do caso + EditorRecorte). O texto roda no navegador sobre o .docx que o servidor já
+// devolveu, sem IA, preservando a formatação do modelo (ver src/lib/docxEdicao.js); a busca das figuras é a única
+// chamada ao Gemini, feita uma vez, quando o advogado abre a primeira figura.
 //
-// As alterações são sempre relativas à peça ORIGINAL: reabrir a aba volta com o que já tinha sido feito (`estadoInicial`).
-// `abrir` é injetável para testar a tela sem um .docx de verdade.
+// As imagens só entram no Word quando TODAS as figuras foram confirmadas (mesma regra da tela de figuras anterior);
+// antes disso o Word sai com o texto editado e os marcadores de figura em amarelo.
+//
+// As alterações são sempre relativas à peça ORIGINAL: reabrir volta com o que já tinha sido feito (`estadoInicial` e
+// `figurasIniciais`). `abrir` e `servicosFiguras` são injetáveis para testar a tela sem .docx, Supabase ou Gemini.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Loader2, PenLine, AlertTriangle, ArrowLeft, Bold, Italic, Underline, Plus, Trash2, RotateCcw, Undo2, Check, Table2, Image as ImageIcon, Lock,
+  CheckCircle2, Download,
 } from 'lucide-react';
 import {
   abrirPecaParaEdicao, montarDocxEditado, listarPendencias, contarPendencias, textoDosTrechos, nomeEditado, bytesParaBase64,
 } from '../lib/docxEdicao';
-import { base64ParaBytes } from '../lib/docxFiguras';
+import { base64ParaBytes, inserirFigurasNoDocx, prepararImagens, nomeComFiguras, baixarBlob } from '../lib/docxFiguras';
 import { trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes } from '../lib/edicaoTexto';
+import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
+import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
+import FiguraNoTexto from './figuras/FiguraNoTexto';
+import PainelDaFigura from './figuras/PainelDaFigura';
 
 const ROTULO_MOTIVO = {
   tabela: 'Tabela montada pelo sistema',
-  figura: 'Lugar da figura (inserida no passo “Montar as figuras”)',
   imagem: 'Parágrafo com imagem',
 };
 
-const COR_PENDENCIA = { preencher: 'text-amber-400', confirmar: 'text-sky-400', figura: 'text-parchment/60' };
+const COR_PENDENCIA = { preencher: 'text-amber-400', confirmar: 'text-sky-400' };
+const ICONE_FIGURA = {
+  confere: 'text-sky-400',
+  revisar: 'text-amber-400',
+  nao_achada: 'text-red-400',
+};
 
 /** Posição do cursor (em caracteres do texto) dentro da caixa editável. */
 function posicaoDoCursor(caixa) {
@@ -89,17 +103,32 @@ function CaixaDeTexto({ trechos, objetos, rotulo, titulo, aoMudar, aoEnter, regi
   );
 }
 
+/** As imagens confirmadas mudaram em relação ao que veio ao abrir? (mesmo Blob = mesma imagem) */
+function imagensMudaram(atuais, iniciais = {}) {
+  const a = Object.keys(atuais);
+  const b = Object.keys(iniciais);
+  return a.length !== b.length || a.some((n) => atuais[n].blob !== iniciais[n]?.blob);
+}
+
 /**
  * @param {{
  *   arquivo: { nome: string, mime: string, base64: string },
+ *   analiseId?: string,
+ *   figuras?: object[],
  *   tituloPeca?: string,
  *   estadoInicial?: object,
- *   onFechar: () => void,
- *   onAplicar: (r: { arquivo: object|null, estado: object, total: number, contagem: object }) => void,
+ *   figurasIniciais?: { localizacao?: object, imagens?: object },
+ *   onFechar: (guardar: { figuras: { localizacao: object|null } }) => void,
+ *   onAplicar: (r: { arquivo: object|null, estado: object, total: number, contagem: object, figuras: object,
+ *     figurasNoWord: boolean, figurasConfirmadas: number }) => void,
  *   abrir?: (bytes: Uint8Array) => Promise<object>,
+ *   servicosFiguras?: object,
  * }} props
  */
-export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {}, onFechar, onAplicar, abrir = abrirPecaParaEdicao }) {
+export default function EditorPeca({
+  arquivo, analiseId = '', figuras = [], tituloPeca = '', estadoInicial = {}, figurasIniciais = {}, onFechar, onAplicar,
+  abrir = abrirPecaParaEdicao, servicosFiguras = SERVICOS_FIGURAS,
+}) {
   const [fase, setFase] = useState('abrindo'); // 'abrindo' | 'erro' | 'edicao'
   const [erro, setErro] = useState('');
   const [peca, setPeca] = useState(null);
@@ -111,6 +140,8 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
   const focoPendente = useRef(null);
   const contadorNovos = useRef(0);
   const colunaRef = useRef(null);
+  const fig = useFigurasDaPeca({ analiseId, figuras, inicial: figurasIniciais, servicos: servicosFiguras });
+  const [figuraAberta, setFiguraAberta] = useState(null); // número da figura cujo recorte está aberto no lugar da folha
 
   useEffect(() => {
     let vivo = true;
@@ -142,7 +173,9 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
 
   const alteracoes = useMemo(() => alteracoesParaMontagem(estado, blocos), [estado, blocos]);
   const total = contarAlteracoes(alteracoes);
-  const sujo = JSON.stringify(alteracoes) !== JSON.stringify(alteracoesParaMontagem(estadoInicial, blocos));
+  const sujo =
+    JSON.stringify(alteracoes) !== JSON.stringify(alteracoesParaMontagem(estadoInicial, blocos)) ||
+    imagensMudaram(fig.imagens, figurasIniciais.imagens);
 
   const textoAtual = useCallback(
     (b) => {
@@ -152,7 +185,11 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
     },
     [estado],
   );
-  const pendencias = useMemo(() => listarPendencias(blocos, textoAtual), [blocos, textoAtual]);
+  // as figuras têm a seção delas na lateral: aqui ficam só os campos a preencher e os trechos a confirmar
+  const pendencias = useMemo(() => listarPendencias(blocos, textoAtual).filter((p) => p.tipo !== 'figura'), [blocos, textoAtual]);
+  const numerosDeFigura = useMemo(() => blocos.filter((b) => b.figura).map((b) => b.figura), [blocos]);
+  const figuraDoNumero = useMemo(() => new Map(figuras.map((f) => [f.numero, f])), [figuras]);
+  const blocoDaFigura = useMemo(() => new Map(blocos.filter((b) => b.figura).map((b) => [b.figura, b.id])), [blocos]);
 
   // foco na caixa recém-criada (Enter ou "parágrafo abaixo"), depois que ela existe na tela
   useEffect(() => {
@@ -224,39 +261,85 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
     setVersoes((v) => ({ ...v, ...Object.fromEntries(blocos.map((b) => [`p-${b.id}`, (v[`p-${b.id}`] || 0) + 1])) }));
   };
 
+  // a busca das figuras (custo de IA) é guardada mesmo saindo sem aplicar: reabrir não busca de novo
   const fechar = () => {
-    if (sujo && !window.confirm('Sair sem aplicar as alterações feitas no texto?')) return;
-    onFechar();
+    if (sujo && !window.confirm('Sair sem aplicar as alterações feitas no texto e nas figuras?')) return;
+    onFechar({ figuras: { localizacao: fig.paraGuardar().localizacao } });
   };
 
-  const irPara = (id) => {
+  const abrirFigura = (numero) => {
+    if (!figuraDoNumero.has(numero)) return;
+    fig.garantirBusca();
+    setFiguraAberta(numero);
+  };
+
+  /** Depois de confirmar: vai para a próxima figura sem imagem; se não houver, volta ao texto, no lugar da figura. */
+  const depoisDeConfirmar = (numero) => {
+    const ordem = figuras.map((f) => f.numero);
+    const depois = [...ordem.slice(ordem.indexOf(numero) + 1), ...ordem.slice(0, ordem.indexOf(numero))];
+    const proxima = depois.find((n) => !fig.imagens[n]);
+    if (proxima !== undefined) {
+      setFiguraAberta(proxima);
+      return;
+    }
+    setFiguraAberta(null);
+    const id = blocoDaFigura.get(numero);
+    if (id !== undefined) irPara(id, `figura-${numero}`);
+  };
+
+  const baixarZip = async () => {
+    if (!fig.resumo.completo) return;
+    // JSZip só é baixado quando o advogado pede o .zip
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    for (const f of figuras) {
+      const i = fig.imagens[f.numero];
+      if (!i) continue;
+      const extensao = /jpe?g/i.test(i.blob.type) ? 'jpg' : /webp/i.test(i.blob.type) ? 'webp' : 'png';
+      zip.file(nomeArquivoFigura(f, extensao), i.blob);
+    }
+    baixarBlob(await zip.generateAsync({ type: 'blob' }), 'figuras-da-peca.zip');
+  };
+
+  function irPara(id, elementoId) {
     const t = topicoDoBloco.get(id);
     if (t !== undefined) setTopicoAtivo(t);
+    setFiguraAberta(null);
     setTimeout(() => {
-      const el = caixas.current.get(`p-${id}`) || document.getElementById(`bloco-${id}`);
+      const el = (elementoId && document.getElementById(elementoId)) || caixas.current.get(`p-${id}`) || document.getElementById(`bloco-${id}`);
       el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
       if (el?.isContentEditable) el.focus();
     }, 0);
-  };
+  }
 
   const aplicar = async () => {
     setAplicando(true);
+    setErro('');
     try {
-      const contagem = contarPendencias(pendencias);
-      if (total === 0) {
-        onAplicar({ arquivo: null, estado: {}, total: 0, contagem });
+      const figurasNoWord = fig.resumo.completo;
+      // o que continua em amarelo NO WORD: sem todas as figuras confirmadas, os marcadores de figura ficam todos
+      const contagem = { ...contarPendencias(pendencias), figuras: figurasNoWord ? 0 : numerosDeFigura.length };
+      const guardar = { estado: total > 0 ? estado : {}, total, contagem, figuras: fig.paraGuardar(), figurasNoWord, figurasConfirmadas: fig.resumo.confirmadas };
+      if (total === 0 && !figurasNoWord) {
+        onAplicar({ ...guardar, arquivo: null });
         return;
       }
-      const bytes = await montarDocxEditado(peca.fonte, alteracoes);
-      onAplicar({
-        arquivo: { nome: nomeEditado(arquivo.nome), mime: arquivo.mime, base64: bytesParaBase64(bytes) },
-        estado,
-        total,
-        contagem,
-      });
+      let bytes = await montarDocxEditado(peca.fonte, alteracoes);
+      let nome = total > 0 ? nomeEditado(arquivo.nome) : arquivo.nome;
+      if (figurasNoWord) {
+        const imagensDoWord = Object.fromEntries(
+          figuras.filter((f) => fig.imagens[f.numero]).map((f) => [f.numero, { blob: fig.imagens[f.numero].blob, descricao: f.legenda }]),
+        );
+        const r = await inserirFigurasNoDocx(bytes, await prepararImagens(imagensDoWord));
+        bytes = r.docx;
+        nome = nomeComFiguras(nome);
+        if (r.restantes.length) guardar.contagem = { ...guardar.contagem, figuras: r.restantes.length };
+      }
+      onAplicar({ ...guardar, arquivo: { nome, mime: arquivo.mime, base64: bytesParaBase64(bytes) } });
     } catch (err) {
       console.warn('[editor-peca] Falha ao montar o Word editado:', err);
       setErro('Não foi possível montar o Word com as alterações. Tente de novo; se persistir, baixe o Word e edite nele.');
+      return;
     } finally {
       setAplicando(false);
     }
@@ -284,6 +367,18 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
 
     if (b.vazio) {
       corpo = null;
+    } else if (b.figura) {
+      corpo = (
+        <FiguraNoTexto
+          numero={b.figura}
+          figura={figuraDoNumero.get(b.figura)}
+          resultado={fig.resultados[b.figura]}
+          buscou={fig.fase === 'pronto'}
+          imagem={fig.imagens[b.figura]}
+          onMontar={figuraDoNumero.has(b.figura) ? () => abrirFigura(b.figura) : undefined}
+          onDesfazer={() => fig.desfazer(b.figura)}
+        />
+      );
     } else if (!b.editavel) {
       const Icone = b.tipo === 'tabela' ? Table2 : b.figura || b.motivo === 'imagem' ? ImageIcon : Lock;
       corpo = (
@@ -369,19 +464,20 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
   };
 
   const contagem = contarPendencias(pendencias);
+  const figuraEmEdicao = figuraAberta !== null ? figuraDoNumero.get(figuraAberta) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={aplicando ? undefined : fechar} />
-      <div className="relative bg-ink-800 rounded-2xl shadow-2xl w-full max-w-6xl h-[94vh] flex flex-col border border-line" role="dialog" aria-label="Editar o texto da peça">
+      <div className="relative bg-ink-800 rounded-2xl shadow-2xl w-full max-w-6xl h-[94vh] flex flex-col border border-line" role="dialog" aria-label="Revisar a peça">
         {/* cabeçalho */}
         <div className="flex items-center gap-3 p-5 pb-3 border-b border-line">
           <div className="w-11 h-11 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
             <PenLine size={20} className="text-gold" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-lg font-bold text-parchment">Editar o texto da peça</h3>
-            <p className="text-xs text-parchment/50 truncate">{tituloPeca || 'Ajuste o texto por tópico antes de baixar o Word.'}</p>
+            <h3 className="text-lg font-bold text-parchment">Revisar a peça: texto e figuras</h3>
+            <p className="text-xs text-parchment/50 truncate">{tituloPeca || 'Ajuste o texto e monte as figuras antes de baixar o Word.'}</p>
           </div>
           {!aplicando && (
             <button onClick={fechar} className="ml-auto text-parchment/40 hover:text-parchment" aria-label="Fechar">
@@ -402,7 +498,7 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
             <p className="text-sm text-amber-400 flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {erro}
             </p>
-            <button onClick={onFechar} className="w-full py-2.5 text-sm text-parchment/70 bg-ink-700 hover:bg-ink-600 rounded-xl">
+            <button onClick={() => onFechar({ figuras: { localizacao: null } })} className="w-full py-2.5 text-sm text-parchment/70 bg-ink-700 hover:bg-ink-600 rounded-xl">
               Voltar à peça
             </button>
           </div>
@@ -412,7 +508,8 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
           <>
             <div className="flex-1 min-h-0 grid md:grid-cols-[17rem_1fr] gap-4 p-5 overflow-hidden">
               {/* tópicos e pendências */}
-              <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-1 md:max-h-full max-h-40">
+              {/* no celular, com uma figura aberta, a lateral sai da frente: o recorte precisa da tela toda */}
+              <div className={`flex-col gap-4 min-h-0 overflow-y-auto pr-1 md:max-h-full max-h-40 ${figuraEmEdicao ? 'hidden md:flex' : 'flex'}`}>
                 <nav aria-label="Tópicos da peça">
                   <p className="text-[11px] uppercase tracking-wide text-parchment/40 mb-1.5">Tópicos</p>
                   <ol className="space-y-1">
@@ -425,11 +522,12 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
                           <button
                             onClick={() => {
                               setTopicoAtivo(i);
+                              setFiguraAberta(null);
                               colunaRef.current?.scrollTo?.({ top: 0 });
                             }}
-                            aria-current={ativo ? 'true' : undefined}
+                            aria-current={ativo && figuraAberta === null ? 'true' : undefined}
                             className={`w-full text-left rounded-xl border px-3 py-2 transition-colors ${
-                              ativo ? 'border-gold bg-gold/10' : 'border-line bg-ink-900/50 hover:bg-ink-900'
+                              ativo && figuraAberta === null ? 'border-gold bg-gold/10' : 'border-line bg-ink-900/50 hover:bg-ink-900'
                             }`}
                           >
                             <span className="block text-xs text-parchment/90 leading-snug line-clamp-2">{t.titulo}</span>
@@ -446,16 +544,56 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
                   </ol>
                 </nav>
 
+                {figuras.length > 0 && (
+                  <section aria-label="Figuras da peça">
+                    <p className="text-[11px] uppercase tracking-wide text-parchment/40 mb-1.5">Figuras</p>
+                    <p className="text-xs text-parchment/70 mb-1.5">
+                      <b className={fig.resumo.completo ? 'text-emerald-400' : 'text-gold'}>{fig.resumo.confirmadas}</b> de {fig.resumo.total} confirmada(s)
+                    </p>
+                    <ul className="space-y-1">
+                      {figuras.map((f) => {
+                        const confirmada = Boolean(fig.imagens[f.numero]);
+                        const ativa = f.numero === figuraAberta;
+                        return (
+                          <li key={f.numero}>
+                            <button
+                              onClick={() => abrirFigura(f.numero)}
+                              aria-current={ativa ? 'true' : undefined}
+                              className={`w-full text-left rounded-lg px-2 py-1.5 text-[11px] leading-snug ${ativa ? 'bg-gold/10 ring-1 ring-gold' : 'hover:bg-ink-900'}`}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <span className="font-semibold text-gold tabular-nums">Fig. {f.numero}</span>
+                                {confirmada ? (
+                                  <span className="ml-auto inline-flex items-center gap-1 text-emerald-400">
+                                    <CheckCircle2 size={12} /> confirmada
+                                  </span>
+                                ) : fig.fase === 'pronto' ? (
+                                  <span className={`ml-auto ${ICONE_FIGURA[estadoDaFigura(fig.resultados[f.numero])]}`}>
+                                    {estadoDaFigura(fig.resultados[f.numero]) === 'confere' ? 'proposta conferida' : estadoDaFigura(fig.resultados[f.numero]) === 'revisar' ? 'revisar' : 'não encontrada'}
+                                  </span>
+                                ) : (
+                                  <span className="ml-auto text-parchment/40">a montar</span>
+                                )}
+                              </span>
+                              <span className="block text-parchment/70 line-clamp-2">{f.descricao}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                )}
+
                 <section aria-label="Pendências da peça">
                   <p className="text-[11px] uppercase tracking-wide text-parchment/40 mb-1.5">Ainda em amarelo</p>
                   {pendencias.length === 0 ? (
                     <p className="text-xs text-emerald-400 flex items-center gap-1.5">
-                      <Check size={13} /> Nada para preencher.
+                      <Check size={13} /> Nenhum campo para preencher.
                     </p>
                   ) : (
                     <>
                       <p className="text-xs text-parchment/60 mb-1.5">
-                        {contagem.preencher} a preencher · {contagem.confirmar} a confirmar · {contagem.figuras} figura(s)
+                        {contagem.preencher} a preencher · {contagem.confirmar} a confirmar
                       </p>
                       <ul className="space-y-1">
                         {pendencias.map((p, i) => (
@@ -474,8 +612,26 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
                 </section>
               </div>
 
+              {/* recorte de uma figura, no lugar da folha */}
+              {figuraEmEdicao && (
+                <div className="flex flex-col min-h-0 min-w-0">
+                  <PainelDaFigura
+                    figura={figuraEmEdicao}
+                    figuras={figuras}
+                    estado={fig}
+                    onTrocar={abrirFigura}
+                    onConfirmada={depoisDeConfirmar}
+                    onVoltar={() => {
+                      const id = blocoDaFigura.get(figuraEmEdicao.numero);
+                      if (id !== undefined) irPara(id, `figura-${figuraEmEdicao.numero}`);
+                      else setFiguraAberta(null);
+                    }}
+                  />
+                </div>
+              )}
+
               {/* folha */}
-              <div className="flex flex-col min-h-0 min-w-0">
+              <div className={`flex-col min-h-0 min-w-0 ${figuraEmEdicao ? 'hidden' : 'flex'}`}>
                 <div className="flex items-center gap-1 mb-2" role="toolbar" aria-label="Formatação">
                   <button onMouseDown={formatar('bold')} title="Negrito (Ctrl+B)" aria-label="Negrito" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Bold size={15} />
@@ -532,7 +688,23 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
               )}
               <p className="text-sm text-parchment/80 ml-auto" aria-live="polite">
                 <b className={total ? 'text-gold' : 'text-parchment/50'}>{total}</b> alteração(ões) no texto
+                {figuras.length > 0 && (
+                  <>
+                    <span className="text-parchment/30"> · </span>
+                    <b className={fig.resumo.completo ? 'text-emerald-400' : 'text-gold'}>{fig.resumo.confirmadas}</b> de {fig.resumo.total} figura(s)
+                  </>
+                )}
               </p>
+              {figuras.length > 0 && (
+                <button
+                  onClick={baixarZip}
+                  disabled={!fig.resumo.completo || aplicando}
+                  title={fig.resumo.completo ? undefined : 'Disponível depois de confirmar todas as figuras'}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-parchment/80 bg-ink-700 hover:bg-ink-600 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Download size={14} /> Imagens (.zip)
+                </button>
+              )}
               <button
                 onClick={aplicar}
                 disabled={aplicando || !sujo}
@@ -542,6 +714,12 @@ export default function EditorPeca({ arquivo, tituloPeca = '', estadoInicial = {
                 {aplicando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Aplicar à peça
               </button>
               {erro && <p className="basis-full text-right text-xs text-amber-400">{erro}</p>}
+              {!erro && figuras.length > 0 && !fig.resumo.completo && (
+                <p className="basis-full text-right text-xs text-parchment/50 hidden sm:block">
+                  As imagens entram no Word quando as {fig.resumo.total} figura(s) estiverem confirmadas (faltam {fig.resumo.faltam}). Até lá, o Word sai com o
+                  texto editado e as figuras em amarelo.
+                </p>
+              )}
             </div>
           </>
         )}

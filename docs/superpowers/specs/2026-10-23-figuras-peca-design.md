@@ -38,6 +38,10 @@ Medição: `node scripts/casos-ficticios/medir-localizacao-figuras.mjs P01 P03 D
 
 ## Etapa (c): tela de revisão (implementada)
 `PainelFiguras` + `EditorRecorte` (src/components), lógica em `src/lib/figuras.js`, leitor de PDF em `src/lib/pdfPaginas.js`.
+**Atualização (29/10/2026):** a tela separada `PainelFiguras` foi unificada ao editor da peça (`EditorPeca`, "Revisar a
+peça"): cada lugar de figura no texto abre o `EditorRecorte` ali mesmo, e o estado (busca, documentos, imagens) ficou em
+`src/components/figuras/useFigurasDaPeca.js`. Regras mantidas: busca uma vez, nada entra sem ser visto, imagens no Word
+só com todas confirmadas.
 Botão "Montar as N figura(s) antes de baixar" em cada peça do resultado. Lista lateral com o estado de cada figura
 (dado conferido / revisar / não encontrada / confirmada); editor com a página, a caixa arrastável com alças, desenho de
 caixa nova no fundo da página, troca de página ou de documento, "Confirmar este recorte" (PNG), "Usar o meu próprio print",

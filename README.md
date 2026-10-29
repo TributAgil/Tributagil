@@ -1191,7 +1191,7 @@ a partir dos mesmos modelos-base; as **minutas renderizadas com dados fictícios
 
 **Quadros e figuras:** o fluxograma/SmartArt da EPE de prescrição virou tabela *Tese | Fundamento* (padrão da
 de decadência); a linha do tempo virou **tabela** (data | evento | documento-fonte) — editável, sem imagem.
-O Word sai com `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`; no modal da peça, "Montar as figuras" propõe o recorte de cada uma nos documentos do caso, o advogado confirma/ajusta e baixa o Word já com as imagens nos lugares (`src/lib/docxFiguras.js`, tudo no navegador).
+O Word sai com `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`; no editor da peça ("Revisar a peça", abaixo), cada lugar de figura no texto abre o recorte proposto nos documentos do caso, o advogado confirma/ajusta e o Word sai com as imagens nos lugares (`src/lib/docxFiguras.js`, tudo no navegador).
 
 **Campos ausentes:** `[PREENCHER: o que falta]` e `[INSERIR FIGURA …]` saem **destacados em amarelo** (pós-processamento
 do XML em `api/_render-peca.js`, respeitando a ordem de elementos do `rPr`).
@@ -1268,16 +1268,24 @@ create policy "casos: atualização própria" on public.casos for update
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 ```
 
-### Edição do texto por tópicos (antes de baixar)
+### Revisar a peça: texto por tópicos e figuras no lugar (antes de baixar)
 
-No modal da peça, **"Editar o texto da peça"** abre a peça dividida nos tópicos do modelo (Abertura, DOS FATOS,
-DA PRESCRIÇÃO…, DOS PEDIDOS). O advogado altera o texto de cada parágrafo (negrito, itálico, sublinhado), cria
-parágrafo com Enter, remove parágrafo e vê ao lado o que ainda está em amarelo (`[PREENCHER]`, `[CONFIRMAR]`,
-figuras), com clique que leva ao trecho. "Aplicar à peça" gera o Word editado; o download e o "Montar as figuras"
-passam a usar essa versão.
+No modal da peça, **"Revisar o texto e montar as figuras"** abre a peça dividida nos tópicos do modelo (Abertura,
+DOS FATOS, DA PRESCRIÇÃO…, DOS PEDIDOS). O advogado altera o texto de cada parágrafo (negrito, itálico, sublinhado),
+cria parágrafo com Enter, remove parágrafo e vê ao lado o que ainda está em amarelo (`[PREENCHER]`, `[CONFIRMAR]`),
+com clique que leva ao trecho. "Aplicar à peça" gera o Word revisado, que é o que o download passa a entregar.
 
-- **Custo zero e sem servidor:** roda no navegador sobre o `.docx` que `/api/gerar-peca` já devolveu
-  (`src/lib/docxEdicao.js`, `src/lib/edicaoTexto.js`, `src/components/EditorPeca.jsx`). Nenhuma IA é chamada.
+**Figuras no mesmo lugar:** cada `[INSERIR FIGURA N]` aparece na folha como "Lugar da figura N", com o botão
+"Montar a figura N"; o recorte (página do documento com a caixa proposta, `EditorRecorte`) abre ali mesmo, no lugar
+da folha, e depois de confirmar a imagem aparece no texto, onde vai sair no Word. A lateral lista as figuras com o
+estado de cada uma. A busca nos documentos (`/api/localizar-figuras`, Gemini) roda **uma vez**, quando o advogado abre
+a primeira figura, e é guardada enquanto o modal estiver aberto (reabrir não busca de novo). Regra mantida: as imagens
+só entram no Word (e o .zip só é liberado) quando **todas** as figuras estiverem confirmadas; antes disso o Word sai
+com o texto editado e os marcadores de figura em amarelo. Código: `src/components/figuras/useFigurasDaPeca.js`,
+`FiguraNoTexto.jsx`, `PainelDaFigura.jsx`. A tela separada "Montar as figuras" (`PainelFiguras.jsx`) foi removida.
+
+- **Texto: custo zero e sem servidor:** roda no navegador sobre o `.docx` que `/api/gerar-peca` já devolveu
+  (`src/lib/docxEdicao.js`, `src/lib/edicaoTexto.js`, `src/components/EditorPeca.jsx`). Nenhuma IA é chamada para o texto.
 - **Cara do escritório preservada:** só o parágrafo alterado é reescrito, mantendo o `pPr` (recuo, espaçamento,
   alinhamento) e a fonte/tamanho/cor do texto que já estava nele; o resto do documento sai byte a byte igual.
   Marcadores que restarem voltam em amarelo. Os tópicos são detectados pelo formato dos títulos (parágrafo curto,
@@ -1286,8 +1294,8 @@ passam a usar essa versão.
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
-- **Não fica salvo:** as alterações vivem enquanto o modal está aberto (reabrir o editor continua de onde parou;
-  fechar o modal pede confirmação). Gerar a peça de novo descarta as alterações. Persistir versões da peça no banco
+- **Não fica salvo:** as alterações e os recortes vivem enquanto o modal está aberto (reabrir o editor continua de
+  onde parou; fechar o modal pede confirmação). Gerar a peça de novo descarta tudo. Persistir versões da peça no banco
   é o próximo passo.
 
 ### Dependências (rodar na sua máquina — `yarn.lock`)
