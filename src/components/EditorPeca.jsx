@@ -24,10 +24,12 @@ import {
 import { base64ParaBytes, baixarBlob } from '../lib/docxFiguras';
 import {
   trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes, textoAtualDoBloco, trechosParaLu, luParaTrechos,
+  substituirNosTrechos,
 } from '../lib/edicaoTexto';
 import { montarPecaRevisada } from '../lib/pecaRevisada';
 import { pedirAoLu, ACOES_LU, resumoParaLu } from '../lib/luPeca';
 import PropostaLu from './lu/PropostaLu';
+import TrocarNaPeca from './lu/TrocarNaPeca';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
 import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
 import FiguraNoTexto from './figuras/FiguraNoTexto';
@@ -132,7 +134,7 @@ function imagensMudaram(atuais, iniciais = {}) {
  * }} props
  */
 export default function EditorPeca({
-  arquivo, analiseId = '', figuras = [], tituloPeca = '', resumoPeca = {}, estadoInicial = {}, figurasIniciais = {}, onFechar, onAplicar,
+  arquivo, analiseId = '', figuras = [], tituloPeca = '', resumoPeca = {}, template = '', estadoInicial = {}, figurasIniciais = {}, onFechar, onAplicar,
   abrir = abrirPecaParaEdicao, servicosFiguras = SERVICOS_FIGURAS,
 }) {
   const [fase, setFase] = useState('abrindo'); // 'abrindo' | 'erro' | 'edicao'
@@ -308,6 +310,7 @@ export default function EditorPeca({
     const t = topicoDoBloco.get(id);
     if (t !== undefined) setTopicoAtivo(t);
     setFiguraAberta(null);
+    setPainelTrocar(null);
     setTimeout(() => {
       const el = (elementoId && document.getElementById(elementoId)) || caixas.current.get(`p-${id}`) || document.getElementById(`bloco-${id}`);
       el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
@@ -345,6 +348,9 @@ export default function EditorPeca({
     return Boolean(b && b.editavel && !estado[b.id]?.removido && (alvoLu.chave || !b.titulo) && textoDosTrechos(trechosDoAlvo(alvoLu)).trim());
   })();
   const alvoTemCampo = alvoValido && /\[PREENCHER:/.test(textoDosTrechos(trechosDoAlvo(alvoLu)));
+  const alvoTemData = alvoValido && /\d{2}\/\d{2}\/\d{4}/.test(textoDosTrechos(trechosDoAlvo(alvoLu)));
+  const motivoBloqueio = (acao) =>
+    acao === 'preencher' && !alvoTemCampo ? 'Este parágrafo não tem campo [PREENCHER].' : acao === 'prazos' && !alvoTemData ? 'Este parágrafo não tem data para conferir.' : '';
 
   const pedir = async (acao, instrucao = '', alvo = alvoLu) => {
     const b = blocoDoAlvo(alvo);
@@ -358,11 +364,13 @@ export default function EditorPeca({
       paragrafo: trechosParaLu(trechosDoAlvo(alvo)),
       topico: topicos[topicoDoBloco.get(b.id)]?.titulo || '',
       resumoPeca: resumoParaLu(resumoPeca),
+      template,
     });
     setProposta((atual) => {
       if (!atual || !mesmoAlvo(atual.alvo, alvo) || atual.acao !== acao) return atual; // o advogado já mudou de ideia
       if (!r.ok) return { alvo, acao, instrucao, erro: r.error };
-      return { alvo, acao, instrucao, encontrou: r.encontrou, trechos: luParaTrechos(r.texto, b.objetos.length), explicacao: r.explicacao, fontes: r.fontes };
+      if (r.tipo === 'conferencia') return { alvo, acao, instrucao, tipo: 'conferencia', itens: r.itens || [], resumo: r.resumo };
+      return { alvo, acao, instrucao, tipo: 'texto', encontrou: r.encontrou, trechos: luParaTrechos(r.texto, b.objetos.length), explicacao: r.explicacao, fontes: r.fontes };
     });
   };
 
@@ -384,6 +392,52 @@ export default function EditorPeca({
     setPainelLu('paragrafo');
   };
 
+  // ---- Trocar em toda a peça (sem IA) ---------------------------------------------------------------------------------
+  const [painelTrocar, setPainelTrocar] = useState(null); // null | { buscaInicial }
+  const abrirTrocar = () => {
+    const selecionado = String(window.getSelection?.()?.toString() || '').trim().slice(0, 300);
+    setPainelLu(null);
+    setProposta(null);
+    setFiguraAberta(null);
+    setPainelTrocar({ buscaInicial: selecionado.includes('\n') ? '' : selecionado });
+  };
+  const paragrafosParaTrocar = () => {
+    const lista = [];
+    for (const b of blocos) {
+      const t = topicos[topicoDoBloco.get(b.id)]?.titulo || '';
+      if (b.editavel && !estado[b.id]?.removido) lista.push({ chave: `p-${b.id}`, alvo: { id: b.id }, trechos: estado[b.id]?.trechos || b.trechos, topico: t });
+      for (const n of estado[b.id]?.novos || []) lista.push({ chave: n.chave, alvo: { id: b.id, chave: n.chave }, trechos: n.trechos, topico: t });
+    }
+    return lista;
+  };
+  const blocosSoLeitura = () =>
+    blocos.filter((b) => !b.editavel && b.texto).map((b) => ({ texto: b.texto, topico: topicos[topicoDoBloco.get(b.id)]?.titulo || '' }));
+  const aplicarTroca = ({ busca, troca, alvos, diferenciarMaiusculas }) => {
+    for (const alvo of alvos) {
+      const { trechos, trocas } = substituirNosTrechos(trechosDoAlvo(alvo), busca, troca, { diferenciarMaiusculas });
+      if (!trocas) continue;
+      if (alvo.chave) {
+        mudarNovo(alvo.id, alvo.chave, trechos);
+        reescrever(alvo.chave);
+      } else {
+        mudarOriginal(alvo.id, trechos);
+        reescrever(`p-${alvo.id}`);
+      }
+    }
+    setPainelTrocar(null);
+  };
+
+  const itemTrocar = (
+    <button
+      role="menuitem"
+      onClick={abrirTrocar}
+      className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 group"
+    >
+      <span className="block text-sm font-bold">Trocar em toda a peça</span>
+      <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">Um nome, número de CDA ou expressão em todos os lugares, de uma vez (sem IA).</span>
+    </button>
+  );
+
   const menuLu = (posicao) => {
     if (!alvoValido) {
       return (
@@ -393,6 +447,8 @@ export default function EditorPeca({
             Clique no parágrafo que o Lu deve trabalhar e use de novo este botão, ou use o atalho{' '}
             <span className="font-bold text-yellow-400">Pedir ao Lu</span> que aparece embaixo de cada parágrafo. Títulos não entram.
           </p>
+          <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400 mt-3 mb-1.5">Ou, para a peça inteira</p>
+          {itemTrocar}
           <button onClick={() => setPainelLu(null)} className="mt-2 text-xs text-neutral-400 hover:text-white">
             Fechar
           </button>
@@ -410,7 +466,7 @@ export default function EditorPeca({
         </div>
         <p className="text-[11px] text-neutral-400 italic line-clamp-2 mb-2">“{trecho.slice(0, 160)}{trecho.length > 160 ? '…' : ''}”</p>
         <label className="block text-[11px] text-neutral-400 mb-1" htmlFor={posicao.includes("absolute") ? "instrucao-lu" : "instrucao-lu-paragrafo"}>
-          Como? (opcional; vale para reescrever e fundamentar)
+          Como? (opcional; vale para reescrever, adequar e fundamentar)
         </label>
         <input
           id={posicao.includes("absolute") ? "instrucao-lu" : "instrucao-lu-paragrafo"}
@@ -420,23 +476,35 @@ export default function EditorPeca({
           onChange={(ev) => setInstrucaoLu(ev.target.value)}
           placeholder="ex.: mais incisivo; incluir a Súmula 436"
         />
-        <div className="space-y-1.5">
-          {Object.entries(ACOES_LU).map(([acao, a]) => {
-            const bloqueada = acao === 'preencher' && !alvoTemCampo;
-            return (
-              <button
-                key={acao}
-                role="menuitem"
-                disabled={bloqueada}
-                onClick={() => pedir(acao, acao === 'preencher' ? '' : instrucaoLu.trim())}
-                className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-yellow-300 disabled:cursor-not-allowed group"
-              >
-                <span className="block text-sm font-bold">{a.rotulo}</span>
-                <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">{bloqueada ? 'Este parágrafo não tem campo [PREENCHER].' : a.dica}</span>
-              </button>
-            );
-          })}
-        </div>
+        {[
+          ['editar', 'Editar o texto'],
+          ['conferir', 'Conferir (o texto não muda)'],
+        ].map(([grupo, titulo]) => (
+          <div key={grupo} className="mb-2">
+            <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400/80 mb-1">{titulo}</p>
+            <div className="space-y-1.5">
+              {Object.entries(ACOES_LU)
+                .filter(([, a]) => a.grupo === grupo)
+                .map(([acao, a]) => {
+                  const bloqueio = motivoBloqueio(acao);
+                  return (
+                    <button
+                      key={acao}
+                      role="menuitem"
+                      disabled={Boolean(bloqueio)}
+                      onClick={() => pedir(acao, a.usaInstrucao ? instrucaoLu.trim() : '')}
+                      className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-yellow-300 disabled:cursor-not-allowed group"
+                    >
+                      <span className="block text-sm font-bold">{a.rotulo}</span>
+                      <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">{bloqueio || a.dica}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        ))}
+        <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400/80 mb-1">Toda a peça</p>
+        {itemTrocar}
       </div>
     );
   };
@@ -658,6 +726,7 @@ export default function EditorPeca({
                             onClick={() => {
                               setTopicoAtivo(i);
                               setFiguraAberta(null);
+                              setPainelTrocar(null);
                               colunaRef.current?.scrollTo?.({ top: 0 });
                             }}
                             aria-current={ativo && figuraAberta === null ? 'true' : undefined}
@@ -747,6 +816,19 @@ export default function EditorPeca({
                 </section>
               </div>
 
+              {/* trocar em toda a peça, no lugar da folha */}
+              {painelTrocar && !figuraEmEdicao && (
+                <div className="flex flex-col min-h-0 min-w-0">
+                  <TrocarNaPeca
+                    paragrafos={paragrafosParaTrocar()}
+                    soLeitura={blocosSoLeitura()}
+                    buscaInicial={painelTrocar.buscaInicial}
+                    onAplicar={aplicarTroca}
+                    onVoltar={() => setPainelTrocar(null)}
+                  />
+                </div>
+              )}
+
               {/* recorte de uma figura, no lugar da folha */}
               {figuraEmEdicao && (
                 <div className="flex flex-col min-h-0 min-w-0">
@@ -766,7 +848,7 @@ export default function EditorPeca({
               )}
 
               {/* folha */}
-              <div className={`flex-col min-h-0 min-w-0 ${figuraEmEdicao ? 'hidden' : 'flex'}`}>
+              <div className={`flex-col min-h-0 min-w-0 ${figuraEmEdicao || painelTrocar ? 'hidden' : 'flex'}`}>
                 <div className="flex items-center gap-1 mb-2" role="toolbar" aria-label="Formatação">
                   <button onMouseDown={formatar('bold')} title="Negrito (Ctrl+B)" aria-label="Negrito" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Bold size={15} />

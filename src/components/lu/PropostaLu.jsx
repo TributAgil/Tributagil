@@ -2,11 +2,18 @@
 //
 // O que o Lu propôs para UM parágrafo, logo abaixo dele na folha do editor: o texto novo (como vai ficar), a
 // explicação e as fontes. Nada muda no parágrafo até o advogado clicar em "Aceitar".
+// Nas conferências ("Conferir com os autos", "Conferir os prazos") não há texto novo: é uma lista, item a item.
 
 import React from 'react';
-import { Sparkles, Check, X, RotateCcw, Loader2, AlertTriangle } from 'lucide-react';
+import { Sparkles, Check, X, RotateCcw, Loader2, AlertTriangle, CircleCheck, CircleX, CircleHelp } from 'lucide-react';
 import { trechosParaHtml } from '../../lib/edicaoTexto';
 import { ACOES_LU } from '../../lib/luPeca';
+
+const SITUACAO = {
+  confere: { Icone: CircleCheck, cor: 'text-emerald-400', nome: 'confere' },
+  diverge: { Icone: CircleX, cor: 'text-red-400', nome: 'diverge' },
+  sem_fonte: { Icone: CircleHelp, cor: 'text-amber-300', nome: 'sem fonte' },
+};
 
 /**
  * @param {{ proposta: { acao: string, carregando?: boolean, erro?: string, encontrou?: boolean, trechos?: object[],
@@ -15,6 +22,7 @@ import { ACOES_LU } from '../../lib/luPeca';
  */
 export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusar, onDeNovo }) {
   const rotulo = ACOES_LU[proposta.acao]?.rotulo || 'Lu';
+  const conferencia = proposta.tipo === 'conferencia';
   return (
     <div className="rounded-xl border-2 border-yellow-400 bg-neutral-950 text-neutral-100 p-3 sm:p-4 shadow-lg" role="region" aria-label="Proposta do Lu">
       <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-bold text-yellow-400 mb-2">
@@ -43,7 +51,43 @@ export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusa
         </>
       )}
 
-      {!proposta.carregando && !proposta.erro && (
+      {!proposta.carregando && !proposta.erro && conferencia && (
+        <>
+          {proposta.itens?.length > 0 ? (
+            <ul className="space-y-1.5">
+              {proposta.itens.map((i, k) => {
+                const { Icone, cor, nome } = SITUACAO[i.situacao] || SITUACAO.sem_fonte;
+                return (
+                  <li key={k} className="rounded-lg bg-neutral-900 border border-neutral-800 px-3 py-2">
+                    <p className="flex items-start gap-2 text-sm">
+                      <Icone size={16} className={`mt-0.5 shrink-0 ${cor}`} />
+                      <span className="flex-1">
+                        <span className="text-neutral-100">“{i.afirmacao}”</span> <span className={`text-xs font-bold ${cor}`}>{nome}</span>
+                        {i.detalhe && <span className="block text-xs text-neutral-300 mt-0.5">{i.detalhe}</span>}
+                        {i.fonte && <span className="block text-[11px] text-yellow-200/70 mt-0.5">Fonte: {i.fonte}</span>}
+                      </span>
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-neutral-300">Nada para conferir neste parágrafo.</p>
+          )}
+          {proposta.resumo && <p className="mt-2 text-xs text-neutral-300">{proposta.resumo}</p>}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button onClick={onRecusar} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-neutral-950 bg-yellow-400 hover:bg-yellow-300 rounded-lg">
+              <Check size={15} /> Entendi
+            </button>
+            <button onClick={onDeNovo} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-neutral-300 hover:text-white">
+              <RotateCcw size={14} /> Conferir de novo
+            </button>
+          </div>
+          <p className="mt-2 text-[10px] text-neutral-500">Conferência só aponta: o texto não muda. Corrija no parágrafo, se for o caso.</p>
+        </>
+      )}
+
+      {!proposta.carregando && !proposta.erro && !conferencia && (
         <>
           {proposta.encontrou ? (
             <div

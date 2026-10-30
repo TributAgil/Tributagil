@@ -5,18 +5,24 @@
 
 import { supabase } from './supabase';
 
+// grupo 'editar': devolve uma proposta de texto; grupo 'conferir': devolve uma lista, o texto não muda
 export const ACOES_LU = {
-  reescrever: { rotulo: 'Reescrever o trecho', dica: 'Mais incisivo, mais conciso, mais formal… diga como.' },
-  fundamentar: { rotulo: 'Reforçar a fundamentação', dica: 'Artigo, súmula ou tema da base de legislação do TributÁgil, citado exatamente.' },
-  preencher: { rotulo: 'Preencher campo amarelo', dica: 'Completa os [PREENCHER] com o que a análise já extraiu; o que não houver, fica.' },
+  reescrever: { grupo: 'editar', rotulo: 'Reescrever o trecho', dica: 'Mais incisivo, mais conciso, mais formal… diga como.', usaInstrucao: true },
+  adequar: { grupo: 'editar', rotulo: 'Adequar ao destinatário', dica: 'Tratamento e tom para o juízo (EPE) ou para a Procuradoria (revisão PGFN).', usaInstrucao: true },
+  fundamentar: { grupo: 'editar', rotulo: 'Reforçar a fundamentação', dica: 'Artigo, súmula ou tema da base de legislação do TributÁgil, citado exatamente.', usaInstrucao: true },
+  preencher: { grupo: 'editar', rotulo: 'Preencher campo amarelo', dica: 'Completa os [PREENCHER] com o que a análise já extraiu; o que não houver, fica.' },
+  conferir: { grupo: 'conferir', rotulo: 'Conferir com os autos', dica: 'Cada data, valor e número do trecho: confere, diverge ou sem fonte na análise.' },
+  prazos: { grupo: 'conferir', rotulo: 'Conferir os prazos', dica: 'As datas de prazo do trecho contra o cálculo do sistema (feito em código, não pela IA).' },
 };
 
 /**
  * @param {{ analiseId: string, acao: 'reescrever'|'fundamentar'|'preencher', paragrafo: string, topico?: string,
  *   instrucao?: string, resumoPeca?: object }} args
- * @returns {Promise<{ ok: boolean, encontrou?: boolean, texto?: string, explicacao?: string, fontes?: string[], error?: string }>}
+ * @returns {Promise<{ ok: boolean, tipo?: 'texto'|'conferencia', encontrou?: boolean, texto?: string, explicacao?: string,
+ *   fontes?: string[], itens?: Array<{ afirmacao: string, situacao: string, detalhe: string, fonte: string }>, resumo?: string,
+ *   error?: string }>}
  */
-export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instrucao = '', resumoPeca = {} }) {
+export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instrucao = '', resumoPeca = {}, template = '' }) {
   const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
   const token = sess?.session?.access_token;
   if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
@@ -24,7 +30,7 @@ export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instr
     const resposta = await fetch('/api/lu-peca', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ analise_id: analiseId, acao, paragrafo, topico, instrucao, resumo_peca: resumoPeca }),
+      body: JSON.stringify({ analise_id: analiseId, acao, paragrafo, topico, instrucao, resumo_peca: resumoPeca, template }),
     });
     const dados = await resposta.json().catch(() => ({}));
     if (!resposta.ok) return { ok: false, error: dados.error || 'O Lu não conseguiu responder agora.' };

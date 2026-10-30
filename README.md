@@ -1294,6 +1294,14 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Mais funções do Lu** (30/10/2026): **adequar ao destinatário** (tratamento e tom pelo modelo: juízo na EPE,
+  Procuradoria na revisão PGFN); **conferir com os autos** (não reescreve: cada fato do trecho vira "confere",
+  "diverge" ou "sem fonte" contra o parecer); **conferir os prazos** (a IA só localiza as datas de prazo no trecho;
+  a comparação com o cálculo do motor, `resumo.creditos` e `resumo.intercorrente`, é feita em código:
+  `conferirPrazos` em `api/lu-peca.js`); e **trocar em toda a peça** (`src/components/lu/TrocarNaPeca.jsx`,
+  `substituirNosTrechos` em `src/lib/edicaoTexto.js`): busca e troca sem IA, com prévia por parágrafo, preservando a
+  formatação em volta; ocorrências em tabela/figura são só avisadas, para trocar no Word. Testes:
+  `tests/lu-peca.test.js`, `tests/trocar-na-peca.test.js`.
 - **"Pedir ao Lu"** (botão preto e amarelo na barra do editor; `api/lu-peca.js`, `src/lib/luPeca.js`,
   `src/components/lu/PropostaLu.jsx`): com um parágrafo em foco (títulos não), o Lu **reescreve** o trecho conforme
   a instrução, **reforça a fundamentação** só com a base curada (`api/_legislacao-tributagil.js`; fonte citada fora

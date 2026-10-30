@@ -72,7 +72,7 @@ describe('api/lu-peca', () => {
   it('reescrever: devolve a proposta e não manda PDF, base de legislação nem parecer', async () => {
     const r = await POST(pedido({ instrucao: 'mais incisivo' }));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [] });
+    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [] });
     const t = textoEnviado();
     expect(t).toContain('AÇÃO: REESCREVER');
     expect(t).toContain('INSTRUÇÃO DO ADVOGADO: mais incisivo');
@@ -178,5 +178,95 @@ describe('texto entre o editor e o Lu', () => {
   it('elemento que o Lu esqueceu volta no fim; elemento inventado ou repetido é descartado', () => {
     const volta = luParaTrechos('Texto novo ⟦3⟧ sem a nota ⟦3⟧.', 1);
     expect(textoDosTrechos(volta)).toBe(`Texto novo  sem a nota .${caractereDoObjeto(0)}`);
+  });
+});
+
+describe('novas ações do Lu', () => {
+  it('adequar: o destinatário sai do modelo da peça (juízo na EPE, Procuradoria na revisão)', async () => {
+    await POST(pedido({ acao: 'adequar', template: 'Revisao_PGFN_decadencia' }));
+    expect(textoEnviado()).toContain('Procurador(a) da Fazenda Nacional');
+    chamadas.length = 0;
+    await POST(pedido({ acao: 'adequar', template: 'EPE_prescricao_ordinaria' }));
+    expect(textoEnviado()).toContain('Juízo da execução fiscal');
+    expect(corpoDoGemini().generationConfig.temperature).toBe(0.3);
+  });
+
+  it('conferir: não reescreve; devolve a lista contra o parecer, só com situações válidas', async () => {
+    cenario.lu = {
+      itens: [
+        { afirmacao: 'CDA nº 12 3 45', situacao: 'confere', detalhe: '', fonte: 'extrato_cda.pdf' },
+        { afirmacao: 'entregue em 26/01/2020', situacao: 'diverge', detalhe: 'O recibo diz 27/01/2020 — conferir.', fonte: 'recibo_2018.pdf' },
+        { afirmacao: 'qualquer', situacao: 'inventada', detalhe: '', fonte: '' },
+      ],
+      resumo: 'Uma data diverge.',
+    };
+    const r = await POST(pedido({ acao: 'conferir' }));
+    const dados = await r.json();
+    expect(textoEnviado()).toContain('PARECER DA ANÁLISE');
+    expect(corpoDoGemini().generationConfig.responseSchema.required).toEqual(['itens', 'resumo']);
+    expect(dados.tipo).toBe('conferencia');
+    expect(dados.itens.map((i) => i.situacao)).toEqual(['confere', 'diverge']);
+    expect(dados.itens[1].detalhe).toBe('O recibo diz 27/01/2020, conferir.');
+  });
+
+  it('prazos: a IA só localiza as datas; a comparação com o cálculo do sistema é feita em código', async () => {
+    cenario.lu = {
+      datas: [
+        { trecho: 'entre 27/01/2020', marco: 'termo_inicial', data: '27/01/2020', cda: '', periodo: '2018' },
+        { trecho: 'e 27/01/2026', marco: 'consumacao', data: '27/01/2026', cda: '', periodo: '2018' },
+        { trecho: 'protesto em 03/07/2025', marco: 'outro', data: '03/07/2025', cda: '', periodo: '' },
+      ],
+    };
+    const resumo = { creditos: [{ cda: '12 3 45 678901-23', periodo: '2018', termo_inicial: '27/01/2020', consumacao: '27/01/2025' }] };
+    const r = await POST(pedido({ acao: 'prazos', paragrafo: 'Entre 27/01/2020 e 27/01/2026 ocorreu o quinquênio.', resumo_peca: resumo }));
+    const dados = await r.json();
+    expect(textoEnviado()).toContain('LOCALIZAR AS DATAS DE PRAZO');
+    expect(textoEnviado()).not.toContain('PARECER DA ANÁLISE');
+    expect(dados.tipo).toBe('conferencia');
+    expect(dados.itens.map((i) => i.situacao)).toEqual(['confere', 'diverge']);
+    expect(dados.itens[1].detalhe).toBe('O sistema calculou 27/01/2025 para a consumação do prazo; o texto diz 27/01/2026.');
+    expect(dados.itens[0].detalhe).toBe('Início do prazo: 27/01/2020');
+    expect(dados.resumo).toContain('1 data(s)');
+  });
+
+  it('prazos: exige data no parágrafo', async () => {
+    expect((await POST(pedido({ acao: 'prazos', paragrafo: 'Sem data nenhuma.' }))).status).toBe(400);
+  });
+});
+
+describe('conferirPrazos (puro)', () => {
+  let conferirPrazos;
+  beforeAll(async () => {
+    ({ conferirPrazos } = await import('../api/lu-peca.js'));
+  });
+  const resumo = {
+    creditos: [
+      { cda: '80.6.19.000111-22', periodo: '2016', termo_inicial: '01/01/2017', consumacao: '01/01/2022' },
+      { cda: '80.6.19.000111-22', periodo: '2017', termo_inicial: '01/01/2018', consumacao: '01/01/2023' },
+    ],
+    intercorrente: { data_intimacao: '10/03/2015', data_fim_suspensao: '10/03/2016', data_prazo_final: '10/03/2021' },
+  };
+  it('acha o crédito pela CDA (só dígitos) e pelo período', () => {
+    const r = conferirPrazos([{ trecho: 't', marco: 'consumacao', data: '01/01/2023', cda: '80619000111-22', periodo: '2017' }], resumo);
+    expect(r.itens[0].situacao).toBe('confere');
+  });
+  it('sem CDA nem período, vale qualquer crédito; data que não bate diverge', () => {
+    expect(conferirPrazos([{ trecho: 't', marco: 'termo_inicial', data: '01/01/2018', cda: '', periodo: '' }], resumo).itens[0].situacao).toBe('confere');
+    expect(conferirPrazos([{ trecho: 't', marco: 'termo_inicial', data: '02/01/2018', cda: '', periodo: '' }], resumo).itens[0].situacao).toBe('diverge');
+  });
+  it('marcos da intercorrente', () => {
+    const r = conferirPrazos([
+      { trecho: 'a', marco: 'intimacao', data: '10/03/2015', cda: '', periodo: '' },
+      { trecho: 'b', marco: 'prazo_final', data: '10/03/2020', cda: '', periodo: '' },
+    ], resumo);
+    expect(r.itens.map((i) => i.situacao)).toEqual(['confere', 'diverge']);
+  });
+  it('sem cálculo para aquilo: sem fonte; data inválida e "outro" ficam de fora', () => {
+    const r = conferirPrazos([
+      { trecho: 'a', marco: 'consumacao', data: '01/01/2022', cda: '', periodo: '2010' },
+      { trecho: 'b', marco: 'consumacao', data: '2022', cda: '', periodo: '' },
+      { trecho: 'c', marco: 'outro', data: '01/01/2022', cda: '', periodo: '' },
+    ], { creditos: resumo.creditos });
+    expect(r.itens.map((i) => i.situacao)).toEqual(['sem_fonte']);
   });
 });

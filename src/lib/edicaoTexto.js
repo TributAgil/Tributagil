@@ -204,3 +204,46 @@ export function luParaTrechos(texto, totalObjetos = 0) {
   }
   return juntarTrechos(trechos);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Trocar em toda a peça (sem IA): busca e troca sobre os trechos, preservando a formatação em volta
+// ---------------------------------------------------------------------------------------------------------------------
+
+const comparavel = (s, diferenciar) => (diferenciar ? s : s.toLocaleLowerCase('pt-BR'));
+
+/** Posições [início, fim) de cada ocorrência de `busca` no texto (sem sobreposição). */
+export function ocorrencias(texto, busca, { diferenciarMaiusculas = false } = {}) {
+  if (!busca) return [];
+  const t = comparavel(String(texto || ''), diferenciarMaiusculas);
+  const b = comparavel(busca, diferenciarMaiusculas);
+  // toLocaleLowerCase pode mudar o tamanho em casos raros: aí a busca sem diferenciar não é confiável, então não acha
+  if (t.length !== String(texto || '').length || b.length !== busca.length) return [];
+  const saida = [];
+  for (let i = t.indexOf(b); i !== -1; i = t.indexOf(b, i + b.length)) saida.push([i, i + b.length]);
+  return saida;
+}
+
+/**
+ * Troca cada ocorrência de `busca` por `troca`. O texto trocado herda a formatação (negrito etc.) do primeiro caractere
+ * da ocorrência; o resto do parágrafo fica como estava. Etiquetas do Word (⟦n⟧) nunca casam com a busca.
+ * @returns {{ trechos: object[], trocas: number }}
+ */
+export function substituirNosTrechos(trechos, busca, troca, opcoes = {}) {
+  const lista = juntarTrechos(trechos || []);
+  const texto = textoDosTrechos(lista);
+  const achadas = ocorrencias(texto, busca, opcoes);
+  if (achadas.length === 0) return { trechos: lista, trocas: 0 };
+  // formato de cada caractere
+  const formatos = [];
+  for (const t of lista) for (let i = 0; i < t.texto.length; i++) formatos.push(t);
+  const fmt = (t) => ({ negrito: t.negrito, italico: t.italico, sublinhado: t.sublinhado });
+  const novos = [];
+  let cursor = 0;
+  for (const [ini, fim] of achadas) {
+    for (let i = cursor; i < ini; i++) novos.push({ texto: texto[i], ...fmt(formatos[i]) });
+    if (troca) novos.push({ texto: troca, ...fmt(formatos[ini]) });
+    cursor = fim;
+  }
+  for (let i = cursor; i < texto.length; i++) novos.push({ texto: texto[i], ...fmt(formatos[i]) });
+  return { trechos: juntarTrechos(novos), trocas: achadas.length };
+}

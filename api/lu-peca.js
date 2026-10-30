@@ -5,9 +5,15 @@
 //   fundamentar  — reforça o trecho com artigo, súmula ou tema da base CURADA (api/_legislacao-tributagil.js), citados
 //                  exatamente; nada de jurisprudência de memória;
 //   preencher    — preenche os campos "[PREENCHER: …]" do trecho com o que a ANÁLISE já extraiu (parecer salvo);
-//                  o que não estiver lá continua como [PREENCHER], e o Lu diz que não encontrou.
+//                  o que não estiver lá continua como [PREENCHER], e o Lu diz que não encontrou;
+//   adequar      — ajusta tratamento e tom ao destinatário do modelo (juízo na EPE, Procuradoria na revisão PGFN);
+//   conferir     — NÃO reescreve: lista cada fato do trecho como confere / diverge / sem fonte, contra o parecer;
+//   prazos       — NÃO reescreve: a IA só localiza as datas de prazo citadas; quem compara com o cálculo do motor
+//                  (resumo da peça: créditos e intercorrente) é o código (conferirPrazos).
+// ("Trocar em toda a peça" não passa por aqui: é busca e troca em código, no navegador.)
 //
-// A resposta NUNCA é aplicada aqui: volta como proposta, e o advogado aceita ou recusa no editor.
+// Resposta: { tipo: 'texto', encontrou, texto, explicacao, fontes } ou { tipo: 'conferencia', itens, resumo }.
+// A de texto NUNCA é aplicada aqui: volta como proposta, e o advogado aceita ou recusa no editor.
 //
 // O QUE VAI PARA A IA (e o que não vai): o parágrafo, o título do tópico, o resumo da peça (CDAs, períodos, datas) e,
 // conforme a ação, a base de legislação ou o parecer salvo da análise. NENHUM PDF: o custo fica em centavos.
@@ -31,7 +37,18 @@ const SUPABASE_ANON_ENV = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPA
 const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const ACOES = new Set(['reescrever', 'fundamentar', 'preencher']);
+// ações que devolvem TEXTO (proposta para aceitar) e ações que devolvem uma CONFERÊNCIA (lista; o texto não muda)
+const ACOES_TEXTO = new Set(['reescrever', 'fundamentar', 'preencher', 'adequar']);
+const ACOES_CONFERENCIA = new Set(['conferir', 'prazos']);
+const ACOES = new Set([...ACOES_TEXTO, ...ACOES_CONFERENCIA]);
+
+// destinatário por modelo de peça (api/_motor-peca.js, TEMPLATES): EPE vai ao juízo; revisão, à Procuradoria
+export function destinatarioDoModelo(template) {
+  if (/^Revisao_PGFN/.test(String(template || ''))) {
+    return 'o(a) Procurador(a) da Fazenda Nacional, em pedido administrativo de revisão de débito inscrito (tratamento "Vossa Senhoria", tom administrativo e respeitoso, sem linguagem de litígio judicial)';
+  }
+  return 'o Juízo da execução fiscal, em exceção de pré-executividade (tratamento "Vossa Excelência", "MM. Juízo", tom forense)';
+}
 const MAX_PARAGRAFO = 6000;
 const MAX_INSTRUCAO = 500;
 const MAX_RESUMO = 8000;
@@ -58,6 +75,58 @@ export const ESQUEMA_RESPOSTA_LU = {
   },
 };
 
+export const ESQUEMA_CONFERENCIA = {
+  type: 'OBJECT',
+  propertyOrdering: ['itens', 'resumo'],
+  required: ['itens', 'resumo'],
+  properties: {
+    itens: {
+      type: 'ARRAY',
+      description: 'Uma linha por afirmação de FATO do parágrafo (data, valor, número de CDA, de processo, de documento, nome de parte, evento). Fundamentação jurídica não entra.',
+      items: {
+        type: 'OBJECT',
+        propertyOrdering: ['afirmacao', 'situacao', 'detalhe', 'fonte'],
+        required: ['afirmacao', 'situacao', 'detalhe', 'fonte'],
+        properties: {
+          afirmacao: { type: 'STRING', description: 'O trecho do parágrafo, curto e literal.' },
+          situacao: { type: 'STRING', enum: ['confere', 'diverge', 'sem_fonte'] },
+          detalhe: { type: 'STRING', description: 'Se diverge: o que os autos dizem. Se sem_fonte: o que faltou. Se confere: vazio ou curto.' },
+          fonte: { type: 'STRING', description: 'O documento (campo "fonte" do parecer) ou "resumo da peça". Vazio se sem_fonte.' },
+        },
+      },
+    },
+    resumo: { type: 'STRING', description: 'Uma frase para o advogado.' },
+  },
+};
+
+// Prazos: a IA só LOCALIZA as datas de prazo citadas; a comparação com o cálculo do sistema é feita em código.
+export const ESQUEMA_DATAS_DE_PRAZO = {
+  type: 'OBJECT',
+  propertyOrdering: ['datas'],
+  required: ['datas'],
+  properties: {
+    datas: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        propertyOrdering: ['trecho', 'marco', 'data', 'cda', 'periodo'],
+        required: ['trecho', 'marco', 'data', 'cda', 'periodo'],
+        properties: {
+          trecho: { type: 'STRING', description: 'O pedaço literal do parágrafo onde a data aparece.' },
+          marco: {
+            type: 'STRING',
+            enum: ['termo_inicial', 'consumacao', 'intimacao', 'fim_suspensao', 'prazo_final', 'outro'],
+            description: 'termo_inicial = início do prazo (constituição/vencimento/entrega); consumacao = fim do quinquênio (prescrição ou decadência consumada); intimacao/fim_suspensao/prazo_final = marcos da prescrição intercorrente; outro = data que não é marco de prazo.',
+          },
+          data: { type: 'STRING', description: 'DD/MM/AAAA, como está no texto.' },
+          cda: { type: 'STRING', description: 'A CDA a que a data se refere, se o parágrafo disser; senão vazio.' },
+          periodo: { type: 'STRING', description: 'O período de apuração (ex.: 2018), se o parágrafo disser; senão vazio.' },
+        },
+      },
+    },
+  },
+};
+
 const REGRAS_COMUNS = `Você é Lu, assistente do advogado tributarista no TributÁgil. Você recebe UM parágrafo de uma peça processual (exceção de pré-executividade ou pedido de revisão de débito) e devolve o parágrafo inteiro, alterado só no que foi pedido.
 
 REGRAS INEGOCIÁVEIS:
@@ -69,6 +138,9 @@ REGRAS INEGOCIÁVEIS:
 6. Responda só no JSON pedido.`;
 
 const POR_ACAO = {
+  adequar: `AÇÃO: ADEQUAR AO DESTINATÁRIO. Esta peça é dirigida a: {DESTINATARIO}. Ajuste o tratamento, os vocativos e o tom do parágrafo a esse destinatário, sem mudar fato, tese, pedido nem fundamento. Se já estiver adequado, devolva-o igual com encontrou = true e diga isso na explicação. "fontes" fica vazio.`,
+  conferir: `AÇÃO: CONFERIR COM OS AUTOS. NÃO reescreva nada. Liste cada afirmação de FATO do parágrafo (datas, valores, números de CDA, de processo, de documento, nomes, eventos) e compare com o PARECER DA ANÁLISE e o RESUMO DA PEÇA abaixo: "confere" se bate, "diverge" se os autos dizem outra coisa (diga o quê, em "detalhe"), "sem_fonte" se não há nada nos autos sobre aquilo. Um "[PREENCHER: …]" é "sem_fonte". Fundamentação jurídica não entra na lista.`,
+  prazos: `AÇÃO: LOCALIZAR AS DATAS DE PRAZO. NÃO reescreva nada e NÃO calcule nada. Liste cada data do parágrafo, dizendo a que marco de prazo ela se refere (e a CDA e o período, se o texto disser). Quem confere com o cálculo é o sistema.`,
   reescrever: `AÇÃO: REESCREVER. Reescreva o parágrafo seguindo a instrução do advogado (se não houver instrução, deixe-o mais claro e direto). Não acrescente fundamento legal novo e não tire nenhum que já esteja lá. "fontes" fica vazio.`,
   fundamentar: `AÇÃO: FUNDAMENTAR. Reforce o parágrafo com o fundamento legal ou jurisprudencial mais pertinente da BASE DE LEGISLAÇÃO abaixo, citando exatamente o identificador (ex.: "art. 174 do CTN", "Súmula 436 do STJ", "Tema 980/STJ"). Use SOMENTE a base abaixo: nada de memória. Se nada da base for pertinente, devolva o texto original com encontrou = false. Liste em "fontes" cada item usado no formato "[norma] [identificador]".`,
   preencher: `AÇÃO: PREENCHER. Substitua cada "[PREENCHER: …]" do parágrafo pelo dado correspondente, SE ele estiver no PARECER DA ANÁLISE ou no RESUMO DA PEÇA abaixo. O que não estiver lá continua exatamente como "[PREENCHER: …]". Número de documento anexo ("Doc. nº") quase nunca está na análise: nesse caso mantenha o marcador. encontrou = true só se pelo menos um campo foi preenchido. Em "fontes", o documento de onde veio cada dado (campo "fonte" do parecer) ou "resumo da peça".`,
@@ -88,14 +160,14 @@ function parecerEnxuto(resultado) {
   };
 }
 
-export function montarPedido({ acao, paragrafo, topico, instrucao, resumoPeca, resultado }) {
+export function montarPedido({ acao, paragrafo, topico, instrucao, resumoPeca, resultado, template }) {
   const partes = [
-    POR_ACAO[acao],
+    POR_ACAO[acao].replace('{DESTINATARIO}', destinatarioDoModelo(template)),
     `TÓPICO DA PEÇA: ${topico || '(sem título)'}`,
     `RESUMO DA PEÇA (CDAs, períodos e datas calculados pelo sistema):\n${JSON.stringify(resumoPeca || {})}`,
   ];
   if (acao === 'fundamentar') partes.push(`BASE DE LEGISLAÇÃO (única fonte permitida):\n${textoDaBase()}`);
-  if (acao === 'preencher') partes.push(`PARECER DA ANÁLISE:\n${JSON.stringify(parecerEnxuto(resultado))}`);
+  if (acao === 'preencher' || acao === 'conferir') partes.push(`PARECER DA ANÁLISE:\n${JSON.stringify(parecerEnxuto(resultado))}`);
   if (instrucao) partes.push(`INSTRUÇÃO DO ADVOGADO: ${instrucao}`);
   partes.push(`PARÁGRAFO:\n${paragrafo}`);
   return partes.join('\n\n');
@@ -133,6 +205,65 @@ export function fontesDaBase(fontes) {
     if (item && !saida.includes(item.rotulo)) saida.push(item.rotulo);
   }
   return saida;
+}
+
+// ---- Conferência de prazos, em código -----------------------------------------------------------------------------
+const soDigitos = (s) => String(s || '').replace(/\D/g, '');
+const dataValida = (s) => /^\d{2}\/\d{2}\/\d{4}$/.test(String(s || '').trim());
+// com o artigo, para as frases saírem certas ("para o início do prazo", "para a consumação do prazo")
+const ROTULO_MARCO = {
+  termo_inicial: 'o início do prazo',
+  consumacao: 'a consumação do prazo',
+  intimacao: 'a ciência da Fazenda (não localização)',
+  fim_suspensao: 'o fim da suspensão (1 ano)',
+  prazo_final: 'a prescrição intercorrente consumada',
+};
+const semArtigo = (r) => r.replace(/^(o|a) /, '');
+const maiuscula = (r) => r.charAt(0).toUpperCase() + r.slice(1);
+
+/**
+ * Compara as datas que o Lu localizou no parágrafo com o que o MOTOR calculou (resumo da peça: `creditos` com
+ * termo_inicial/consumacao por CDA e período; `intercorrente` com os três marcos). Puro e determinístico.
+ * @returns {{ itens: Array<{ afirmacao: string, situacao: 'confere'|'diverge'|'sem_fonte', detalhe: string, fonte: string }>, resumo: string }}
+ */
+export function conferirPrazos(datas, resumoPeca = {}) {
+  const creditos = Array.isArray(resumoPeca.creditos) ? resumoPeca.creditos : [];
+  const ic = resumoPeca.intercorrente || null;
+  const itens = [];
+  for (const d of Array.isArray(datas) ? datas : []) {
+    if (!d || d.marco === 'outro' || !dataValida(d.data)) continue;
+    const afirmacao = String(d.trecho || d.data).slice(0, 200);
+    const fonte = 'cálculo do sistema';
+    if (['intimacao', 'fim_suspensao', 'prazo_final'].includes(d.marco)) {
+      const campo = { intimacao: 'data_intimacao', fim_suspensao: 'data_fim_suspensao', prazo_final: 'data_prazo_final' }[d.marco];
+      const calculada = ic?.[campo];
+      if (!calculada) itens.push({ afirmacao, situacao: 'sem_fonte', detalhe: `O sistema não calculou ${ROTULO_MARCO[d.marco]} nesta peça.`, fonte: '' });
+      else if (calculada === d.data) itens.push({ afirmacao, situacao: 'confere', detalhe: `${maiuscula(semArtigo(ROTULO_MARCO[d.marco]))}: ${calculada}`, fonte });
+      else itens.push({ afirmacao, situacao: 'diverge', detalhe: `O sistema calculou ${calculada} para ${ROTULO_MARCO[d.marco]}; o texto diz ${d.data}.`, fonte });
+      continue;
+    }
+    // prescrição/decadência: acha os créditos citados (pela CDA e/ou período); sem indicação, vale qualquer um
+    const cda = soDigitos(d.cda);
+    const periodo = String(d.periodo || '').trim();
+    let candidatos = creditos.filter((c) => (!cda || soDigitos(c.cda) === cda) && (!periodo || String(c.periodo || '').includes(periodo)));
+    if (candidatos.length === 0) candidatos = cda || periodo ? [] : creditos;
+    const campo = d.marco === 'termo_inicial' ? 'termo_inicial' : 'consumacao';
+    const calculadas = [...new Set(candidatos.map((c) => c[campo]).filter(Boolean))];
+    if (calculadas.length === 0) {
+      itens.push({ afirmacao, situacao: 'sem_fonte', detalhe: `O sistema não calculou ${ROTULO_MARCO[d.marco]} para ${[d.cda && `a CDA ${d.cda}`, periodo && `o período ${periodo}`].filter(Boolean).join(' e ') || 'este trecho'}.`, fonte: '' });
+    } else if (calculadas.includes(d.data)) {
+      itens.push({ afirmacao, situacao: 'confere', detalhe: `${maiuscula(semArtigo(ROTULO_MARCO[d.marco]))}: ${d.data}`, fonte });
+    } else {
+      itens.push({ afirmacao, situacao: 'diverge', detalhe: `O sistema calculou ${calculadas.join(' ou ')} para ${ROTULO_MARCO[d.marco]}; o texto diz ${d.data}.`, fonte });
+    }
+  }
+  const divergem = itens.filter((i) => i.situacao === 'diverge').length;
+  const resumo = itens.length === 0
+    ? 'Não achei data de prazo neste parágrafo para conferir.'
+    : divergem
+      ? `${divergem} data(s) de prazo diferente(s) do cálculo do sistema.`
+      : 'As datas de prazo deste parágrafo batem com o cálculo do sistema.';
+  return { itens, resumo };
 }
 
 export async function POST(request) {
@@ -193,6 +324,7 @@ async function processar(request, ctx) {
   const topico = String(body?.topico || '').slice(0, 200);
   const instrucao = String(body?.instrucao || '').trim().slice(0, MAX_INSTRUCAO);
   const resumoPeca = body?.resumo_peca && typeof body.resumo_peca === 'object' ? body.resumo_peca : {};
+  const template = /^[A-Za-z0-9_]{1,80}$/.test(String(body?.template || '')) ? String(body.template) : '';
   ctx.analiseId = analiseId;
   ctx.acao = acao;
   if (!UUID_RE.test(analiseId)) return json({ error: 'Informe a análise (analise_id).' }, 400);
@@ -201,6 +333,7 @@ async function processar(request, ctx) {
   if (paragrafo.length > MAX_PARAGRAFO) return json({ error: 'Parágrafo grande demais para o Lu.' }, 413);
   if (JSON.stringify(resumoPeca).length > MAX_RESUMO) return json({ error: 'Resumo da peça grande demais.' }, 413);
   if (acao === 'preencher' && !/\[PREENCHER:/.test(paragrafo)) return json({ error: 'Este parágrafo não tem campo [PREENCHER] para completar.' }, 400);
+  if (acao === 'prazos' && !/\d{2}\/\d{2}\/\d{4}/.test(paragrafo)) return json({ error: 'Este parágrafo não tem data para conferir.' }, 400);
 
   // ---- Autenticação ---------------------------------------------------------------------------------------------------
   ctx.fase = 'autenticacao';
@@ -235,11 +368,11 @@ async function processar(request, ctx) {
   const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
   const corpo = JSON.stringify({
     systemInstruction: { parts: [{ text: REGRAS_COMUNS }] },
-    contents: [{ role: 'user', parts: [{ text: montarPedido({ acao, paragrafo, topico, instrucao, resumoPeca, resultado: analise.resultado }) }] }],
+    contents: [{ role: 'user', parts: [{ text: montarPedido({ acao, paragrafo, topico, instrucao, resumoPeca, resultado: analise.resultado, template }) }] }],
     generationConfig: {
-      temperature: acao === 'reescrever' ? 0.3 : 0, // fundamento e dado não podem variar; redação pode
+      temperature: acao === 'reescrever' || acao === 'adequar' ? 0.3 : 0, // fundamento, dado e conferência não podem variar; redação pode
       responseMimeType: 'application/json',
-      responseSchema: ESQUEMA_RESPOSTA_LU,
+      responseSchema: acao === 'conferir' ? ESQUEMA_CONFERENCIA : acao === 'prazos' ? ESQUEMA_DATAS_DE_PRAZO : ESQUEMA_RESPOSTA_LU,
     },
   });
   const controller = new AbortController();
@@ -263,10 +396,21 @@ async function processar(request, ctx) {
     clearTimeout(timer);
   }
 
+  if (acao === 'prazos') return json({ tipo: 'conferencia', ...conferirPrazos(saida?.datas, resumoPeca) }, 200);
+  if (acao === 'conferir') {
+    const SITUACOES = new Set(['confere', 'diverge', 'sem_fonte']);
+    const itens = (Array.isArray(saida?.itens) ? saida.itens : [])
+      .filter((i) => i && SITUACOES.has(i.situacao))
+      .slice(0, 40)
+      .map((i) => ({ afirmacao: String(i.afirmacao || '').slice(0, 200), situacao: i.situacao, detalhe: semTravessao(i.detalhe).slice(0, 300), fonte: String(i.fonte || '').slice(0, 200) }));
+    return json({ tipo: 'conferencia', itens, resumo: semTravessao(saida?.resumo).slice(0, 300) }, 200);
+  }
+
   const texto = String(saida?.texto || '');
   if (!texto.trim()) return json({ error: 'O Lu não devolveu texto. Tente reformular o pedido.' }, 502);
   const fontes = Array.isArray(saida?.fontes) ? saida.fontes.map(String).slice(0, 12) : [];
   return json({
+    tipo: 'texto',
     encontrou: saida?.encontrou !== false,
     texto,
     explicacao: semTravessao(saida?.explicacao).slice(0, 800),
