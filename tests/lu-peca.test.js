@@ -82,7 +82,7 @@ describe('api/lu-peca', () => {
   it('reescrever: devolve a proposta e não manda PDF, base de legislação nem parecer', async () => {
     const r = await POST(pedido({ instrucao: 'mais incisivo' }));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [], consumo: { creditos: 1900, limite: 1_000_000 } });
+    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [], consumo: { creditos: 2850, limite: 1_000_000 } });
     const t = textoEnviado();
     expect(t).toContain('AÇÃO: REESCREVER');
     expect(t).toContain('INSTRUÇÃO DO ADVOGADO: mais incisivo');
@@ -281,7 +281,7 @@ describe('conferirPrazos (puro)', () => {
   });
 });
 
-describe('créditos do Lu (1.000.000 por dia = US$ 1,50)', () => {
+describe('créditos do Lu (1.000.000 por dia = US$ 1,00)', () => {
   let creditosDoUso;
   let LIMITE_CREDITOS_DIA;
   let USD_DO_LIMITE;
@@ -289,23 +289,25 @@ describe('créditos do Lu (1.000.000 por dia = US$ 1,50)', () => {
     ({ creditosDoUso, LIMITE_CREDITOS_DIA, USD_DO_LIMITE } = await import('../api/lu-peca.js'));
   });
 
-  it('conversão: 1 token de entrada = 1 crédito; saída e raciocínio = 6; 1 milhão = US$ 1,50 no preço de lista', () => {
-    expect(creditosDoUso({ promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 })).toBe(1900);
+  it('conversão: 1 token de entrada = 1,5 crédito; saída e raciocínio = 9; 1 milhão = US$ 1,00 no preço de lista', () => {
+    expect(creditosDoUso({ promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 })).toBe(2850);
+    expect(creditosDoUso({ promptTokenCount: 1, candidatesTokenCount: 0 })).toBe(2); // arredonda para cima, nunca subestima
     // sem detalhe: tudo como saída (nunca subestima)
-    expect(creditosDoUso({ totalTokenCount: 100 })).toBe(600);
+    expect(creditosDoUso({ totalTokenCount: 100 })).toBe(900);
     expect(creditosDoUso(undefined)).toBe(0);
-    // 1 milhão de créditos em tokens de entrada (US$ 1,50/M) ou de saída (US$ 9,00/M) custam US$ 1,50
-    expect((LIMITE_CREDITOS_DIA / 1) * (1.5 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
-    expect((LIMITE_CREDITOS_DIA / 6) * (9 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+    // 1 milhão de créditos em tokens de entrada (US$ 1,50/M) ou de saída (US$ 9,00/M) custam US$ 1,00
+    expect(USD_DO_LIMITE).toBe(1);
+    expect((LIMITE_CREDITOS_DIA / 1.5) * (1.5 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+    expect((LIMITE_CREDITOS_DIA / 9) * (9 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
   });
 
   it('cada pedido registra o gasto real e devolve o medidor', async () => {
     cenario.gastoHoje = 10_000;
     const dados = await (await POST(pedido({}))).json();
     const registro = chamadas.find((c) => c.url.includes('registrar_consumo_lu'));
-    expect(JSON.parse(registro.opcoes.body)).toEqual({ p_creditos: 1900 });
+    expect(JSON.parse(registro.opcoes.body)).toEqual({ p_creditos: 2850 });
     expect(registro.opcoes.headers.Authorization).toBe('Bearer token-do-usuario');
-    expect(dados.consumo).toEqual({ creditos: 11_900, limite: 1_000_000 });
+    expect(dados.consumo).toEqual({ creditos: 12_850, limite: 1_000_000 });
   });
 
   it('com o limite do dia atingido, não chama o Gemini e explica', async () => {

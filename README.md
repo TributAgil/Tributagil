@@ -1295,12 +1295,12 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
 - **Créditos do Lu (limite diário)** (30/10/2026): cada usuário tem **1.000.000 de créditos informativos por dia**
-  para o "Pedir ao Lu", o equivalente a **US$ 1,50** de Gemini (preço de lista do gemini-3.5-flash: 1 token de entrada
-  = 1 crédito; 1 de saída ou de raciocínio = 6). O gasto vem dos tokens que o Gemini informa em cada resposta
+  para o "Pedir ao Lu", o equivalente a **US$ 1,00** de Gemini (era US$ 1,50 até 30/10/2026; preço de lista do
+  gemini-3.5-flash: 1 token de entrada = 1,5 crédito; 1 de saída ou de raciocínio = 9). O gasto vem dos tokens que o Gemini informa em cada resposta
   (`creditosDoUso` em `api/lu-peca.js`) e é somado em `public.consumo_lu` (SQL em
   [`docs/sql/consumo-lu.sql`](docs/sql/consumo-lu.sql), aplicado em produção em 30/10/2026); o dia vira à meia-noite de Brasília. Antes de chamar o
   Gemini, o servidor reserva o pior caso do pedido (texto enviado + saída no teto de 4.096 tokens): se o saldo não
-  cobre, o pedido não sai, então o dia não passa de US$ 1,50. Sem o contador (banco fora), o Lu não roda
+  cobre, o pedido não sai, então o dia não passa de US$ 1,00. Sem o contador (banco fora), o Lu não roda
   (fail-closed). O editor mostra o medidor ("Créditos do Lu hoje: X de 1.000.000") e, esgotado, bloqueia as ações de
   IA; "Trocar em toda a peça" (sem IA) continua. Gerar a peça e buscar as figuras não entram nesse limite.
 - **Conversar com o Lu** (30/10/2026): botão "Conversar", preto e amarelo, ao lado do "Pedir ao Lu" no editor da
@@ -1311,7 +1311,7 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   descarta documento não enviado, página fora do PDF e legislação fora da base). Pergunta fora do caso é recusada. Ele
   **não altera nada**: pedido de mudança vira proposta embaixo do parágrafo, com Aceitar / Recusar. Vão só as últimas
   6 mensagens; a conversa não é salva. Mesmo saldo de créditos do dia: os PDFs entram na reserva pela estimativa de
-  páginas (600 tokens por página), e acima de ~300 mil tokens o que sobra fica de fora, com aviso. Ação `conversar` de
+  páginas (600 tokens por página), e acima de ~200 mil tokens (cerca de 330 páginas) o que sobra fica de fora, com aviso. Ação `conversar` de
   `api/lu-peca.js` (maxDuration 120 s); tela em `src/components/lu/ConversaLu.jsx`; testes em
   `tests/lu-conversa.test.js`.
 - **Mais funções do Lu** (30/10/2026): **adequar ao destinatário** (tratamento e tom pelo modelo: juízo na EPE,

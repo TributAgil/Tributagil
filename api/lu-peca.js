@@ -66,30 +66,32 @@ export const MAX_HISTORICO = 6;
 const MAX_TEXTO_HISTORICO = 3000;
 const MAX_PECA = 150_000;
 const MAX_PARAGRAFOS_PECA = 800;
-// os PDFs que passarem disto ficam de fora da conversa (avisado na resposta)
-const MAX_TOKENS_DOCUMENTOS = 300_000;
+// os PDFs que passarem disto ficam de fora da conversa (avisado na resposta); com a saída no teto, um pedido fica
+// abaixo de 500 mil créditos, o máximo que registrar_consumo_lu aceita de uma vez
+const MAX_TOKENS_DOCUMENTOS = 200_000;
 // por usuário: folgado para um advogado trabalhando, barra repetição automática
 const RL_IP = { limite: 40, janela: 60_000 };
 const RL_USUARIO = { limite: 20, janela: 60_000 };
 
 // ---- Limite diário em CRÉDITOS INFORMATIVOS (decisão do Luan, 30/10/2026) --------------------------------------------
-// 1.000.000 de créditos = US$ 1,50 de Gemini por usuário por dia (meia-noite de Brasília; contador em
-// public.consumo_lu, docs/sql/consumo-lu.sql). Preço de lista do gemini-3.5-flash: US$ 1,50 por milhão de tokens de
-// entrada e US$ 9,00 de saída => 1 token de entrada = 1 crédito; 1 de saída (inclusive raciocínio) = 6 créditos.
+// 1.000.000 de créditos = US$ 1,00 de Gemini por usuário por dia, ou seja, 1 crédito = US$ 0,000001 (meia-noite de
+// Brasília; contador em public.consumo_lu, docs/sql/consumo-lu.sql). Preço de lista do gemini-3.5-flash: US$ 1,50 por
+// milhão de tokens de entrada e US$ 9,00 de saída => 1 token de entrada = 1,5 crédito; 1 de saída (inclusive
+// raciocínio) = 9 créditos.
 export const LIMITE_CREDITOS_DIA = 1_000_000;
-export const USD_DO_LIMITE = 1.5;
-const CREDITOS_POR_TOKEN_ENTRADA = 1;
-const CREDITOS_POR_TOKEN_SAIDA = 6;
-// teto da resposta: um pedido sozinho nunca passa de ~25 mil créditos de saída, então o dia não estoura além disso
+export const USD_DO_LIMITE = 1;
+const CREDITOS_POR_TOKEN_ENTRADA = 1.5;
+const CREDITOS_POR_TOKEN_SAIDA = 9;
+// teto da resposta: um pedido sozinho nunca passa de ~37 mil créditos de saída, então o dia não estoura além disso
 const MAX_TOKENS_SAIDA = 4096;
 
 /**
  * Reserva ANTES de chamar o Gemini: o máximo que este pedido pode custar (entrada estimada pelo tamanho do texto,
  * com folga de ~3 caracteres por token, e a saída no teto). Se o saldo do dia não cobre a reserva, o pedido não sai:
- * assim o gasto do dia não passa de 1.000.000 de créditos (US$ 1,50).
+ * assim o gasto do dia não passa de 1.000.000 de créditos (US$ 1,00).
  */
 export function reservaDoPedido(corpoJson, tokensDeDocumentos = 0) {
-  return (Math.ceil(String(corpoJson || '').length / 3) + tokensDeDocumentos) * CREDITOS_POR_TOKEN_ENTRADA + MAX_TOKENS_SAIDA * CREDITOS_POR_TOKEN_SAIDA;
+  return Math.ceil((Math.ceil(String(corpoJson || '').length / 3) + tokensDeDocumentos) * CREDITOS_POR_TOKEN_ENTRADA + MAX_TOKENS_SAIDA * CREDITOS_POR_TOKEN_SAIDA);
 }
 
 /** Créditos gastos num pedido, pelos tokens que o próprio Gemini informa (usageMetadata). */
@@ -642,7 +644,7 @@ async function processar(request, ctx) {
     },
   });
   const corpo = montarCorpo(true);
-  // o saldo do dia precisa cobrir o pior caso deste pedido; senão ele não sai (o teto de US$ 1,50 vale de verdade).
+  // o saldo do dia precisa cobrir o pior caso deste pedido; senão ele não sai (o teto de US$ 1,00 vale de verdade).
   // Os PDFs não entram pelo tamanho do base64: entram pela estimativa de páginas.
   const reserva = conversar
     ? reservaDoPedido(montarCorpo(false), documentos.reduce((n, d) => n + tokensEstimados(d), 0))

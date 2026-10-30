@@ -1,9 +1,10 @@
 -- docs/sql/consumo-lu.sql
 --
--- Limite diário do "Pedir ao Lu", em CRÉDITOS INFORMATIVOS: 1.000.000 de créditos = US$ 1,50 de Gemini por usuário por
--- dia (decisão do Luan, 30/10/2026). O servidor (api/lu-peca.js) converte os tokens que o Gemini informa em cada
--- resposta: 1 token de entrada = 1 crédito; 1 token de saída (inclusive o de raciocínio) = 6 créditos (preço de lista
--- do gemini-3.5-flash: US$ 1,50 e US$ 9,00 por milhão). O dia vira à meia-noite de Brasília.
+-- Limite diário do "Pedir ao Lu", em CRÉDITOS INFORMATIVOS: 1.000.000 de créditos = US$ 1,00 de Gemini por usuário por
+-- dia (decisão do Luan, 30/10/2026; antes era US$ 1,50). O servidor (api/lu-peca.js) converte os tokens que o Gemini
+-- informa em cada resposta: 1 token de entrada = 1,5 crédito; 1 token de saída (inclusive o de raciocínio) = 9 créditos
+-- (preço de lista do gemini-3.5-flash: US$ 1,50 e US$ 9,00 por milhão). O dia vira à meia-noite de Brasília.
+-- A conversão fica só no servidor: mudar o valor do limite não exige mexer neste SQL.
 --
 -- Só o servidor grava (RPC registrar_consumo_lu, chamada com o token do próprio usuário depois de cada resposta do Lu);
 -- o app só lê. APLICADO em produção em 30/10/2026 (migração consumo_lu). É idempotente.

@@ -152,14 +152,14 @@ describe('Conversa com o Lu (api/lu-peca, acao conversar)', () => {
   });
 
   it('a reserva conta os PDFs pelas páginas (não pelo base64): caso grande perto do limite é recusado antes de gastar', async () => {
-    cenario.arquivos['user-1/a/1_cda.pdf'] = pdfDePaginas(400); // ~240 mil tokens estimados
+    cenario.arquivos['user-1/a/1_cda.pdf'] = pdfDePaginas(300); // ~180 mil tokens estimados = ~270 mil créditos
     cenario.gastoHoje = 800_000;
     const r = await api.POST(pedido());
     expect(r.status).toBe(429);
     expect((await r.json()).limiteAtingido).toBe(true);
     expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
 
-    // com saldo, o mesmo caso sai (o base64 de 400 páginas não é contado como texto)
+    // com saldo, o mesmo caso sai (o base64 de 300 páginas não é contado como texto)
     cenario.gastoHoje = 0;
     chamadas.length = 0;
     expect((await api.POST(pedido())).status).toBe(200);
@@ -167,7 +167,7 @@ describe('Conversa com o Lu (api/lu-peca, acao conversar)', () => {
 
   it('registra o gasto real informado pelo Gemini', async () => {
     const dados = await (await api.POST(pedido())).json();
-    expect(dados.consumo).toEqual({ creditos: 5000 + 300 * 6, limite: 1_000_000 });
+    expect(dados.consumo).toEqual({ creditos: 5000 * 1.5 + 300 * 9, limite: 1_000_000 });
   });
 
   it('documento que sumiu do Storage não derruba a conversa: responde com o resto e avisa', async () => {
