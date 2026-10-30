@@ -6,7 +6,7 @@
 -- do gemini-3.5-flash: US$ 1,50 e US$ 9,00 por milhão). O dia vira à meia-noite de Brasília.
 --
 -- Só o servidor grava (RPC registrar_consumo_lu, chamada com o token do próprio usuário depois de cada resposta do Lu);
--- o app só lê. Rodar UMA vez no SQL Editor do Supabase (é idempotente).
+-- o app só lê. APLICADO em produção em 30/10/2026 (migração consumo_lu). É idempotente.
 
 begin;
 
