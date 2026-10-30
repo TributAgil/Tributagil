@@ -18,13 +18,13 @@ const SITUACAO = {
 /**
  * @param {{ proposta: { acao: string, carregando?: boolean, erro?: string, encontrou?: boolean, trechos?: object[],
  *   explicacao?: string, fontes?: string[] }, objetos?: object[], onAceitar: () => void, onRecusar: () => void,
- *   onDeNovo: () => void }} props
+ *   onDeNovo?: () => void }} props  (sem onDeNovo: sem o botão "Pedir de novo")
  */
 export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusar, onDeNovo }) {
-  const rotulo = ACOES_LU[proposta.acao]?.rotulo || 'Lu';
+  const rotulo = proposta.acao === 'conversa' ? 'Proposta da conversa' : ACOES_LU[proposta.acao]?.rotulo || 'Lu';
   const conferencia = proposta.tipo === 'conferencia';
   return (
-    <div className="rounded-xl border-2 border-yellow-400 bg-neutral-950 text-neutral-100 p-3 sm:p-4 shadow-lg" role="region" aria-label="Proposta do Lu">
+    <div id="proposta-lu" className="rounded-xl border-2 border-yellow-400 bg-neutral-950 text-neutral-100 p-3 sm:p-4 shadow-lg" role="region" aria-label="Proposta do Lu">
       <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-bold text-yellow-400 mb-2">
         <Sparkles size={13} /> Lu · {rotulo}
       </p>
@@ -41,9 +41,11 @@ export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusa
             <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {proposta.erro}
           </p>
           <div className="flex gap-2 mt-3">
-            <button onClick={onDeNovo} className="px-3 py-1.5 text-xs font-bold text-neutral-950 bg-yellow-400 hover:bg-yellow-300 rounded-lg">
-              Tentar de novo
-            </button>
+            {onDeNovo && (
+              <button onClick={onDeNovo} className="px-3 py-1.5 text-xs font-bold text-neutral-950 bg-yellow-400 hover:bg-yellow-300 rounded-lg">
+                Tentar de novo
+              </button>
+            )}
             <button onClick={onRecusar} className="px-3 py-1.5 text-xs text-neutral-300 hover:text-white">
               Fechar
             </button>
@@ -102,6 +104,7 @@ export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusa
             </p>
           )}
           {proposta.explicacao && <p className="mt-2 text-xs text-neutral-300">{proposta.explicacao}</p>}
+          {proposta.acao === 'conversa' && <p className="mt-1 text-[11px] text-yellow-200/70">As fontes estão na resposta, na conversa ao lado.</p>}
           {proposta.fontes?.length > 0 && (
             <p className="mt-1 text-[11px] text-yellow-200/80">
               <span className="font-semibold text-yellow-400">Fontes:</span> {proposta.fontes.join(' · ')}
@@ -116,9 +119,11 @@ export default function PropostaLu({ proposta, objetos = [], onAceitar, onRecusa
             <button onClick={onRecusar} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-neutral-200 border border-neutral-700 hover:border-neutral-500 rounded-lg">
               <X size={15} /> {proposta.encontrou ? 'Recusar' : 'Fechar'}
             </button>
-            <button onClick={onDeNovo} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-neutral-300 hover:text-white">
-              <RotateCcw size={14} /> Pedir de novo
-            </button>
+            {onDeNovo && (
+              <button onClick={onDeNovo} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-neutral-300 hover:text-white">
+                <RotateCcw size={14} /> Pedir de novo
+              </button>
+            )}
           </div>
           <p className="mt-2 text-[10px] text-neutral-500">Revise antes de aceitar: o Lu propõe, quem decide e assina é o advogado.</p>
         </>

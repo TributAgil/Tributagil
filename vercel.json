@@ -15,7 +15,7 @@
       "maxDuration": 60
     },
     "api/lu-peca.js": {
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "api/gerar-peca.js": {
       "maxDuration": 240,

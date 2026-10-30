@@ -16,7 +16,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Loader2, PenLine, AlertTriangle, ArrowLeft, Bold, Italic, Underline, Plus, Trash2, RotateCcw, Undo2, Check, Table2, Image as ImageIcon, Lock,
-  CheckCircle2, Download, Sparkles,
+  CheckCircle2, Download, Sparkles, MessageCircle,
 } from 'lucide-react';
 import {
   abrirPecaParaEdicao, listarPendencias, contarPendencias, textoDosTrechos,
@@ -27,9 +27,10 @@ import {
   substituirNosTrechos,
 } from '../lib/edicaoTexto';
 import { montarPecaRevisada } from '../lib/pecaRevisada';
-import { pedirAoLu, ACOES_LU, resumoParaLu, lerConsumoLu, formatarCreditos } from '../lib/luPeca';
+import { pedirAoLu, conversarComLu, ACOES_LU, resumoParaLu, lerConsumoLu, formatarCreditos } from '../lib/luPeca';
 import PropostaLu from './lu/PropostaLu';
 import TrocarNaPeca from './lu/TrocarNaPeca';
+import ConversaLu from './lu/ConversaLu';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
 import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
 import FiguraNoTexto from './figuras/FiguraNoTexto';
@@ -399,7 +400,89 @@ export default function EditorPeca({
       mudarOriginal(alvo.id, trechos);
       reescrever(`p-${alvo.id}`);
     }
+    marcarPropostaDaConversa(proposta, 'aceita');
     setProposta(null);
+  };
+  const recusarProposta = () => {
+    marcarPropostaDaConversa(proposta, 'recusada');
+    setProposta(null);
+  };
+
+  // ---- Conversar com o Lu (chat ao lado da folha) ----------------------------------------------------------------------
+  const [chatAberto, setChatAberto] = useState(false);
+  const [conversa, setConversa] = useState([]); // { id, papel, texto, erro?, fontes?, deFora?, proposta? } — não é salva
+  const [enviandoChat, setEnviandoChat] = useState(false);
+  const idMensagem = useRef(0);
+  const telaLarga = () => window.matchMedia?.('(min-width: 1280px)').matches ?? true; // xl: chat e folha lado a lado
+
+  function marcarPropostaDaConversa(p, situacao) {
+    if (p?.daConversa === undefined) return;
+    setConversa((c) => c.map((m) => (m.id === p.daConversa && m.proposta ? { ...m, proposta: { ...m.proposta, situacao } } : m)));
+  }
+
+  /** A peça como está agora, em ordem, para o Lu: "§n" nos parágrafos que podem receber proposta. */
+  const pecaParaConversa = () => {
+    const peca = [];
+    const mapa = new Map();
+    for (const b of blocos) {
+      const topicoB = topicos[topicoDoBloco.get(b.id)]?.titulo || '';
+      if (b.editavel && !b.titulo && !estado[b.id]?.removido && !b.vazio) {
+        const n = mapa.size + 1;
+        mapa.set(n, { alvo: { id: b.id }, topico: topicoB });
+        peca.push({ n, topico: topicoB, texto: trechosParaLu(estado[b.id]?.trechos || b.trechos), editavel: true });
+      } else if (!b.editavel && b.texto) {
+        peca.push({ topico: topicoB, texto: b.texto, editavel: false });
+      }
+      for (const nv of estado[b.id]?.novos || []) {
+        const n = mapa.size + 1;
+        mapa.set(n, { alvo: { id: b.id, chave: nv.chave }, topico: topicoB });
+        peca.push({ n, topico: topicoB, texto: trechosParaLu(nv.trechos), editavel: true });
+      }
+    }
+    return { peca, mapa };
+  };
+
+  /** Mostra na folha a proposta que veio na conversa e leva o advogado até o parágrafo. */
+  const mostrarPropostaDaConversa = (m, navegar = true) => {
+    const p = m.proposta;
+    setProposta({ alvo: p.alvo, acao: 'conversa', tipo: 'texto', encontrou: true, trechos: p.trechos, explicacao: p.explicacao, fontes: [], daConversa: m.id });
+    if (!navegar) return;
+    if (!telaLarga()) setChatAberto(false);
+    irPara(p.alvo.id, 'proposta-lu');
+  };
+
+  const enviarConversa = async (texto) => {
+    const { peca, mapa } = pecaParaConversa();
+    const historico = conversa.filter((m) => !m.erro).map((m) => ({ papel: m.papel, texto: m.texto }));
+    setConversa((c) => [...c, { id: ++idMensagem.current, papel: 'advogado', texto }]);
+    setEnviandoChat(true);
+    const r = await conversarComLu({ analiseId, mensagem: texto, historico, peca, resumoPeca: resumoParaLu(resumoPeca), template });
+    setEnviandoChat(false);
+    if (r.consumo) setConsumoLu(r.consumo);
+    if (r.limiteAtingido) setLuRecusouHoje(true);
+    const id = ++idMensagem.current;
+    if (!r.ok) {
+      setConversa((c) => [...c, { id, papel: 'lu', texto: r.error, erro: true }]);
+      return;
+    }
+    const alvo = r.proposta ? mapa.get(r.proposta.paragrafo) : null;
+    const b = alvo ? blocoDoAlvo(alvo.alvo) : null;
+    const msg = {
+      id,
+      papel: 'lu',
+      texto: r.resposta,
+      fontes: r.fontes || [],
+      deFora: r.documentos?.deFora || [],
+      proposta: b
+        ? {
+          paragrafo: r.proposta.paragrafo, topico: alvo.topico, alvo: alvo.alvo, situacao: 'pendente',
+          trechos: luParaTrechos(r.proposta.texto, b.objetos.length), explicacao: r.proposta.explicacao,
+        }
+        : undefined,
+    };
+    setConversa((c) => [...c, msg]);
+    // na tela larga a folha está ao lado: a proposta já aparece no parágrafo
+    if (msg.proposta) mostrarPropostaDaConversa(msg, telaLarga());
   };
 
   /** Atalho "Pedir ao Lu" embaixo de cada parágrafo: escolhe o parágrafo e já abre o menu ali mesmo. */
@@ -566,8 +649,9 @@ export default function EditorPeca({
         proposta={proposta}
         objetos={blocoDoAlvo(alvo)?.objetos}
         onAceitar={aceitarProposta}
-        onRecusar={() => setProposta(null)}
-        onDeNovo={() => pedir(proposta.acao, proposta.instrucao, proposta.alvo)}
+        onRecusar={recusarProposta}
+        // a proposta da conversa se pede de novo lá, na conversa
+        onDeNovo={proposta.acao === 'conversa' ? undefined : () => pedir(proposta.acao, proposta.instrucao, proposta.alvo)}
       />
     ) : null;
 
@@ -710,7 +794,7 @@ export default function EditorPeca({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={aplicando ? undefined : fechar} />
-      <div className="relative bg-ink-800 rounded-2xl shadow-2xl w-full max-w-6xl h-[94vh] flex flex-col border border-line" role="dialog" aria-label="Revisar a peça">
+      <div className={`relative bg-ink-800 rounded-2xl shadow-2xl w-full ${chatAberto ? 'max-w-[94rem]' : 'max-w-6xl'} h-[94vh] flex flex-col border border-line`} role="dialog" aria-label="Revisar a peça">
         {/* cabeçalho */}
         <div className="flex items-center gap-3 p-5 pb-3 border-b border-line">
           <div className="w-11 h-11 rounded-xl bg-gold/15 flex items-center justify-center shrink-0">
@@ -747,10 +831,11 @@ export default function EditorPeca({
 
         {fase === 'edicao' && topico && (
           <>
-            <div className="flex-1 min-h-0 grid md:grid-cols-[17rem_1fr] gap-4 p-5 overflow-hidden">
+            {/* com a conversa aberta: três colunas na tela larga (xl); abaixo disso, a conversa ocupa o lugar da folha */}
+            <div className={`flex-1 min-h-0 grid gap-4 p-5 overflow-hidden ${chatAberto ? 'grid-cols-1 xl:grid-cols-[15rem_1fr_24rem]' : 'md:grid-cols-[17rem_1fr]'}`}>
               {/* tópicos e pendências */}
               {/* no celular, com uma figura aberta, a lateral sai da frente: o recorte precisa da tela toda */}
-              <div className={`flex-col gap-4 min-h-0 overflow-y-auto pr-1 md:max-h-full max-h-40 ${figuraEmEdicao ? 'hidden md:flex' : 'flex'}`}>
+              <div className={`flex-col gap-4 min-h-0 overflow-y-auto pr-1 md:max-h-full max-h-40 ${chatAberto ? 'hidden xl:flex' : figuraEmEdicao ? 'hidden md:flex' : 'flex'}`}>
                 <nav aria-label="Tópicos da peça">
                   <p className="text-[11px] uppercase tracking-wide text-parchment/40 mb-1.5">Tópicos</p>
                   <ol className="space-y-1">
@@ -856,7 +941,7 @@ export default function EditorPeca({
 
               {/* trocar em toda a peça, no lugar da folha */}
               {painelTrocar && !figuraEmEdicao && (
-                <div className="flex flex-col min-h-0 min-w-0">
+                <div className={`flex-col min-h-0 min-w-0 ${chatAberto ? 'hidden xl:flex' : 'flex'}`}>
                   <TrocarNaPeca
                     paragrafos={paragrafosParaTrocar()}
                     soLeitura={blocosSoLeitura()}
@@ -869,7 +954,7 @@ export default function EditorPeca({
 
               {/* recorte de uma figura, no lugar da folha */}
               {figuraEmEdicao && (
-                <div className="flex flex-col min-h-0 min-w-0">
+                <div className={`flex-col min-h-0 min-w-0 ${chatAberto ? 'hidden xl:flex' : 'flex'}`}>
                   <PainelDaFigura
                     figura={figuraEmEdicao}
                     figuras={figuras}
@@ -886,7 +971,7 @@ export default function EditorPeca({
               )}
 
               {/* folha */}
-              <div className={`flex-col min-h-0 min-w-0 ${figuraEmEdicao || painelTrocar ? 'hidden' : 'flex'}`}>
+              <div className={`flex-col min-h-0 min-w-0 ${figuraEmEdicao || painelTrocar ? 'hidden' : chatAberto ? 'hidden xl:flex' : 'flex'}`}>
                 <div className="flex items-center gap-1 mb-2" role="toolbar" aria-label="Formatação">
                   <button onMouseDown={formatar('bold')} title="Negrito (Ctrl+B)" aria-label="Negrito" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Bold size={15} />
@@ -897,7 +982,7 @@ export default function EditorPeca({
                   <button onMouseDown={formatar('underline')} title="Sublinhado (Ctrl+U)" aria-label="Sublinhado" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Underline size={15} />
                   </button>
-                  <p className="ml-3 text-[11px] text-parchment/40 hidden xl:block">
+                  <p className={`ml-3 text-[11px] text-parchment/40 hidden ${chatAberto ? '' : 'xl:block'}`}>
                     Enter cria um parágrafo novo · Shift+Enter quebra a linha · etiquetas azuis (nota de rodapé, numeração, data) saem iguais no Word
                   </p>
                   {analiseId && (
@@ -912,6 +997,20 @@ export default function EditorPeca({
                         className="inline-flex items-center gap-2 whitespace-nowrap shrink-0 px-4 py-2 text-sm font-extrabold text-yellow-400 bg-black border-2 border-yellow-400 rounded-xl shadow-[0_0_0_3px_rgba(250,204,21,0.15)] hover:bg-yellow-400 hover:text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-black disabled:hover:text-yellow-400"
                       >
                         <Sparkles size={16} /> Pedir ao Lu
+                      </button>
+                      <button
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onClick={() => {
+                          setPainelLu(null);
+                          setChatAberto((v) => !v);
+                        }}
+                        title="Conversar com o Lu: perguntas sobre o caso, os documentos enviados e a peça"
+                        aria-pressed={chatAberto}
+                        className={`inline-flex items-center gap-2 whitespace-nowrap shrink-0 px-4 py-2 text-sm font-extrabold border-2 border-yellow-400 rounded-xl transition-colors ${
+                          chatAberto ? 'bg-yellow-400 text-black hover:bg-yellow-300' : 'text-yellow-400 bg-black hover:bg-yellow-400 hover:text-black'
+                        }`}
+                      >
+                        <MessageCircle size={16} /> Conversar
                       </button>
                       {painelLu === 'barra' && menuLu('absolute right-0 top-full mt-2 z-20 w-[min(22rem,calc(100vw-3rem))]')}
                     </div>
@@ -945,6 +1044,21 @@ export default function EditorPeca({
                   </div>
                 </div>
               </div>
+
+              {chatAberto && (
+                <div className="flex flex-col min-h-0 min-w-0">
+                  <ConversaLu
+                    mensagens={conversa}
+                    enviando={enviandoChat}
+                    bloqueio={luEsgotado ? 'Créditos do Lu de hoje esgotados: voltam à meia-noite.' : ''}
+                    medidor={medidorLu()}
+                    onEnviar={enviarConversa}
+                    onVerProposta={(i) => mostrarPropostaDaConversa(conversa[i])}
+                    onLimpar={() => setConversa([])}
+                    onFechar={() => setChatAberto(false)}
+                  />
+                </div>
+              )}
             </div>
 
             {/* rodapé */}
