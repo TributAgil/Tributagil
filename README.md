@@ -1294,6 +1294,19 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **"Pedir ao Lu"** (botão preto e amarelo na barra do editor; `api/lu-peca.js`, `src/lib/luPeca.js`,
+  `src/components/lu/PropostaLu.jsx`): com um parágrafo em foco (títulos não), o Lu **reescreve** o trecho conforme
+  a instrução, **reforça a fundamentação** só com a base curada (`api/_legislacao-tributagil.js`; fonte citada fora
+  dela é descartada em código) ou **preenche os `[PREENCHER]`** com o que o parecer salvo da análise já tem (o que
+  não estiver lá continua amarelo e o Lu diz que não encontrou). A resposta aparece como proposta logo abaixo do
+  parágrafo; nada muda até o advogado clicar em **Aceitar**, e a aceitação vira uma alteração normal (entra na
+  versão salva). Vai para a IA só o parágrafo, o título do tópico, o resumo da peça e, conforme a ação, a base de
+  legislação ou o parecer: **nenhum PDF**. Negrito vai como `**…**` e nota de rodapé/campo do Word como `⟦n⟧`
+  (`trechosParaLu`/`luParaTrechos` em `src/lib/edicaoTexto.js`; elemento esquecido pelo modelo volta no fim).
+  Acesso pelo ponto único `api/_chatbot-acesso.js` com `uso: 'peca'` (ligado); o chat do caso (`api/lu.js`) e a
+  indexação continuam desligados. Limite de 20 pedidos/min por usuário; sem teto diário de custo por enquanto
+  (decisão de 30/10/2026). Cada pedido gera uma linha `api_lu_peca` no log da Vercel, com os tokens. Testes:
+  `tests/lu-peca.test.js`.
 - **Fica salvo no banco** (SQL em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql), aplicado em produção
   em 30/10/2026; código em `src/lib/pecasSalvas.js`):
   - ao gerar, o `.docx` original vai para o bucket privado `pecas` (`<user>/<analise>/<peca>/original.docx`) e uma

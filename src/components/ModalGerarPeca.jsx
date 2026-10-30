@@ -501,6 +501,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               imagens: edicoes[pecaEmEdicao.tese]?.figuras?.imagens,
             }}
             tituloPeca={pecaEmEdicao.resumo?.modelo}
+            resumoPeca={pecaEmEdicao.resumo}
             onFechar={({ figuras } = {}) => {
               // saiu sem aplicar: guarda só a busca das figuras (não repete a chamada ao Gemini ao reabrir)
               const tese = pecaEmEdicao.tese;

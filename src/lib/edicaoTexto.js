@@ -157,3 +157,50 @@ export function textoAtualDoBloco(estado, b) {
   const proprio = alt?.removido ? '' : alt?.trechos ? textoDosTrechos(alt.trechos) : b.texto;
   return [proprio, ...(alt?.novos || []).map((n) => textoDosTrechos(n.trechos))].join('\n');
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Ponte com o Lu (api/lu-peca.js): o parágrafo vai como texto, com o negrito marcado por **…** e cada elemento fixo do
+// Word (nota de rodapé, campo) como ⟦n⟧; a resposta volta no mesmo formato e vira trechos de novo.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const PUA = /[-]/g;
+
+/** Trechos → texto para o Lu. Itálico e sublinhado não vão (o Lu só mexe em negrito). */
+export function trechosParaLu(trechos) {
+  return juntarTrechos(trechos || [])
+    .map((t) => {
+      const texto = t.texto.replace(PUA, (c) => `⟦${indiceDoObjeto(c)}⟧`);
+      if (!t.negrito || !texto.trim()) return texto;
+      // o espaço fica fora das estrelas: "**  x**" confunde o modelo e quem lê
+      const [, antes, meio, depois] = /^(\s*)([\s\S]*?)(\s*)$/.exec(texto);
+      return `${antes}**${meio}**${depois}`;
+    })
+    .join('');
+}
+
+/**
+ * Texto do Lu → trechos. Cada ⟦n⟧ volta a ser o elemento n do parágrafo (só os que o parágrafo tem); um elemento que o
+ * Lu tenha deixado de fora é recolocado no fim, para a nota de rodapé ou o campo não sumirem do Word sem querer.
+ * @param {string} texto
+ * @param {number} totalObjetos  quantos elementos fixos o parágrafo tem
+ */
+export function luParaTrechos(texto, totalObjetos = 0) {
+  const usados = new Set();
+  const comObjetos = String(texto || '').replace(/⟦(\d+)⟧/g, (marca, n) => {
+    const k = Number(n);
+    if (k >= totalObjetos || usados.has(k)) return '';
+    usados.add(k);
+    return caractereDoObjeto(k);
+  });
+  const trechos = [];
+  const partes = comObjetos.split(/(\*\*[\s\S]+?\*\*)/);
+  for (const p of partes) {
+    if (!p) continue;
+    const negrito = /^\*\*[\s\S]+\*\*$/.test(p);
+    trechos.push({ texto: negrito ? p.slice(2, -2) : p.replace(/\*\*/g, ''), negrito, italico: false, sublinhado: false });
+  }
+  for (let k = 0; k < totalObjetos; k++) {
+    if (!usados.has(k)) trechos.push({ texto: caractereDoObjeto(k), negrito: false, italico: false, sublinhado: false });
+  }
+  return juntarTrechos(trechos);
+}

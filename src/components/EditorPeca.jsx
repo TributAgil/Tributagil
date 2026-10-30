@@ -16,14 +16,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Loader2, PenLine, AlertTriangle, ArrowLeft, Bold, Italic, Underline, Plus, Trash2, RotateCcw, Undo2, Check, Table2, Image as ImageIcon, Lock,
-  CheckCircle2, Download,
+  CheckCircle2, Download, Sparkles,
 } from 'lucide-react';
 import {
   abrirPecaParaEdicao, listarPendencias, contarPendencias, textoDosTrechos,
 } from '../lib/docxEdicao';
 import { base64ParaBytes, baixarBlob } from '../lib/docxFiguras';
-import { trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes, textoAtualDoBloco } from '../lib/edicaoTexto';
+import {
+  trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes, textoAtualDoBloco, trechosParaLu, luParaTrechos,
+} from '../lib/edicaoTexto';
 import { montarPecaRevisada } from '../lib/pecaRevisada';
+import { pedirAoLu, ACOES_LU, resumoParaLu } from '../lib/luPeca';
+import PropostaLu from './lu/PropostaLu';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
 import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
 import FiguraNoTexto from './figuras/FiguraNoTexto';
@@ -62,7 +66,7 @@ function colarSemFormatacao(ev) {
 }
 
 /** Caixa editável de UM parágrafo. Não controlada: o HTML só é reescrito quando a `key` muda (restaurar, dividir). */
-function CaixaDeTexto({ trechos, objetos, rotulo, titulo, aoMudar, aoEnter, registrar }) {
+function CaixaDeTexto({ trechos, objetos, rotulo, titulo, aoMudar, aoEnter, registrar, aoFocar }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = trechosParaHtml(trechos, objetos);
@@ -84,6 +88,7 @@ function CaixaDeTexto({ trechos, objetos, rotulo, titulo, aoMudar, aoEnter, regi
       spellCheck
       lang="pt-BR"
       onInput={() => aoMudar(htmlParaTrechos(ref.current))}
+      onFocus={aoFocar}
       onPaste={colarSemFormatacao}
       onKeyDown={(ev) => {
         if (ev.key !== 'Enter') return;
@@ -127,7 +132,7 @@ function imagensMudaram(atuais, iniciais = {}) {
  * }} props
  */
 export default function EditorPeca({
-  arquivo, analiseId = '', figuras = [], tituloPeca = '', estadoInicial = {}, figurasIniciais = {}, onFechar, onAplicar,
+  arquivo, analiseId = '', figuras = [], tituloPeca = '', resumoPeca = {}, estadoInicial = {}, figurasIniciais = {}, onFechar, onAplicar,
   abrir = abrirPecaParaEdicao, servicosFiguras = SERVICOS_FIGURAS,
 }) {
   const [fase, setFase] = useState('abrindo'); // 'abrindo' | 'erro' | 'edicao'
@@ -143,6 +148,11 @@ export default function EditorPeca({
   const colunaRef = useRef(null);
   const fig = useFigurasDaPeca({ analiseId, figuras, inicial: figurasIniciais, servicos: servicosFiguras });
   const [figuraAberta, setFiguraAberta] = useState(null); // número da figura cujo recorte está aberto no lugar da folha
+  // "Pedir ao Lu": o parágrafo em foco (original: { id }; novo: { id, chave }), o painel de ações e a proposta na folha
+  const [alvoLu, setAlvoLu] = useState(null);
+  const [painelLu, setPainelLu] = useState(false);
+  const [instrucaoLu, setInstrucaoLu] = useState('');
+  const [proposta, setProposta] = useState(null); // { alvo, acao, instrucao, carregando?, erro?, encontrou?, trechos?, explicacao?, fontes? }
 
   useEffect(() => {
     let vivo = true;
@@ -320,6 +330,65 @@ export default function EditorPeca({
     }
   };
 
+  // ---- Pedir ao Lu ----------------------------------------------------------------------------------------------------
+  const mesmoAlvo = (a, b) => Boolean(a && b) && a.id === b.id && (a.chave || null) === (b.chave || null);
+  const blocoDoAlvo = (alvo) => (alvo ? porId.get(alvo.id) : null);
+  /** O parágrafo do alvo como está agora no editor (o original editado ou o parágrafo novo). */
+  const trechosDoAlvo = (alvo) => {
+    const b = blocoDoAlvo(alvo);
+    if (!b) return [];
+    if (alvo.chave) return (estado[b.id]?.novos || []).find((n) => n.chave === alvo.chave)?.trechos || [];
+    return estado[b.id]?.trechos || b.trechos;
+  };
+  const alvoValido = (() => {
+    const b = blocoDoAlvo(alvoLu);
+    return Boolean(b && b.editavel && !estado[b.id]?.removido && (alvoLu.chave || !b.titulo) && textoDosTrechos(trechosDoAlvo(alvoLu)).trim());
+  })();
+  const alvoTemCampo = alvoValido && /\[PREENCHER:/.test(textoDosTrechos(trechosDoAlvo(alvoLu)));
+
+  const pedir = async (acao, instrucao = '', alvo = alvoLu) => {
+    const b = blocoDoAlvo(alvo);
+    if (!b) return;
+    setPainelLu(false);
+    setProposta({ alvo, acao, instrucao, carregando: true });
+    const r = await pedirAoLu({
+      analiseId,
+      acao,
+      instrucao,
+      paragrafo: trechosParaLu(trechosDoAlvo(alvo)),
+      topico: topicos[topicoDoBloco.get(b.id)]?.titulo || '',
+      resumoPeca: resumoParaLu(resumoPeca),
+    });
+    setProposta((atual) => {
+      if (!atual || !mesmoAlvo(atual.alvo, alvo) || atual.acao !== acao) return atual; // o advogado já mudou de ideia
+      if (!r.ok) return { alvo, acao, instrucao, erro: r.error };
+      return { alvo, acao, instrucao, encontrou: r.encontrou, trechos: luParaTrechos(r.texto, b.objetos.length), explicacao: r.explicacao, fontes: r.fontes };
+    });
+  };
+
+  const aceitarProposta = () => {
+    const { alvo, trechos } = proposta;
+    if (alvo.chave) {
+      mudarNovo(alvo.id, alvo.chave, trechos);
+      reescrever(alvo.chave);
+    } else {
+      mudarOriginal(alvo.id, trechos);
+      reescrever(`p-${alvo.id}`);
+    }
+    setProposta(null);
+  };
+
+  const propostaPara = (alvo) =>
+    proposta && mesmoAlvo(proposta.alvo, alvo) ? (
+      <PropostaLu
+        proposta={proposta}
+        objetos={blocoDoAlvo(alvo)?.objetos}
+        onAceitar={aceitarProposta}
+        onRecusar={() => setProposta(null)}
+        onDeNovo={() => pedir(proposta.acao, proposta.instrucao, proposta.alvo)}
+      />
+    ) : null;
+
   // botões de formatação: onMouseDown com preventDefault mantém a seleção dentro da caixa
   const formatar = (comando) => (ev) => {
     ev.preventDefault();
@@ -383,6 +452,7 @@ export default function EditorPeca({
             titulo={b.titulo}
             rotulo={b.titulo ? `Título: ${b.texto}` : 'Parágrafo da peça'}
             registrar={registrar(`p-${b.id}`)}
+            aoFocar={() => setAlvoLu({ id: b.id })}
             aoMudar={(t) => mudarOriginal(b.id, t)}
             aoEnter={b.titulo ? undefined : (t, pos) => enterNoOriginal(b.id, t, pos)}
           />
@@ -412,14 +482,17 @@ export default function EditorPeca({
     return (
       <div key={b.id} className="space-y-2">
         {corpo}
+        {propostaPara({ id: b.id })}
         {novos.map((n, k) => (
-          <div key={n.chave} className="group relative pl-3 border-l-2 border-emerald-500">
+          <React.Fragment key={n.chave}>
+          <div className="group relative pl-3 border-l-2 border-emerald-500">
             <CaixaDeTexto
               key={`${n.chave}-${versoes[n.chave] || 0}`}
               trechos={n.trechos}
               objetos={b.objetos}
               rotulo="Parágrafo novo"
               registrar={registrar(n.chave)}
+              aoFocar={() => setAlvoLu({ id: b.id, chave: n.chave })}
               aoMudar={(t) => mudarNovo(b.id, n.chave, t)}
               aoEnter={(t, pos) => enterNoNovo(b.id, n.chave, t, pos)}
             />
@@ -433,6 +506,8 @@ export default function EditorPeca({
               </button>
             </div>
           </div>
+          {propostaPara({ id: b.id, chave: n.chave })}
+          </React.Fragment>
         ))}
       </div>
     );
@@ -617,9 +692,59 @@ export default function EditorPeca({
                   <button onMouseDown={formatar('underline')} title="Sublinhado (Ctrl+U)" aria-label="Sublinhado" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Underline size={15} />
                   </button>
-                  <p className="ml-3 text-[11px] text-parchment/40 hidden sm:block">
+                  <p className="ml-3 text-[11px] text-parchment/40 hidden lg:block">
                     Enter cria um parágrafo novo · Shift+Enter quebra a linha · etiquetas azuis (nota de rodapé, numeração, data) saem iguais no Word
                   </p>
+                  {analiseId && (
+                    <div className="ml-auto relative shrink-0">
+                      <button
+                        // onMouseDown: o foco continua no parágrafo escolhido
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onClick={() => setPainelLu((v) => !v)}
+                        disabled={!alvoValido}
+                        title={alvoValido ? 'Pedir ao Lu: reescrever, fundamentar ou preencher este parágrafo' : 'Clique num parágrafo da peça (títulos não) e depois em "Pedir ao Lu"'}
+                        aria-expanded={painelLu}
+                        className="inline-flex items-center gap-2 whitespace-nowrap shrink-0 px-4 py-2 text-sm font-extrabold text-yellow-400 bg-black border-2 border-yellow-400 rounded-xl shadow-[0_0_0_3px_rgba(250,204,21,0.15)] hover:bg-yellow-400 hover:text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-black disabled:hover:text-yellow-400"
+                      >
+                        <Sparkles size={16} /> Pedir ao Lu
+                      </button>
+                      {painelLu && alvoValido && (
+                        <div className="absolute right-0 top-full mt-2 z-20 w-[min(22rem,calc(100vw-3rem))] rounded-xl border-2 border-yellow-400 bg-black p-3 shadow-2xl" role="menu" aria-label="O que o Lu deve fazer">
+                          <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400 mb-2">O que o Lu faz com este parágrafo?</p>
+                          <label className="block text-[11px] text-neutral-400 mb-1" htmlFor="instrucao-lu">
+                            Como? (opcional; vale para reescrever e fundamentar)
+                          </label>
+                          <input
+                            id="instrucao-lu"
+                            value={instrucaoLu}
+                            maxLength={500}
+                            onChange={(ev) => setInstrucaoLu(ev.target.value)}
+                            placeholder="ex.: mais incisivo; incluir a Súmula 436"
+                            className="w-full mb-2 rounded-lg bg-neutral-900 border border-neutral-700 px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-yellow-400"
+                          />
+                          <div className="space-y-1.5">
+                            {Object.entries(ACOES_LU).map(([acao, a]) => {
+                              const bloqueada = acao === 'preencher' && !alvoTemCampo;
+                              return (
+                                <button
+                                  key={acao}
+                                  role="menuitem"
+                                  disabled={bloqueada}
+                                  onClick={() => pedir(acao, acao === 'preencher' ? '' : instrucaoLu.trim())}
+                                  className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-yellow-300 disabled:cursor-not-allowed group"
+                                >
+                                  <span className="block text-sm font-bold">{a.rotulo}</span>
+                                  <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">
+                                    {bloqueada ? 'Este parágrafo não tem campo [PREENCHER].' : a.dica}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div ref={colunaRef} className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-neutral-200/90 p-3 sm:p-6">
                   <article className="mx-auto max-w-[46rem] bg-white text-neutral-900 shadow-md rounded-sm px-5 sm:px-12 py-8 space-y-3 text-[14px] leading-relaxed text-justify">
