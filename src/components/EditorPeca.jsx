@@ -150,7 +150,7 @@ export default function EditorPeca({
   const [figuraAberta, setFiguraAberta] = useState(null); // número da figura cujo recorte está aberto no lugar da folha
   // "Pedir ao Lu": o parágrafo em foco (original: { id }; novo: { id, chave }), o painel de ações e a proposta na folha
   const [alvoLu, setAlvoLu] = useState(null);
-  const [painelLu, setPainelLu] = useState(false);
+  const [painelLu, setPainelLu] = useState(null); // null | 'barra' (botão da barra) | 'paragrafo' (atalho embaixo do parágrafo)
   const [instrucaoLu, setInstrucaoLu] = useState('');
   const [proposta, setProposta] = useState(null); // { alvo, acao, instrucao, carregando?, erro?, encontrou?, trechos?, explicacao?, fontes? }
 
@@ -349,7 +349,7 @@ export default function EditorPeca({
   const pedir = async (acao, instrucao = '', alvo = alvoLu) => {
     const b = blocoDoAlvo(alvo);
     if (!b) return;
-    setPainelLu(false);
+    setPainelLu(null);
     setProposta({ alvo, acao, instrucao, carregando: true });
     const r = await pedirAoLu({
       analiseId,
@@ -377,6 +377,82 @@ export default function EditorPeca({
     }
     setProposta(null);
   };
+
+  /** Atalho "Pedir ao Lu" embaixo de cada parágrafo: escolhe o parágrafo e já abre o menu ali mesmo. */
+  const abrirLuNoParagrafo = (alvo) => {
+    setAlvoLu(alvo);
+    setPainelLu('paragrafo');
+  };
+
+  const menuLu = (posicao) => {
+    if (!alvoValido) {
+      return (
+        <div className={`${posicao} rounded-xl border-2 border-yellow-400 bg-black p-3 shadow-2xl text-sm text-neutral-200`} role="dialog" aria-label="Escolha o parágrafo">
+          <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400 mb-1">Escolha o parágrafo</p>
+          <p>
+            Clique no parágrafo que o Lu deve trabalhar e use de novo este botão, ou use o atalho{' '}
+            <span className="font-bold text-yellow-400">Pedir ao Lu</span> que aparece embaixo de cada parágrafo. Títulos não entram.
+          </p>
+          <button onClick={() => setPainelLu(null)} className="mt-2 text-xs text-neutral-400 hover:text-white">
+            Fechar
+          </button>
+        </div>
+      );
+    }
+    const trecho = textoDosTrechos(trechosDoAlvo(alvoLu)).replace(/[\ue000-\uf8ff]/g, '').trim();
+    return (
+      <div className={`${posicao} rounded-xl border-2 border-yellow-400 bg-black p-3 shadow-2xl`} role="menu" aria-label="O que o Lu deve fazer">
+        <div className="flex items-start gap-2 mb-2">
+          <p className="flex-1 text-[11px] uppercase tracking-wide font-bold text-yellow-400">O que o Lu faz com este parágrafo?</p>
+          <button onClick={() => setPainelLu(null)} aria-label="Fechar" className="text-neutral-500 hover:text-white">
+            <X size={14} />
+          </button>
+        </div>
+        <p className="text-[11px] text-neutral-400 italic line-clamp-2 mb-2">“{trecho.slice(0, 160)}{trecho.length > 160 ? '…' : ''}”</p>
+        <label className="block text-[11px] text-neutral-400 mb-1" htmlFor={posicao.includes("absolute") ? "instrucao-lu" : "instrucao-lu-paragrafo"}>
+          Como? (opcional; vale para reescrever e fundamentar)
+        </label>
+        <input
+          id={posicao.includes("absolute") ? "instrucao-lu" : "instrucao-lu-paragrafo"}
+          className="instrucao-lu w-full mb-2 rounded-lg bg-neutral-900 border border-neutral-700 px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-yellow-400"
+          value={instrucaoLu}
+          maxLength={500}
+          onChange={(ev) => setInstrucaoLu(ev.target.value)}
+          placeholder="ex.: mais incisivo; incluir a Súmula 436"
+        />
+        <div className="space-y-1.5">
+          {Object.entries(ACOES_LU).map(([acao, a]) => {
+            const bloqueada = acao === 'preencher' && !alvoTemCampo;
+            return (
+              <button
+                key={acao}
+                role="menuitem"
+                disabled={bloqueada}
+                onClick={() => pedir(acao, acao === 'preencher' ? '' : instrucaoLu.trim())}
+                className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-yellow-300 disabled:cursor-not-allowed group"
+              >
+                <span className="block text-sm font-bold">{a.rotulo}</span>
+                <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">{bloqueada ? 'Este parágrafo não tem campo [PREENCHER].' : a.dica}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const atalhoLu = (alvo) =>
+    analiseId ? (
+      <button
+        onMouseDown={(ev) => ev.preventDefault()}
+        onClick={() => abrirLuNoParagrafo(alvo)}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-yellow-400 bg-black border border-yellow-400 hover:bg-yellow-400 hover:text-black"
+      >
+        <Sparkles size={11} /> Pedir ao Lu
+      </button>
+    ) : null;
+
+  const menuNoParagrafo = (alvo) => (painelLu === 'paragrafo' && mesmoAlvo(alvoLu, alvo) ? menuLu('relative w-full max-w-md') : null);
 
   const propostaPara = (alvo) =>
     proposta && mesmoAlvo(proposta.alvo, alvo) ? (
@@ -456,7 +532,10 @@ export default function EditorPeca({
             aoMudar={(t) => mudarOriginal(b.id, t)}
             aoEnter={b.titulo ? undefined : (t, pos) => enterNoOriginal(b.id, t, pos)}
           />
-          <div className="flex flex-wrap items-center gap-3 mt-0.5 text-[11px] text-neutral-400 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="flex flex-wrap items-center gap-3 mt-0.5 text-[11px]">
+            {/* o atalho do Lu fica sempre visível; as demais ações aparecem fracas até passar o mouse */}
+            {!b.titulo && atalhoLu({ id: b.id })}
+            <div className="contents [&>*]:text-neutral-400 [&>*]:opacity-60 group-hover:[&>*]:opacity-100 group-focus-within:[&>*]:opacity-100">
             {editado && <span className="text-amber-700 font-medium">alterado</span>}
             {editado && (
               <button onClick={() => restaurar(b.id)} className="inline-flex items-center gap-1 hover:text-neutral-700">
@@ -474,6 +553,7 @@ export default function EditorPeca({
                 <Trash2 size={11} /> Remover
               </button>
             )}
+            </div>
           </div>
         </div>
       );
@@ -482,6 +562,7 @@ export default function EditorPeca({
     return (
       <div key={b.id} className="space-y-2">
         {corpo}
+        {menuNoParagrafo({ id: b.id })}
         {propostaPara({ id: b.id })}
         {novos.map((n, k) => (
           <React.Fragment key={n.chave}>
@@ -496,7 +577,9 @@ export default function EditorPeca({
               aoMudar={(t) => mudarNovo(b.id, n.chave, t)}
               aoEnter={(t, pos) => enterNoNovo(b.id, n.chave, t, pos)}
             />
-            <div className="flex items-center gap-3 mt-0.5 text-[11px] text-neutral-400 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+            <div className="flex items-center gap-3 mt-0.5 text-[11px]">
+              {atalhoLu({ id: b.id, chave: n.chave })}
+              <div className="contents [&>*]:text-neutral-400 [&>*]:opacity-60 group-hover:[&>*]:opacity-100 group-focus-within:[&>*]:opacity-100">
               <span className="text-emerald-700 font-medium">novo</span>
               <button onClick={() => inserirNovo(b.id, k)} className="inline-flex items-center gap-1 hover:text-neutral-700">
                 <Plus size={11} /> Parágrafo abaixo
@@ -504,8 +587,10 @@ export default function EditorPeca({
               <button onClick={() => removerNovo(b.id, n.chave)} className="inline-flex items-center gap-1 hover:text-red-600">
                 <Trash2 size={11} /> Remover
               </button>
+              </div>
             </div>
           </div>
+          {menuNoParagrafo({ id: b.id, chave: n.chave })}
           {propostaPara({ id: b.id, chave: n.chave })}
           </React.Fragment>
         ))}
@@ -700,49 +785,14 @@ export default function EditorPeca({
                       <button
                         // onMouseDown: o foco continua no parágrafo escolhido
                         onMouseDown={(ev) => ev.preventDefault()}
-                        onClick={() => setPainelLu((v) => !v)}
-                        disabled={!alvoValido}
-                        title={alvoValido ? 'Pedir ao Lu: reescrever, fundamentar ou preencher este parágrafo' : 'Clique num parágrafo da peça (títulos não) e depois em "Pedir ao Lu"'}
-                        aria-expanded={painelLu}
+                        onClick={() => setPainelLu((v) => (v === 'barra' ? null : 'barra'))}
+                        title="Pedir ao Lu: reescrever, fundamentar ou preencher o parágrafo escolhido"
+                        aria-expanded={painelLu === 'barra'}
                         className="inline-flex items-center gap-2 whitespace-nowrap shrink-0 px-4 py-2 text-sm font-extrabold text-yellow-400 bg-black border-2 border-yellow-400 rounded-xl shadow-[0_0_0_3px_rgba(250,204,21,0.15)] hover:bg-yellow-400 hover:text-black transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-black disabled:hover:text-yellow-400"
                       >
                         <Sparkles size={16} /> Pedir ao Lu
                       </button>
-                      {painelLu && alvoValido && (
-                        <div className="absolute right-0 top-full mt-2 z-20 w-[min(22rem,calc(100vw-3rem))] rounded-xl border-2 border-yellow-400 bg-black p-3 shadow-2xl" role="menu" aria-label="O que o Lu deve fazer">
-                          <p className="text-[11px] uppercase tracking-wide font-bold text-yellow-400 mb-2">O que o Lu faz com este parágrafo?</p>
-                          <label className="block text-[11px] text-neutral-400 mb-1" htmlFor="instrucao-lu">
-                            Como? (opcional; vale para reescrever e fundamentar)
-                          </label>
-                          <input
-                            id="instrucao-lu"
-                            value={instrucaoLu}
-                            maxLength={500}
-                            onChange={(ev) => setInstrucaoLu(ev.target.value)}
-                            placeholder="ex.: mais incisivo; incluir a Súmula 436"
-                            className="w-full mb-2 rounded-lg bg-neutral-900 border border-neutral-700 px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-yellow-400"
-                          />
-                          <div className="space-y-1.5">
-                            {Object.entries(ACOES_LU).map(([acao, a]) => {
-                              const bloqueada = acao === 'preencher' && !alvoTemCampo;
-                              return (
-                                <button
-                                  key={acao}
-                                  role="menuitem"
-                                  disabled={bloqueada}
-                                  onClick={() => pedir(acao, acao === 'preencher' ? '' : instrucaoLu.trim())}
-                                  className="w-full text-left rounded-lg border border-yellow-400/40 px-3 py-2 hover:bg-yellow-400 hover:text-black text-yellow-300 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-yellow-300 disabled:cursor-not-allowed group"
-                                >
-                                  <span className="block text-sm font-bold">{a.rotulo}</span>
-                                  <span className="block text-[11px] text-neutral-400 group-hover:text-black/70">
-                                    {bloqueada ? 'Este parágrafo não tem campo [PREENCHER].' : a.dica}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                      {painelLu === 'barra' && menuLu('absolute right-0 top-full mt-2 z-20 w-[min(22rem,calc(100vw-3rem))]')}
                     </div>
                   )}
                 </div>
