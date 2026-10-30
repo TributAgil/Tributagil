@@ -1,0 +1,104 @@
+// src/lib/luPeca.js
+//
+// Cliente do "Pedir ao Lu" do editor da peça (api/lu-peca.js): reescrever, fundamentar ou preencher UM parágrafo.
+// Devolve uma PROPOSTA; quem aplica (ou não) é o advogado, no editor.
+
+import { supabase } from './supabase';
+
+// grupo 'editar': devolve uma proposta de texto; grupo 'conferir': devolve uma lista, o texto não muda
+export const ACOES_LU = {
+  reescrever: { grupo: 'editar', rotulo: 'Reescrever o trecho', dica: 'Mais incisivo, mais conciso, mais formal… diga como.', usaInstrucao: true },
+  adequar: { grupo: 'editar', rotulo: 'Adequar ao destinatário', dica: 'Tratamento e tom para o juízo (EPE) ou para a Procuradoria (revisão PGFN).', usaInstrucao: true },
+  fundamentar: { grupo: 'editar', rotulo: 'Reforçar a fundamentação', dica: 'Artigo, súmula ou tema da base de legislação do TributÁgil, citado exatamente.', usaInstrucao: true },
+  preencher: { grupo: 'editar', rotulo: 'Preencher campo amarelo', dica: 'Completa os [PREENCHER] com o que a análise já extraiu; o que não houver, fica.' },
+  conferir: { grupo: 'conferir', rotulo: 'Conferir com os autos', dica: 'Cada data, valor e número do trecho: confere, diverge ou sem fonte na análise.' },
+  prazos: { grupo: 'conferir', rotulo: 'Conferir os prazos', dica: 'As datas de prazo do trecho contra o cálculo do sistema (feito em código, não pela IA).' },
+};
+
+/**
+ * @param {{ analiseId: string, acao: 'reescrever'|'fundamentar'|'preencher', paragrafo: string, topico?: string,
+ *   instrucao?: string, resumoPeca?: object }} args
+ * @returns {Promise<{ ok: boolean, tipo?: 'texto'|'conferencia', encontrou?: boolean, texto?: string, explicacao?: string,
+ *   fontes?: string[], itens?: Array<{ afirmacao: string, situacao: string, detalhe: string, fonte: string }>, resumo?: string,
+ *   error?: string }>}
+ */
+export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instrucao = '', resumoPeca = {}, template = '' }) {
+  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+  const token = sess?.session?.access_token;
+  if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
+  try {
+    const resposta = await fetch('/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ analise_id: analiseId, acao, paragrafo, topico, instrucao, resumo_peca: resumoPeca, template }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) return { ok: false, error: dados.error || 'O Lu não conseguiu responder agora.', consumo: dados.consumo, limiteAtingido: Boolean(dados.limiteAtingido) };
+    return { ok: true, ...dados };
+  } catch (err) {
+    console.warn('[luPeca] Falha ao pedir ao Lu:', err);
+    return { ok: false, error: 'Erro de rede ao falar com o Lu.' };
+  }
+}
+
+// quantas mensagens anteriores vão junto com a pergunta (o servidor corta no mesmo número)
+export const HISTORICO_DA_CONVERSA = 6;
+
+/**
+ * "Conversa com o Lu": uma pergunta sobre o caso e a peça. O servidor lê os documentos enviados na análise.
+ * @param {{ analiseId: string, mensagem: string, historico: Array<{ papel: 'advogado'|'lu', texto: string }>,
+ *   peca: Array<{ n: number, topico: string, texto: string, editavel: boolean }>, resumoPeca?: object, template?: string }} args
+ * @returns {Promise<{ ok: boolean, resposta?: string, fontes?: Array<{ tipo: string, rotulo: string }>,
+ *   proposta?: { paragrafo: number, texto: string, explicacao: string } | null, documentos?: { lidos: string[], deFora: string[] },
+ *   consumo?: object, limiteAtingido?: boolean, error?: string }>}
+ */
+export async function conversarComLu({ analiseId, mensagem, historico = [], peca, resumoPeca = {}, template = '' }) {
+  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+  const token = sess?.session?.access_token;
+  if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
+  try {
+    const resposta = await fetch('/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        analise_id: analiseId, acao: 'conversar', mensagem, historico: historico.slice(-HISTORICO_DA_CONVERSA), peca, resumo_peca: resumoPeca, template,
+      }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) return { ok: false, error: dados.error || 'O Lu não conseguiu responder agora.', consumo: dados.consumo, limiteAtingido: Boolean(dados.limiteAtingido) };
+    return { ok: true, ...dados };
+  } catch (err) {
+    console.warn('[luPeca] Falha na conversa com o Lu:', err);
+    return { ok: false, error: 'Erro de rede ao falar com o Lu.' };
+  }
+}
+
+/** O resumo da peça que vai junto (o que o sistema calculou: CDAs, períodos, datas), sem o que não ajuda o Lu. */
+export function resumoParaLu(resumo) {
+  if (!resumo || typeof resumo !== 'object') return {};
+  const { modelo, tese, descricao, creditos, intercorrente, data_referencia } = resumo;
+  return { modelo, tese, descricao, creditos, intercorrente, data_referencia };
+}
+
+/**
+ * Medidor de créditos do Lu no dia (1.000.000 = uso completo do dia; quem decide o limite é o servidor).
+ * @returns {Promise<{ creditos: number, limite: number } | null>}  null se não deu para ler
+ */
+export async function lerConsumoLu() {
+  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+  const token = sess?.session?.access_token;
+  if (!token) return null;
+  try {
+    const resposta = await fetch('/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ acao: 'consumo' }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    return resposta.ok && dados.consumo ? dados.consumo : null;
+  } catch {
+    return null;
+  }
+}
+
+export const formatarCreditos = (n) => Number(n || 0).toLocaleString('pt-BR');

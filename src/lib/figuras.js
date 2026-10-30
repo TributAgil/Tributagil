@@ -1,7 +1,7 @@
 // src/lib/figuras.js
 //
 // Cliente do assistente de figuras da peça: a chamada a /api/localizar-figuras e a matemática do recorte (puras, testadas
-// em tests/figuras-cliente.test.js). A tela (PainelFiguras.jsx) só desenha; as decisões ficam aqui.
+// em tests/figuras-cliente.test.js). As telas (EditorPeca e src/components/figuras/) só desenham; as decisões ficam aqui.
 //
 // Convenção de caixa: [ymin, xmin, ymax, xmax], inteiros de 0 a 1000 em relação à PÁGINA (origem no canto superior
 // esquerdo), a mesma que o servidor devolve (api/_localizacao-figuras.js).

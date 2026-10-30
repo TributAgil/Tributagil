@@ -1191,7 +1191,7 @@ a partir dos mesmos modelos-base; as **minutas renderizadas com dados fictícios
 
 **Quadros e figuras:** o fluxograma/SmartArt da EPE de prescrição virou tabela *Tese | Fundamento* (padrão da
 de decadência); a linha do tempo virou **tabela** (data | evento | documento-fonte) — editável, sem imagem.
-O Word sai com `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`; no modal da peça, "Montar as figuras" propõe o recorte de cada uma nos documentos do caso, o advogado confirma/ajusta e baixa o Word já com as imagens nos lugares (`src/lib/docxFiguras.js`, tudo no navegador).
+O Word sai com `[INSERIR FIGURA n – excerto de …, fonte: <arquivo>]`; no editor da peça ("Revisar a peça", abaixo), cada lugar de figura no texto abre o recorte proposto nos documentos do caso, o advogado confirma/ajusta e o Word sai com as imagens nos lugares (`src/lib/docxFiguras.js`, tudo no navegador).
 
 **Campos ausentes:** `[PREENCHER: o que falta]` e `[INSERIR FIGURA …]` saem **destacados em amarelo** (pós-processamento
 do XML em `api/_render-peca.js`, respeitando a ordem de elementos do `rPr`).
@@ -1267,6 +1267,91 @@ alter table public.casos add column if not exists dados_peca jsonb not null defa
 create policy "casos: atualização própria" on public.casos for update
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 ```
+
+### Revisar a peça: texto por tópicos e figuras no lugar (antes de baixar)
+
+No modal da peça, **"Revisar o texto e montar as figuras"** abre a peça dividida nos tópicos do modelo (Abertura,
+DOS FATOS, DA PRESCRIÇÃO…, DOS PEDIDOS). O advogado altera o texto de cada parágrafo (negrito, itálico, sublinhado),
+cria parágrafo com Enter, remove parágrafo e vê ao lado o que ainda está em amarelo (`[PREENCHER]`, `[CONFIRMAR]`),
+com clique que leva ao trecho. "Aplicar à peça" gera o Word revisado, que é o que o download passa a entregar.
+
+**Figuras no mesmo lugar:** cada `[INSERIR FIGURA N]` aparece na folha como "Lugar da figura N", com o botão
+"Montar a figura N"; o recorte (página do documento com a caixa proposta, `EditorRecorte`) abre ali mesmo, no lugar
+da folha, e depois de confirmar a imagem aparece no texto, onde vai sair no Word. A lateral lista as figuras com o
+estado de cada uma. A busca nos documentos (`/api/localizar-figuras`, Gemini) roda **uma vez**, quando o advogado abre
+a primeira figura, e é guardada enquanto o modal estiver aberto (reabrir não busca de novo). Regra mantida: as imagens
+só entram no Word (e o .zip só é liberado) quando **todas** as figuras estiverem confirmadas; antes disso o Word sai
+com o texto editado e os marcadores de figura em amarelo. Código: `src/components/figuras/useFigurasDaPeca.js`,
+`FiguraNoTexto.jsx`, `PainelDaFigura.jsx`. A tela separada "Montar as figuras" (`PainelFiguras.jsx`) foi removida.
+
+- **Texto: custo zero e sem servidor:** roda no navegador sobre o `.docx` que `/api/gerar-peca` já devolveu
+  (`src/lib/docxEdicao.js`, `src/lib/edicaoTexto.js`, `src/components/EditorPeca.jsx`). Nenhuma IA é chamada para o texto.
+- **Cara do escritório preservada:** só o parágrafo alterado é reescrito, mantendo o `pPr` (recuo, espaçamento,
+  alinhamento) e a fonte/tamanho/cor do texto que já estava nele; o resto do documento sai byte a byte igual.
+  Marcadores que restarem voltam em amarelo. Os tópicos são detectados pelo formato dos títulos (parágrafo curto,
+  todo em negrito, sem pontuação final), porque os modelos não usam estilos de título.
+- **Etiquetas:** nota de rodapé, campos automáticos (numeração "Figura N", data) e imagem em linha aparecem como uma
+  etiqueta fixa no meio do texto e saem intactos no Word.
+- **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
+  figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Créditos do Lu (limite diário)** (30/10/2026): cada usuário tem **1.000.000 de créditos informativos por dia**
+  para o "Pedir ao Lu", o equivalente a **US$ 1,50** de Gemini (preço de lista do gemini-3.5-flash: 1 token de entrada
+  = 1 crédito; 1 de saída ou de raciocínio = 6). O gasto vem dos tokens que o Gemini informa em cada resposta
+  (`creditosDoUso` em `api/lu-peca.js`) e é somado em `public.consumo_lu` (SQL em
+  [`docs/sql/consumo-lu.sql`](docs/sql/consumo-lu.sql), aplicado em produção em 30/10/2026); o dia vira à meia-noite de Brasília. Antes de chamar o
+  Gemini, o servidor reserva o pior caso do pedido (texto enviado + saída no teto de 4.096 tokens): se o saldo não
+  cobre, o pedido não sai, então o dia não passa de US$ 1,50. Sem o contador (banco fora), o Lu não roda
+  (fail-closed). O editor mostra o medidor ("Créditos do Lu hoje: X de 1.000.000") e, esgotado, bloqueia as ações de
+  IA; "Trocar em toda a peça" (sem IA) continua. Gerar a peça e buscar as figuras não entram nesse limite.
+- **Conversar com o Lu** (30/10/2026): botão "Conversar", preto e amarelo, ao lado do "Pedir ao Lu" no editor da
+  peça. Abre um chat ao lado da folha (tela larga) ou no lugar dela (celular) para perguntas sobre **este caso e esta
+  peça**: o Lu responde com os **documentos enviados na análise** (PDFs e imagens lidos do bucket `documentos` com o
+  token do usuário, sem indexação nem embeddings: `api/_documentos-caso.js`), o parecer, o cálculo de prazos, a peça
+  atual (com as edições) e a base curada, e cita a fonte (arquivo e página, `§n` da peça, item da base; o servidor
+  descarta documento não enviado, página fora do PDF e legislação fora da base). Pergunta fora do caso é recusada. Ele
+  **não altera nada**: pedido de mudança vira proposta embaixo do parágrafo, com Aceitar / Recusar. Vão só as últimas
+  6 mensagens; a conversa não é salva. Mesmo saldo de créditos do dia: os PDFs entram na reserva pela estimativa de
+  páginas (600 tokens por página), e acima de ~300 mil tokens o que sobra fica de fora, com aviso. Ação `conversar` de
+  `api/lu-peca.js` (maxDuration 120 s); tela em `src/components/lu/ConversaLu.jsx`; testes em
+  `tests/lu-conversa.test.js`.
+- **Mais funções do Lu** (30/10/2026): **adequar ao destinatário** (tratamento e tom pelo modelo: juízo na EPE,
+  Procuradoria na revisão PGFN); **conferir com os autos** (não reescreve: cada fato do trecho vira "confere",
+  "diverge" ou "sem fonte" contra o parecer); **conferir os prazos** (a IA só localiza as datas de prazo no trecho;
+  a comparação com o cálculo do motor, `resumo.creditos` e `resumo.intercorrente`, é feita em código:
+  `conferirPrazos` em `api/lu-peca.js`); e **trocar em toda a peça** (`src/components/lu/TrocarNaPeca.jsx`,
+  `substituirNosTrechos` em `src/lib/edicaoTexto.js`): busca e troca sem IA, com prévia por parágrafo, preservando a
+  formatação em volta; ocorrências em tabela/figura são só avisadas, para trocar no Word. Testes:
+  `tests/lu-peca.test.js`, `tests/trocar-na-peca.test.js`.
+- **"Pedir ao Lu"** (botão preto e amarelo na barra do editor; `api/lu-peca.js`, `src/lib/luPeca.js`,
+  `src/components/lu/PropostaLu.jsx`): com um parágrafo em foco (títulos não), o Lu **reescreve** o trecho conforme
+  a instrução, **reforça a fundamentação** só com a base curada (`api/_legislacao-tributagil.js`; fonte citada fora
+  dela é descartada em código) ou **preenche os `[PREENCHER]`** com o que o parecer salvo da análise já tem (o que
+  não estiver lá continua amarelo e o Lu diz que não encontrou). A resposta aparece como proposta logo abaixo do
+  parágrafo; nada muda até o advogado clicar em **Aceitar**, e a aceitação vira uma alteração normal (entra na
+  versão salva). Vai para a IA só o parágrafo, o título do tópico, o resumo da peça e, conforme a ação, a base de
+  legislação ou o parecer: **nenhum PDF**. Negrito vai como `**…**` e nota de rodapé/campo do Word como `⟦n⟧`
+  (`trechosParaLu`/`luParaTrechos` em `src/lib/edicaoTexto.js`; elemento esquecido pelo modelo volta no fim).
+  Acesso pelo ponto único `api/_chatbot-acesso.js` com `uso: 'peca'` (ligado); o chat do caso (`api/lu.js`) e a
+  indexação continuam desligados. Limite de 20 pedidos/min por usuário; sem teto diário de custo por enquanto
+  (decisão de 30/10/2026). Cada pedido gera uma linha `api_lu_peca` no log da Vercel, com os tokens. Testes:
+  `tests/lu-peca.test.js`.
+- **Fica salvo no banco** (SQL em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql), aplicado em produção
+  em 30/10/2026; código em `src/lib/pecasSalvas.js`):
+  - ao gerar, o `.docx` original vai para o bucket privado `pecas` (`<user>/<analise>/<peca>/original.docx`) e uma
+    linha para `pecas` (uma por análise e tese). **Gerar de novo substitui**: a peça anterior, as versões e os
+    arquivos dela são apagados de vez (o modal pede confirmação antes);
+  - cada "Aplicar à peça" vira uma versão (`salvar_versao_peca`; ficam as **3 últimas**). Só as imagens novas sobem
+    (`…/figuras/<n>-<carimbo>.png`); as que já estavam salvas são reaproveitadas pelo caminho. A busca das figuras
+    fica em `pecas.localizacao`;
+  - reabrir o modal traz a peça salva com a última revisão (o Word revisado é remontado no navegador por
+    `src/lib/pecaRevisada.js`, o mesmo código do "Aplicar"), **sem chamar o Gemini**, nem para a peça nem para as
+    figuras. A tela mostra "Salva no sistema · revisão N · data"; se uma gravação falhar, a peça segue utilizável
+    na tela e fechar pede confirmação;
+  - "Excluir análise" e "Excluir meus dados" (Histórico) apagam as peças e os arquivos delas; o que sobrar
+    (falha no meio, versão que saiu pelo limite) a limpeza diária `scripts/limpar-orfaos-storage.mjs` remove
+    (bucket `pecas`, arquivo sem peça/versão que o use, prazo de graça de 2 dias). `scripts/teste-rls-isolamento.mjs`
+    confere que B não lê nem grava na pasta de peças de A.
+  - Testes: `tests/pecas-salvas.test.js`, com um Supabase falso em memória (`tests/supabase-falso.js`).
 
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 
