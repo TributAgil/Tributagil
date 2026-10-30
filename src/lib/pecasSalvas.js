@@ -262,3 +262,14 @@ export async function carregarPecasSalvas(analiseId) {
     return [];
   }
 }
+
+/** Só a pergunta "esta análise tem peça salva?" (para o rótulo do botão), sem baixar nada. */
+export async function temPecaSalva(analiseId) {
+  if (!analiseId) return false;
+  try {
+    const { data, error } = await supabase.from('pecas').select('id').eq('analise_id', analiseId).limit(1);
+    return !error && Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}

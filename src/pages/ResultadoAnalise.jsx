@@ -27,6 +27,7 @@ import {
 import RodapeLegal from '../components/RodapeLegal';
 import ModalGerarPeca from '../components/ModalGerarPeca';
 import { podeGerarPeca, cenarioPrevio } from '../lib/peca';
+import { temPecaSalva } from '../lib/pecasSalvas';
 import Logo from '../components/Logo';
 import { salvarObservacoes } from '../lib/analises';
 import { useRevelar } from '../hooks/useRevelar';
@@ -506,6 +507,16 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
   // ponto (podeGerarPeca), hoje sempre true.
   const mostrarBotaoPeca = Boolean(analiseId) && podeGerarPeca(null);
   const cenarioDaPeca = cenarioPrevio(resultado);
+  // com peça salva o botão vira "Abrir peça salva" (e abre mesmo que o cenário prévio não indique peça): conferido ao
+  // abrir a tela e de novo a cada vez que o modal fecha (gerar ou apagar muda a resposta)
+  const [pecaSalva, setPecaSalva] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    if (analiseId && !mostrarPeca) temPecaSalva(analiseId).then((sim) => vivo && setPecaSalva(sim));
+    return () => {
+      vivo = false;
+    };
+  }, [analiseId, mostrarPeca]);
 
   // ---- Timeline: ordena por data ---------------------------------------------
   // O rótulo da aba promete "Timeline cronológica", mas a lista era renderizada
@@ -642,13 +653,19 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
               {mostrarBotaoPeca && (
                 <button
                   onClick={() => setMostrarPeca(true)}
-                  disabled={!cenarioDaPeca.disponivel}
-                  title={cenarioDaPeca.disponivel ? 'Gerar a peça processual editável (Word) a partir desta análise' : cenarioDaPeca.motivo}
+                  disabled={!pecaSalva && !cenarioDaPeca.disponivel}
+                  title={
+                    pecaSalva
+                      ? 'Abrir a peça salva desta análise, com a última revisão (sem ler os documentos de novo)'
+                      : cenarioDaPeca.disponivel
+                        ? 'Gerar a peça processual editável (Word) a partir desta análise'
+                        : cenarioDaPeca.motivo
+                  }
                   className="mi-press cursor-gavel flex items-center gap-2 px-3 py-2.5 text-sm font-semibold text-gold border border-gold/40 rounded-lg hover:bg-gold/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 >
                   <Gavel size={16} />
-                  <span className="hidden sm:inline">Gerar peça (Word)</span>
-                  <span className="sm:hidden">Peça</span>
+                  <span className="hidden sm:inline">{pecaSalva ? 'Abrir peça salva' : 'Gerar peça (Word)'}</span>
+                  <span className="sm:hidden">{pecaSalva ? 'Peça salva' : 'Peça'}</span>
                 </button>
               )}
             </div>

@@ -16,7 +16,7 @@ vi.mock('../src/lib/supabase', () => ({
   },
 }));
 
-const { salvarPecasGeradas, salvarVersao, carregarPecasSalvas, apagarPecasDaAnalise, salvarLocalizacao } = await import('../src/lib/pecasSalvas.js');
+const { salvarPecasGeradas, salvarVersao, carregarPecasSalvas, apagarPecasDaAnalise, salvarLocalizacao, temPecaSalva } = await import('../src/lib/pecasSalvas.js');
 const { montarPecaRevisada } = await import('../src/lib/pecaRevisada.js');
 const { abrirPecaParaEdicao } = await import('../src/lib/docxEdicao.js');
 
@@ -178,6 +178,15 @@ describe('peças salvas no banco', () => {
     falso.atual.supabase.rpc = async () => ({ data: null, error: { message: 'fora do ar' } });
     const r = await salvarVersao({ userId: USUARIO, analiseId: ANALISE, pecaId: salvas[pecaGerada.tese].id, estado: {}, total: 0, imagens: {}, figurasConfirmadas: 0 });
     expect(r.ok).toBe(false);
+  });
+
+  it('o botão da tela sabe se há peça salva ("Abrir peça salva")', async () => {
+    expect(await temPecaSalva(ANALISE)).toBe(false);
+    await salvarPecasGeradas({ userId: USUARIO, analiseId: ANALISE, pecas: [pecaGerada] });
+    expect(await temPecaSalva(ANALISE)).toBe(true);
+    expect(await temPecaSalva('outra-analise')).toBe(false);
+    await apagarPecasDaAnalise({ analiseId: ANALISE });
+    expect(await temPecaSalva(ANALISE)).toBe(false);
   });
 
   it('sem tabela ou sem acesso, reabrir só não traz nada', async () => {
