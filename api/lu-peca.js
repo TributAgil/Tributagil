@@ -56,6 +56,37 @@ const MAX_RESUMO = 8000;
 const RL_IP = { limite: 40, janela: 60_000 };
 const RL_USUARIO = { limite: 20, janela: 60_000 };
 
+// ---- Limite diário em CRÉDITOS INFORMATIVOS (decisão do Luan, 30/10/2026) --------------------------------------------
+// 1.000.000 de créditos = US$ 1,50 de Gemini por usuário por dia (meia-noite de Brasília; contador em
+// public.consumo_lu, docs/sql/consumo-lu.sql). Preço de lista do gemini-3.5-flash: US$ 1,50 por milhão de tokens de
+// entrada e US$ 9,00 de saída => 1 token de entrada = 1 crédito; 1 de saída (inclusive raciocínio) = 6 créditos.
+export const LIMITE_CREDITOS_DIA = 1_000_000;
+export const USD_DO_LIMITE = 1.5;
+const CREDITOS_POR_TOKEN_ENTRADA = 1;
+const CREDITOS_POR_TOKEN_SAIDA = 6;
+// teto da resposta: um pedido sozinho nunca passa de ~25 mil créditos de saída, então o dia não estoura além disso
+const MAX_TOKENS_SAIDA = 4096;
+
+/**
+ * Reserva ANTES de chamar o Gemini: o máximo que este pedido pode custar (entrada estimada pelo tamanho do texto,
+ * com folga de ~3 caracteres por token, e a saída no teto). Se o saldo do dia não cobre a reserva, o pedido não sai:
+ * assim o gasto do dia não passa de 1.000.000 de créditos (US$ 1,50).
+ */
+export function reservaDoPedido(corpoJson) {
+  return Math.ceil(String(corpoJson || '').length / 3) * CREDITOS_POR_TOKEN_ENTRADA + MAX_TOKENS_SAIDA * CREDITOS_POR_TOKEN_SAIDA;
+}
+
+/** Créditos gastos num pedido, pelos tokens que o próprio Gemini informa (usageMetadata). */
+export function creditosDoUso(uso) {
+  const entrada = Number(uso?.promptTokenCount) || 0;
+  const saida = (Number(uso?.candidatesTokenCount) || 0) + (Number(uso?.thoughtsTokenCount) || 0);
+  if (entrada || saida) return Math.ceil(entrada * CREDITOS_POR_TOKEN_ENTRADA + saida * CREDITOS_POR_TOKEN_SAIDA);
+  // sem o detalhe: conta tudo como saída (o mais caro), para nunca subestimar
+  return Math.ceil((Number(uso?.totalTokenCount) || 0) * CREDITOS_POR_TOKEN_SAIDA);
+}
+
+const MSG_LIMITE = 'Os créditos do Lu de hoje acabaram (1.000.000 por dia). Eles voltam à meia-noite (horário de Brasília). A peça, as edições e o "Trocar em toda a peça" continuam funcionando.';
+
 export const ESQUEMA_RESPOSTA_LU = {
   type: 'OBJECT',
   propertyOrdering: ['encontrou', 'texto', 'explicacao', 'fontes'],
@@ -282,6 +313,7 @@ export async function POST(request) {
       acao: ctx.acao || null,
       fase: ctx.fase || null,
       tokens: ctx.tokens ?? null,
+      creditos: ctx.creditos ?? null,
       modelo: ctx.modelo || null,
       httpStatus: resposta?.status ?? null,
       duracaoMs: Date.now() - inicio,
@@ -327,13 +359,17 @@ async function processar(request, ctx) {
   const template = /^[A-Za-z0-9_]{1,80}$/.test(String(body?.template || '')) ? String(body.template) : '';
   ctx.analiseId = analiseId;
   ctx.acao = acao;
-  if (!UUID_RE.test(analiseId)) return json({ error: 'Informe a análise (analise_id).' }, 400);
-  if (!ACOES.has(acao)) return json({ error: 'Ação inválida.' }, 400);
-  if (!paragrafo.trim()) return json({ error: 'Selecione um parágrafo com texto.' }, 400);
-  if (paragrafo.length > MAX_PARAGRAFO) return json({ error: 'Parágrafo grande demais para o Lu.' }, 413);
-  if (JSON.stringify(resumoPeca).length > MAX_RESUMO) return json({ error: 'Resumo da peça grande demais.' }, 413);
-  if (acao === 'preencher' && !/\[PREENCHER:/.test(paragrafo)) return json({ error: 'Este parágrafo não tem campo [PREENCHER] para completar.' }, 400);
-  if (acao === 'prazos' && !/\d{2}\/\d{2}\/\d{4}/.test(paragrafo)) return json({ error: 'Este parágrafo não tem data para conferir.' }, 400);
+  // 'consumo': só consulta o medidor de créditos do dia (sem IA), para a tela mostrar ao abrir o editor
+  const soConsumo = acao === 'consumo';
+  if (!soConsumo) {
+    if (!UUID_RE.test(analiseId)) return json({ error: 'Informe a análise (analise_id).' }, 400);
+    if (!ACOES.has(acao)) return json({ error: 'Ação inválida.' }, 400);
+    if (!paragrafo.trim()) return json({ error: 'Selecione um parágrafo com texto.' }, 400);
+    if (paragrafo.length > MAX_PARAGRAFO) return json({ error: 'Parágrafo grande demais para o Lu.' }, 413);
+    if (JSON.stringify(resumoPeca).length > MAX_RESUMO) return json({ error: 'Resumo da peça grande demais.' }, 413);
+    if (acao === 'preencher' && !/\[PREENCHER:/.test(paragrafo)) return json({ error: 'Este parágrafo não tem campo [PREENCHER] para completar.' }, 400);
+    if (acao === 'prazos' && !/\d{2}\/\d{2}\/\d{4}/.test(paragrafo)) return json({ error: 'Este parágrafo não tem data para conferir.' }, 400);
+  }
 
   // ---- Autenticação ---------------------------------------------------------------------------------------------------
   ctx.fase = 'autenticacao';
@@ -347,6 +383,31 @@ async function processar(request, ctx) {
   }
   const rlUsuario = await rateLimit(`lu-peca:${ctx.usuarioId}`, RL_USUARIO.limite, RL_USUARIO.janela);
   if (!rlUsuario.ok) return json({ error: 'Muitos pedidos ao Lu em sequência. Aguarde um minuto.' }, 429);
+
+  // ---- Créditos do dia: conferidos ANTES de gastar IA (fail-closed: sem o contador, o Lu não roda) --------------------
+  ctx.fase = 'consumo';
+  const rpc = async (nome, params = {}) => {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/${nome}`, {
+      method: 'POST',
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!resp.ok) throw new Error(`RPC ${nome} HTTP ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`);
+    return resp.json();
+  };
+  let gastoHoje;
+  try {
+    const linha = (await rpc('consumo_lu_hoje'))?.[0];
+    gastoHoje = Number(linha?.creditos) || 0;
+  } catch (err) {
+    console.error('[api/lu-peca] Contador de créditos indisponível (migração docs/sql/consumo-lu.sql aplicada?):', err?.message);
+    return json({ error: 'Não foi possível conferir os créditos do Lu agora. Tente de novo em instantes.' }, 503);
+  }
+  const consumoDe = (creditos) => ({ creditos, limite: LIMITE_CREDITOS_DIA });
+  if (soConsumo) return json({ consumo: consumoDe(gastoHoje) }, 200);
+  if (gastoHoje >= LIMITE_CREDITOS_DIA) {
+    return json({ error: MSG_LIMITE, limiteAtingido: true, consumo: consumoDe(gastoHoje) }, 429);
+  }
 
   // ---- Análise (RLS: só a do próprio usuário) ---------------------------------------------------------------------------
   ctx.fase = 'leitura_analise';
@@ -373,8 +434,15 @@ async function processar(request, ctx) {
       temperature: acao === 'reescrever' || acao === 'adequar' ? 0.3 : 0, // fundamento, dado e conferência não podem variar; redação pode
       responseMimeType: 'application/json',
       responseSchema: acao === 'conferir' ? ESQUEMA_CONFERENCIA : acao === 'prazos' ? ESQUEMA_DATAS_DE_PRAZO : ESQUEMA_RESPOSTA_LU,
+      maxOutputTokens: MAX_TOKENS_SAIDA,
+      // raciocínio curto: o trabalho é de um parágrafo, e cada token de raciocínio custa como saída
+      thinkingConfig: { thinkingLevel: 'low' },
     },
   });
+  // o saldo do dia precisa cobrir o pior caso deste pedido; senão ele não sai (o teto de US$ 1,50 vale de verdade)
+  if (gastoHoje + reservaDoPedido(corpo) > LIMITE_CREDITOS_DIA) {
+    return json({ error: MSG_LIMITE, limiteAtingido: true, consumo: consumoDe(gastoHoje) }, 429);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let saida;
@@ -384,6 +452,7 @@ async function processar(request, ctx) {
     ctx.modelo = usado;
     const dados = await resp.json();
     ctx.tokens = dados?.usageMetadata?.totalTokenCount ?? null;
+    ctx.creditos = creditosDoUso(dados?.usageMetadata);
     saida = JSON.parse(dados?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '{}');
   } catch (err) {
     if (err instanceof ErroGemini) {
@@ -396,18 +465,29 @@ async function processar(request, ctx) {
     clearTimeout(timer);
   }
 
-  if (acao === 'prazos') return json({ tipo: 'conferencia', ...conferirPrazos(saida?.datas, resumoPeca) }, 200);
+  // ---- Registra o gasto do pedido (mesmo que a resposta não sirva: o Gemini já cobrou) -----------------------------
+  ctx.fase = 'registro_consumo';
+  let consumo;
+  try {
+    consumo = consumoDe(Number(await rpc('registrar_consumo_lu', { p_creditos: Math.min(ctx.creditos || 0, 500000) })) || gastoHoje + (ctx.creditos || 0));
+  } catch (err) {
+    console.error('[api/lu-peca] Falha ao registrar o consumo do Lu:', err?.message);
+    consumo = consumoDe(gastoHoje + (ctx.creditos || 0));
+  }
+  ctx.fase = 'resposta';
+
+  if (acao === 'prazos') return json({ tipo: 'conferencia', ...conferirPrazos(saida?.datas, resumoPeca), consumo }, 200);
   if (acao === 'conferir') {
     const SITUACOES = new Set(['confere', 'diverge', 'sem_fonte']);
     const itens = (Array.isArray(saida?.itens) ? saida.itens : [])
       .filter((i) => i && SITUACOES.has(i.situacao))
       .slice(0, 40)
       .map((i) => ({ afirmacao: String(i.afirmacao || '').slice(0, 200), situacao: i.situacao, detalhe: semTravessao(i.detalhe).slice(0, 300), fonte: String(i.fonte || '').slice(0, 200) }));
-    return json({ tipo: 'conferencia', itens, resumo: semTravessao(saida?.resumo).slice(0, 300) }, 200);
+    return json({ tipo: 'conferencia', itens, resumo: semTravessao(saida?.resumo).slice(0, 300), consumo }, 200);
   }
 
   const texto = String(saida?.texto || '');
-  if (!texto.trim()) return json({ error: 'O Lu não devolveu texto. Tente reformular o pedido.' }, 502);
+  if (!texto.trim()) return json({ error: 'O Lu não devolveu texto. Tente reformular o pedido.', consumo }, 502);
   const fontes = Array.isArray(saida?.fontes) ? saida.fontes.map(String).slice(0, 12) : [];
   return json({
     tipo: 'texto',
@@ -415,6 +495,7 @@ async function processar(request, ctx) {
     texto,
     explicacao: semTravessao(saida?.explicacao).slice(0, 800),
     fontes: acao === 'fundamentar' ? fontesDaBase(fontes) : fontes,
+    consumo,
   }, 200);
 }
 

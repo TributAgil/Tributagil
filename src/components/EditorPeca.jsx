@@ -27,7 +27,7 @@ import {
   substituirNosTrechos,
 } from '../lib/edicaoTexto';
 import { montarPecaRevisada } from '../lib/pecaRevisada';
-import { pedirAoLu, ACOES_LU, resumoParaLu } from '../lib/luPeca';
+import { pedirAoLu, ACOES_LU, resumoParaLu, lerConsumoLu, formatarCreditos } from '../lib/luPeca';
 import PropostaLu from './lu/PropostaLu';
 import TrocarNaPeca from './lu/TrocarNaPeca';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
@@ -155,6 +155,18 @@ export default function EditorPeca({
   const [painelLu, setPainelLu] = useState(null); // null | 'barra' (botão da barra) | 'paragrafo' (atalho embaixo do parágrafo)
   const [instrucaoLu, setInstrucaoLu] = useState('');
   const [proposta, setProposta] = useState(null); // { alvo, acao, instrucao, carregando?, erro?, encontrou?, trechos?, explicacao?, fontes? }
+  // medidor de créditos do Lu no dia ({ creditos, limite }); o servidor manda o valor novo a cada pedido
+  const [consumoLu, setConsumoLu] = useState(null);
+  // esgotado: o contador chegou ao limite ou o servidor recusou porque o saldo não cobre mais um pedido
+  const [luRecusouHoje, setLuRecusouHoje] = useState(false);
+  const luEsgotado = luRecusouHoje || Boolean(consumoLu && consumoLu.creditos >= consumoLu.limite);
+  useEffect(() => {
+    let vivo = true;
+    if (analiseId) lerConsumoLu().then((c) => vivo && c && setConsumoLu(c));
+    return () => {
+      vivo = false;
+    };
+  }, [analiseId]);
 
   useEffect(() => {
     let vivo = true;
@@ -350,7 +362,9 @@ export default function EditorPeca({
   const alvoTemCampo = alvoValido && /\[PREENCHER:/.test(textoDosTrechos(trechosDoAlvo(alvoLu)));
   const alvoTemData = alvoValido && /\d{2}\/\d{2}\/\d{4}/.test(textoDosTrechos(trechosDoAlvo(alvoLu)));
   const motivoBloqueio = (acao) =>
-    acao === 'preencher' && !alvoTemCampo ? 'Este parágrafo não tem campo [PREENCHER].' : acao === 'prazos' && !alvoTemData ? 'Este parágrafo não tem data para conferir.' : '';
+    luEsgotado
+      ? 'Créditos do Lu de hoje esgotados: voltam à meia-noite.'
+      : acao === 'preencher' && !alvoTemCampo ? 'Este parágrafo não tem campo [PREENCHER].' : acao === 'prazos' && !alvoTemData ? 'Este parágrafo não tem data para conferir.' : '';
 
   const pedir = async (acao, instrucao = '', alvo = alvoLu) => {
     const b = blocoDoAlvo(alvo);
@@ -366,6 +380,8 @@ export default function EditorPeca({
       resumoPeca: resumoParaLu(resumoPeca),
       template,
     });
+    if (r.consumo) setConsumoLu(r.consumo);
+    if (r.limiteAtingido) setLuRecusouHoje(true);
     setProposta((atual) => {
       if (!atual || !mesmoAlvo(atual.alvo, alvo) || atual.acao !== acao) return atual; // o advogado já mudou de ideia
       if (!r.ok) return { alvo, acao, instrucao, erro: r.error };
@@ -438,6 +454,27 @@ export default function EditorPeca({
     </button>
   );
 
+  const medidorLu = (compacto = false) => {
+    if (!consumoLu) return null;
+    const usado = Math.min(1, consumoLu.creditos / consumoLu.limite);
+    const restante = Math.max(0, consumoLu.limite - consumoLu.creditos);
+    return (
+      <div className={compacto ? 'w-40' : 'mb-2'} title="Créditos informativos do Lu: 1.000.000 por dia é o uso completo. Voltam à meia-noite (Brasília).">
+        <div className="flex items-baseline justify-between gap-2 text-[10px] text-neutral-400">
+          <span className="uppercase tracking-wide font-bold text-yellow-400/80">Créditos do Lu hoje</span>
+          {!compacto && <span>{formatarCreditos(restante)} restantes</span>}
+        </div>
+        <div className="h-1.5 mt-1 rounded-full bg-neutral-800 overflow-hidden" role="meter" aria-valuemin={0} aria-valuemax={consumoLu.limite} aria-valuenow={consumoLu.creditos} aria-label="Créditos do Lu usados hoje">
+          <div className={`h-full ${usado >= 1 ? 'bg-red-500' : usado >= 0.8 ? 'bg-amber-400' : 'bg-yellow-400'}`} style={{ width: `${Math.max(usado * 100, usado > 0 ? 2 : 0)}%` }} />
+        </div>
+        <p className="text-[10px] text-neutral-400 mt-0.5 tabular-nums">
+          {formatarCreditos(consumoLu.creditos)} de {formatarCreditos(consumoLu.limite)}
+          {luEsgotado && <span className="text-red-400 font-semibold"> · esgotados até a meia-noite</span>}
+        </p>
+      </div>
+    );
+  };
+
   const menuLu = (posicao) => {
     if (!alvoValido) {
       return (
@@ -465,6 +502,7 @@ export default function EditorPeca({
           </button>
         </div>
         <p className="text-[11px] text-neutral-400 italic line-clamp-2 mb-2">“{trecho.slice(0, 160)}{trecho.length > 160 ? '…' : ''}”</p>
+        {medidorLu()}
         <label className="block text-[11px] text-neutral-400 mb-1" htmlFor={posicao.includes("absolute") ? "instrucao-lu" : "instrucao-lu-paragrafo"}>
           Como? (opcional; vale para reescrever, adequar e fundamentar)
         </label>
@@ -859,11 +897,12 @@ export default function EditorPeca({
                   <button onMouseDown={formatar('underline')} title="Sublinhado (Ctrl+U)" aria-label="Sublinhado" className="p-2 rounded-lg text-parchment/80 hover:bg-ink-700">
                     <Underline size={15} />
                   </button>
-                  <p className="ml-3 text-[11px] text-parchment/40 hidden lg:block">
+                  <p className="ml-3 text-[11px] text-parchment/40 hidden xl:block">
                     Enter cria um parágrafo novo · Shift+Enter quebra a linha · etiquetas azuis (nota de rodapé, numeração, data) saem iguais no Word
                   </p>
                   {analiseId && (
-                    <div className="ml-auto relative shrink-0">
+                    <div className="ml-auto relative shrink-0 flex items-center gap-3">
+                      <div className="hidden md:block">{medidorLu(true)}</div>
                       <button
                         // onMouseDown: o foco continua no parágrafo escolhido
                         onMouseDown={(ev) => ev.preventDefault()}

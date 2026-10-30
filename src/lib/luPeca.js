@@ -33,7 +33,7 @@ export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instr
       body: JSON.stringify({ analise_id: analiseId, acao, paragrafo, topico, instrucao, resumo_peca: resumoPeca, template }),
     });
     const dados = await resposta.json().catch(() => ({}));
-    if (!resposta.ok) return { ok: false, error: dados.error || 'O Lu não conseguiu responder agora.' };
+    if (!resposta.ok) return { ok: false, error: dados.error || 'O Lu não conseguiu responder agora.', consumo: dados.consumo, limiteAtingido: Boolean(dados.limiteAtingido) };
     return { ok: true, ...dados };
   } catch (err) {
     console.warn('[luPeca] Falha ao pedir ao Lu:', err);
@@ -47,3 +47,26 @@ export function resumoParaLu(resumo) {
   const { modelo, tese, descricao, creditos, intercorrente, data_referencia } = resumo;
   return { modelo, tese, descricao, creditos, intercorrente, data_referencia };
 }
+
+/**
+ * Medidor de créditos do Lu no dia (1.000.000 = uso completo do dia; quem decide o limite é o servidor).
+ * @returns {Promise<{ creditos: number, limite: number } | null>}  null se não deu para ler
+ */
+export async function lerConsumoLu() {
+  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+  const token = sess?.session?.access_token;
+  if (!token) return null;
+  try {
+    const resposta = await fetch('/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ acao: 'consumo' }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    return resposta.ok && dados.consumo ? dados.consumo : null;
+  } catch {
+    return null;
+  }
+}
+
+export const formatarCreditos = (n) => Number(n || 0).toLocaleString('pt-BR');

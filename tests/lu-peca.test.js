@@ -28,6 +28,9 @@ beforeEach(() => {
     analises: [{ id: ANALISE_ID, resultado: { metadata: { processo: '1234567-60.2025.4.01.3300', parte_reu: 'Maria' }, fatos_importantes: [{ data: '27/01/2020', descricao: 'Entrega da DIRPF', fonte: 'recibo_2018.pdf' }], conclusoes: [] } }],
     lu: respostaLu(),
     geminiStatus: 200,
+    gastoHoje: 0,
+    consumoStatus: 200,
+    uso: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50, totalTokenCount: 1150 },
   };
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -36,11 +39,18 @@ beforeEach(() => {
     const u = String(url);
     chamadas.push({ url: u, opcoes });
     if (u.includes('/rest/v1/rpc/rate_limit_checar')) return resp([{ ok: true }]);
+    if (u.includes('/rest/v1/rpc/consumo_lu_hoje')) {
+      return cenario.consumoStatus === 200 ? resp([{ creditos: cenario.gastoHoje, pedidos: 0, dia: '2026-10-30' }]) : resp({ message: 'função ausente' }, cenario.consumoStatus);
+    }
+    if (u.includes('/rest/v1/rpc/registrar_consumo_lu')) {
+      cenario.gastoHoje += JSON.parse(opcoes.body).p_creditos;
+      return resp(cenario.gastoHoje);
+    }
     if (u.endsWith('/auth/v1/user')) return cenario.authOk ? resp({ id: 'user-1' }) : resp({}, 401);
     if (u.includes('/rest/v1/analises?')) return resp(cenario.analises);
     if (u.includes('generativelanguage.googleapis.com')) {
       if (cenario.geminiStatus !== 200) return resp({ error: 'x' }, cenario.geminiStatus);
-      return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.lu) }] } }], usageMetadata: { totalTokenCount: 900 } });
+      return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.lu) }] } }], usageMetadata: cenario.uso });
     }
     throw new Error(`fetch inesperado: ${u}`);
   });
@@ -72,7 +82,7 @@ describe('api/lu-peca', () => {
   it('reescrever: devolve a proposta e não manda PDF, base de legislação nem parecer', async () => {
     const r = await POST(pedido({ instrucao: 'mais incisivo' }));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [] });
+    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [], consumo: { creditos: 1900, limite: 1_000_000 } });
     const t = textoEnviado();
     expect(t).toContain('AÇÃO: REESCREVER');
     expect(t).toContain('INSTRUÇÃO DO ADVOGADO: mais incisivo');
@@ -268,5 +278,77 @@ describe('conferirPrazos (puro)', () => {
       { trecho: 'c', marco: 'outro', data: '01/01/2022', cda: '', periodo: '' },
     ], { creditos: resumo.creditos });
     expect(r.itens.map((i) => i.situacao)).toEqual(['sem_fonte']);
+  });
+});
+
+describe('créditos do Lu (1.000.000 por dia = US$ 1,50)', () => {
+  let creditosDoUso;
+  let LIMITE_CREDITOS_DIA;
+  let USD_DO_LIMITE;
+  beforeAll(async () => {
+    ({ creditosDoUso, LIMITE_CREDITOS_DIA, USD_DO_LIMITE } = await import('../api/lu-peca.js'));
+  });
+
+  it('conversão: 1 token de entrada = 1 crédito; saída e raciocínio = 6; 1 milhão = US$ 1,50 no preço de lista', () => {
+    expect(creditosDoUso({ promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 })).toBe(1900);
+    // sem detalhe: tudo como saída (nunca subestima)
+    expect(creditosDoUso({ totalTokenCount: 100 })).toBe(600);
+    expect(creditosDoUso(undefined)).toBe(0);
+    // 1 milhão de créditos em tokens de entrada (US$ 1,50/M) ou de saída (US$ 9,00/M) custam US$ 1,50
+    expect((LIMITE_CREDITOS_DIA / 1) * (1.5 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+    expect((LIMITE_CREDITOS_DIA / 6) * (9 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+  });
+
+  it('cada pedido registra o gasto real e devolve o medidor', async () => {
+    cenario.gastoHoje = 10_000;
+    const dados = await (await POST(pedido({}))).json();
+    const registro = chamadas.find((c) => c.url.includes('registrar_consumo_lu'));
+    expect(JSON.parse(registro.opcoes.body)).toEqual({ p_creditos: 1900 });
+    expect(registro.opcoes.headers.Authorization).toBe('Bearer token-do-usuario');
+    expect(dados.consumo).toEqual({ creditos: 11_900, limite: 1_000_000 });
+  });
+
+  it('com o limite do dia atingido, não chama o Gemini e explica', async () => {
+    cenario.gastoHoje = 1_000_000;
+    const r = await POST(pedido({}));
+    expect(r.status).toBe(429);
+    const dados = await r.json();
+    expect(dados.limiteAtingido).toBe(true);
+    expect(dados.error).toMatch(/meia-noite/);
+    expect(dados.consumo).toEqual({ creditos: 1_000_000, limite: 1_000_000 });
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+  });
+
+  it('o saldo precisa cobrir o pior caso do pedido: perto do limite, recusa antes de gastar (o dia não passa de 1.000.000)', async () => {
+    cenario.gastoHoje = 990_000; // sobram 10 mil; o pior caso de um pedido (saída no teto) passa disso
+    const r = await POST(pedido({}));
+    expect(r.status).toBe(429);
+    expect((await r.json()).limiteAtingido).toBe(true);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+    cenario.gastoHoje = 900_000; // folga suficiente: sai
+    chamadas.length = 0;
+    expect((await POST(pedido({}))).status).toBe(200);
+  });
+
+  it('sem o contador (migração ausente ou banco fora), o Lu não roda: nunca gasta sem contar', async () => {
+    cenario.consumoStatus = 404;
+    const r = await POST(pedido({}));
+    expect(r.status).toBe(503);
+    expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
+  });
+
+  it('"consumo": só lê o medidor, sem IA e sem precisar de parágrafo', async () => {
+    cenario.gastoHoje = 250_000;
+    const r = await POST(pedido({ acao: 'consumo', analise_id: '', paragrafo: '' }));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ consumo: { creditos: 250_000, limite: 1_000_000 } });
+    expect(chamadas.some((c) => c.url.includes('generativelanguage') || c.url.includes('registrar_consumo_lu'))).toBe(false);
+  });
+
+  it('o pedido ao Gemini tem teto de saída e raciocínio curto (custo por pedido limitado)', async () => {
+    await POST(pedido({}));
+    const cfg = corpoDoGemini().generationConfig;
+    expect(cfg.maxOutputTokens).toBe(4096);
+    expect(cfg.thinkingConfig).toEqual({ thinkingLevel: 'low' });
   });
 });
