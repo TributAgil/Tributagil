@@ -150,3 +150,10 @@ export function contarAlteracoes(alteracoes) {
     0,
   );
 }
+
+/** Texto de um bloco como está no editor (com os parágrafos novos logo abaixo; '' se removido). */
+export function textoAtualDoBloco(estado, b) {
+  const alt = estado?.[b.id];
+  const proprio = alt?.removido ? '' : alt?.trechos ? textoDosTrechos(alt.trechos) : b.texto;
+  return [proprio, ...(alt?.novos || []).map((n) => textoDosTrechos(n.trechos))].join('\n');
+}

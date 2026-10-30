@@ -28,6 +28,7 @@ import {
   exportarHistorico,
 } from '../lib/analises';
 import { excluirCasoCompleto } from '../lib/casos';
+import { apagarPecasDaAnalise } from '../lib/pecasSalvas';
 import Logo from '../components/Logo';
 import { removerDocumentos } from '../lib/storageDocumentos';
 import RodapeLegal from '../components/RodapeLegal';
@@ -384,6 +385,8 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
 
       await Promise.all([
         ...casoIds.map(async (casoId) => {
+          // as peças salvas (e os arquivos delas no bucket `pecas`) de cada versão do caso, antes de a RPC apagar as análises
+          await Promise.all(analises.filter((a) => a.caso_id === casoId).map((a) => apagarPecasDaAnalise({ analiseId: a.id })));
           const { ok, storagePaths } = await excluirCasoCompleto(casoId);
           if (ok && storagePaths.length > 0) await removerDocumentos(storagePaths);
         }),

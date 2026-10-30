@@ -19,10 +19,11 @@ import {
   CheckCircle2, Download,
 } from 'lucide-react';
 import {
-  abrirPecaParaEdicao, montarDocxEditado, listarPendencias, contarPendencias, textoDosTrechos, nomeEditado, bytesParaBase64,
+  abrirPecaParaEdicao, listarPendencias, contarPendencias, textoDosTrechos,
 } from '../lib/docxEdicao';
-import { base64ParaBytes, inserirFigurasNoDocx, prepararImagens, nomeComFiguras, baixarBlob } from '../lib/docxFiguras';
-import { trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes } from '../lib/edicaoTexto';
+import { base64ParaBytes, baixarBlob } from '../lib/docxFiguras';
+import { trechosParaHtml, htmlParaTrechos, dividirTrechos, alteracoesParaMontagem, contarAlteracoes, textoAtualDoBloco } from '../lib/edicaoTexto';
+import { montarPecaRevisada } from '../lib/pecaRevisada';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
 import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
 import FiguraNoTexto from './figuras/FiguraNoTexto';
@@ -177,17 +178,9 @@ export default function EditorPeca({
     JSON.stringify(alteracoes) !== JSON.stringify(alteracoesParaMontagem(estadoInicial, blocos)) ||
     imagensMudaram(fig.imagens, figurasIniciais.imagens);
 
-  const textoAtual = useCallback(
-    (b) => {
-      const alt = estado[b.id];
-      const proprio = alt?.removido ? '' : alt?.trechos ? textoDosTrechos(alt.trechos) : b.texto;
-      return [proprio, ...(alt?.novos || []).map((n) => textoDosTrechos(n.trechos))].join('\n');
-    },
-    [estado],
-  );
+  const textoAtual = useCallback((b) => textoAtualDoBloco(estado, b), [estado]);
   // as figuras têm a seção delas na lateral: aqui ficam só os campos a preencher e os trechos a confirmar
   const pendencias = useMemo(() => listarPendencias(blocos, textoAtual).filter((p) => p.tipo !== 'figura'), [blocos, textoAtual]);
-  const numerosDeFigura = useMemo(() => blocos.filter((b) => b.figura).map((b) => b.figura), [blocos]);
   const figuraDoNumero = useMemo(() => new Map(figuras.map((f) => [f.numero, f])), [figuras]);
   const blocoDaFigura = useMemo(() => new Map(blocos.filter((b) => b.figura).map((b) => [b.figura, b.id])), [blocos]);
 
@@ -316,30 +309,12 @@ export default function EditorPeca({
     setAplicando(true);
     setErro('');
     try {
-      const figurasNoWord = fig.resumo.completo;
-      // o que continua em amarelo NO WORD: sem todas as figuras confirmadas, os marcadores de figura ficam todos
-      const contagem = { ...contarPendencias(pendencias), figuras: figurasNoWord ? 0 : numerosDeFigura.length };
-      const guardar = { estado: total > 0 ? estado : {}, total, contagem, figuras: fig.paraGuardar(), figurasNoWord, figurasConfirmadas: fig.resumo.confirmadas };
-      if (total === 0 && !figurasNoWord) {
-        onAplicar({ ...guardar, arquivo: null });
-        return;
-      }
-      let bytes = await montarDocxEditado(peca.fonte, alteracoes);
-      let nome = total > 0 ? nomeEditado(arquivo.nome) : arquivo.nome;
-      if (figurasNoWord) {
-        const imagensDoWord = Object.fromEntries(
-          figuras.filter((f) => fig.imagens[f.numero]).map((f) => [f.numero, { blob: fig.imagens[f.numero].blob, descricao: f.legenda }]),
-        );
-        const r = await inserirFigurasNoDocx(bytes, await prepararImagens(imagensDoWord));
-        bytes = r.docx;
-        nome = nomeComFiguras(nome);
-        if (r.restantes.length) guardar.contagem = { ...guardar.contagem, figuras: r.restantes.length };
-      }
-      onAplicar({ ...guardar, arquivo: { nome, mime: arquivo.mime, base64: bytesParaBase64(bytes) } });
+      const imagensConfirmadas = Object.fromEntries(Object.entries(fig.imagens).map(([n, i]) => [n, { blob: i.blob }]));
+      const r = await montarPecaRevisada({ arquivo, estado, imagens: imagensConfirmadas, figuras, peca });
+      onAplicar({ ...r, estado: r.total > 0 ? estado : {}, figuras: fig.paraGuardar() });
     } catch (err) {
       console.warn('[editor-peca] Falha ao montar o Word editado:', err);
       setErro('Não foi possível montar o Word com as alterações. Tente de novo; se persistir, baixe o Word e edite nele.');
-      return;
     } finally {
       setAplicando(false);
     }

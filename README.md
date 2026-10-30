@@ -1294,12 +1294,23 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
-- **Não fica salvo (ainda):** as alterações e os recortes vivem enquanto o modal está aberto (reabrir o editor
-  continua de onde parou; fechar o modal pede confirmação). Gerar a peça de novo descarta tudo. O SQL para salvar a
-  peça com versões está em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql) (tabelas `pecas` e
-  `pecas_versoes`, RPC `salvar_versao_peca`, bucket privado `pecas`), **aplicado em produção em 30/10/2026**; o
-  código que usa essas tabelas é a próxima etapa (até lá elas ficam vazias, sem efeito no app). Regras decididas: uma peça por análise e tese (gerar de novo apaga
-  a anterior, de vez) e só as **3 últimas versões** de cada peça (salvar a 4ª apaga a mais antiga).
+- **Fica salvo no banco** (SQL em [`docs/sql/pecas-salvas.sql`](docs/sql/pecas-salvas.sql), aplicado em produção
+  em 30/10/2026; código em `src/lib/pecasSalvas.js`):
+  - ao gerar, o `.docx` original vai para o bucket privado `pecas` (`<user>/<analise>/<peca>/original.docx`) e uma
+    linha para `pecas` (uma por análise e tese). **Gerar de novo substitui**: a peça anterior, as versões e os
+    arquivos dela são apagados de vez (o modal pede confirmação antes);
+  - cada "Aplicar à peça" vira uma versão (`salvar_versao_peca`; ficam as **3 últimas**). Só as imagens novas sobem
+    (`…/figuras/<n>-<carimbo>.png`); as que já estavam salvas são reaproveitadas pelo caminho. A busca das figuras
+    fica em `pecas.localizacao`;
+  - reabrir o modal traz a peça salva com a última revisão (o Word revisado é remontado no navegador por
+    `src/lib/pecaRevisada.js`, o mesmo código do "Aplicar"), **sem chamar o Gemini**, nem para a peça nem para as
+    figuras. A tela mostra "Salva no sistema · revisão N · data"; se uma gravação falhar, a peça segue utilizável
+    na tela e fechar pede confirmação;
+  - "Excluir análise" e "Excluir meus dados" (Histórico) apagam as peças e os arquivos delas; o que sobrar
+    (falha no meio, versão que saiu pelo limite) a limpeza diária `scripts/limpar-orfaos-storage.mjs` remove
+    (bucket `pecas`, arquivo sem peça/versão que o use, prazo de graça de 2 dias). `scripts/teste-rls-isolamento.mjs`
+    confere que B não lê nem grava na pasta de peças de A.
+  - Testes: `tests/pecas-salvas.test.js`, com um Supabase falso em memória (`tests/supabase-falso.js`).
 
 ### Dependências (rodar na sua máquina — `yarn.lock`)
 

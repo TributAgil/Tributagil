@@ -1,7 +1,7 @@
 -- docs/sql/pecas-salvas.sql
 --
 -- Salvar a PEÇA no banco, com versões: rodar UMA vez no SQL Editor do Supabase (é idempotente: rodar de novo não
--- duplica nada). APLICADO em produção em 30/10/2026 (migração `pecas_salvas`).
+-- duplica nada). APLICADO em produção em 30/10/2026 (migração `pecas_salvas`); usado por src/lib/pecasSalvas.js.
 --
 -- O QUE FICA SALVO
 --   pecas          UMA peça por análise e tese. O .docx ORIGINAL que /api/gerar-peca devolveu fica no bucket `pecas`;

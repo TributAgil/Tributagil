@@ -148,6 +148,36 @@ async function main() {
     );
 
     console.log(`OK: /api/gemini recusou corretamente (HTTP ${resposta.status}) — isolamento entre usuários confirmado.`);
+
+    // Peças salvas (bucket `pecas`, docs/sql/pecas-salvas.sql): a minuta é tão sigilosa quanto os documentos.
+    const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const caminhoPeca = `${usuarioA.id}/teste-rls/peca-teste/original.docx`;
+    console.log('Subindo uma peça como A no bucket "pecas"...');
+    const uploadPeca = await fetch(`${SUPABASE_URL}/storage/v1/object/pecas/${caminhoPeca}`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioA.token}`, 'Content-Type': MIME_DOCX },
+      body: conteudoSecreto,
+    });
+    if (!uploadPeca.ok) {
+      throw new Error(`Upload da peça como A falhou (HTTP ${uploadPeca.status}) — deveria funcionar, é a própria pasta de A. Corpo: ${await uploadPeca.text()}`);
+    }
+    const leituraPecaB = await fetch(`${SUPABASE_URL}/storage/v1/object/pecas/${caminhoPeca}`, {
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioB.token}` },
+    });
+    assert.equal(leituraPecaB.ok, false, 'VAZAMENTO: B leu a peça salva de A — a policy do bucket "pecas" está quebrada.');
+    const gravacaoPecaB = await fetch(`${SUPABASE_URL}/storage/v1/object/pecas/${usuarioA.id}/teste-rls/peca-teste/intrusa.docx`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioB.token}`, 'Content-Type': MIME_DOCX },
+      body: 'intrusa',
+    });
+    assert.equal(gravacaoPecaB.ok, false, 'FALHA DE ISOLAMENTO: B gravou um arquivo na pasta de peças de A.');
+    // a própria A apaga a peça de teste (o que sobrar, a limpeza diária remove: não há linha em `pecas` para ela)
+    await fetch(`${SUPABASE_URL}/storage/v1/object/pecas`, {
+      method: 'DELETE',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${usuarioA.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: [caminhoPeca] }),
+    }).catch(() => {});
+    console.log('OK: B não lê nem grava na pasta de peças de A.');
   } finally {
     console.log('Limpando usuários de teste...');
     await apagarUsuario(usuarioA.id);

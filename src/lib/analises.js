@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { apagarPecasDaAnalise } from './pecasSalvas';
 import { removerDocumentos } from './storageDocumentos';
 import { criarCaso } from './casos';
 
@@ -160,7 +161,11 @@ export async function excluirAnalise(id, storagePaths = []) {
     }
   }
 
-  // 2. Linha do banco (RLS garante que só o dono exclui).
+  // 2. Peças salvas desta análise e os arquivos delas no bucket `pecas` (as linhas sairiam em cascata com a análise,
+  //    mas os arquivos não — best-effort: o que sobrar a limpeza diária remove).
+  await apagarPecasDaAnalise({ analiseId: id });
+
+  // 3. Linha do banco (RLS garante que só o dono exclui).
   try {
     const { error } = await supabase.from('analises').delete().eq('id', id);
     if (error) {
