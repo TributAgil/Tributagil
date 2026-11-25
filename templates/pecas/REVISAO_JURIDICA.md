@@ -238,6 +238,15 @@ As **matérias** vêm do cálculo do caso (as mesmas da exceção e das novas te
 - **Reconhecimento da prescrição intercorrente** — petição simples pedindo a oitiva da Fazenda e o reconhecimento
   (art. 40, § 4º, da LEF; REsp 1.340.553/RS), com as datas do cálculo. Só sai quando a intercorrente está consumada.
 
+### Relatório para o cliente (`src/lib/relatorioCliente.js`)
+
+Não é peça, mas fala em nome do escritório. Textos fixos para **revisar**: a explicação em linguagem simples de
+cada tese (`EXPLICACOES`), os próximos passos (exceção de pré-executividade com execução; pedido administrativo
+sem ela; parcelamento ou transação para o que continua devido) e o aviso final. A estimativa de honorários usa as
+faixas do art. 85, § 3º, do CPC em escada (§ 5º) sobre o valor que o escritório informa como atingido, e só aparece
+com execução ajuizada. O relatório diz ao cliente que esses honorários são pagos pela Fazenda e não se confundem com
+os contratados: **confirmar** se o escritório quer essa frase.
+
 ## Trechos repetidos entre os modelos (para ajustar em mais de um arquivo)
 
 A biblioteca de modelos (`docx-templates`) não permite "incluir" um trecho de outro arquivo Word sem

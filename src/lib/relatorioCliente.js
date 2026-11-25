@@ -76,7 +76,7 @@ export const EXPLICACOES = {
   decadencia: {
     titulo: 'Decadência: o Fisco perdeu o prazo para lançar o tributo',
     texto:
-      'O Fisco tem 5 anos para formalizar (lançar) um tributo (art. 173 do Código Tributário Nacional). Pelos documentos analisados, o lançamento foi feito depois desse prazo. Por isso, o valor não pode ser exigido.',
+      'O Fisco tem 5 anos para formalizar (lançar) um tributo (arts. 150, § 4º, e 173 do Código Tributário Nacional). Pelos documentos analisados, o lançamento foi feito depois desse prazo. Por isso, o valor não pode ser exigido.',
   },
   prescricao_intercorrente: {
     titulo: 'Prescrição intercorrente: o processo ficou parado tempo demais',
