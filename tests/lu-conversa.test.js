@@ -185,3 +185,39 @@ describe('paginasDoPdf', () => {
     expect(paginasDoPdf(new Uint8Array(200 * 1024).buffer)).toBe(4);
   });
 });
+
+describe('Conversa com o Lu na tela do resultado da análise (onde: analise)', () => {
+  const pedidoAnalise = (corpo = {}) =>
+    new Request('http://localhost/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4', Authorization: 'Bearer token-do-usuario' },
+      body: JSON.stringify({ analise_id: ANALISE_ID, acao: 'conversar', onde: 'analise', mensagem: 'Por que o parecer concluiu assim?', historico: [], ...corpo }),
+    });
+
+  it('não precisa de peça; manda documentos, parecer e base, sem peça, resumo da peça nem destinatário', async () => {
+    const r = await api.POST(pedidoAnalise());
+    expect(r.status).toBe(200);
+    const t = textoEnviado();
+    expect(t).toContain('- cda.pdf (3 página(s))');
+    expect(t).toContain('PARECER DA ANÁLISE');
+    expect(t).toContain('BASE DE LEGISLAÇÃO');
+    expect(t).not.toContain('PEÇA ATUAL');
+    expect(t).not.toContain('RESUMO DA PEÇA');
+    expect(t).not.toContain('DESTINATÁRIO DA PEÇA');
+    const regras = corpoDoGemini().systemInstruction.parts[0].text;
+    expect(regras).toContain('RESULTADO DA ANÁLISE');
+    expect(regras).toContain('não há peça aberta');
+  });
+
+  it('nunca devolve proposta, mesmo que o modelo invente uma', async () => {
+    cenario.lu = respostaConversa({ proposta: { paragrafo: 1, texto: 'texto inventado', explicacao: 'x' } });
+    const dados = await (await api.POST(pedidoAnalise({ peca: PECA }))).json();
+    expect(dados.proposta).toBeNull();
+    expect(textoEnviado()).not.toContain('A executada foi citada'); // a peça enviada por engano não vai ao modelo
+  });
+
+  it('no editor (padrão) continua exigindo a peça', async () => {
+    const r = await api.POST(pedido({ onde: undefined, peca: [] }));
+    expect(r.status).toBe(400);
+  });
+});

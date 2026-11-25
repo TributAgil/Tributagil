@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import ModalGerarPeca from '../components/ModalGerarPeca';
+import ConversaDaAnalise from '../components/lu/ConversaDaAnalise';
 import { podeGerarPeca, cenarioPrevio } from '../lib/peca';
 import { temPecaSalva } from '../lib/pecasSalvas';
 import Logo from '../components/Logo';
@@ -893,6 +894,8 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
       </main>
 
       {mostrarPeca && <ModalGerarPeca analise={{ id: analiseId }} user={user} onFechar={() => setMostrarPeca(false)} />}
+      {/* com o modal da peça aberto, o Lu está no editor; aqui ele se esconde (sem perder a conversa) */}
+      <ConversaDaAnalise analiseId={analiseId} escondido={mostrarPeca} />
 
       <div className="no-print max-w-6xl mx-auto px-4 sm:px-6 pb-12">
         <div className="bg-gradient-to-r from-gold to-gold-soft rounded-2xl p-6 sm:p-8 text-center text-ink shadow-xl">

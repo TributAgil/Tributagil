@@ -1296,6 +1296,11 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Conversar com o Lu também no resultado da análise** (25/11/2026): botão fixo "Conversar com o Lu" (preto e
+  amarelo) no canto da tela do resultado; abre o mesmo chat do editor (`src/components/lu/ConversaDaAnalise.jsx`),
+  com os documentos enviados e o parecer (inclusive raciocínio e recomendações). Ali não há peça: o Lu não propõe
+  texto e manda o advogado ao botão da peça para redigir. Mesmo endpoint (`acao: 'conversar'`, `onde: 'analise'`) e
+  mesmos créditos do dia. Com o modal da peça aberto, o botão some e a conversa fica guardada até sair da tela.
 - **Modelos e segurança das RPCs** (25/11/2026): a análise, a extração da peça e as figuras rodam no
   `gemini-3.5-flash` (`GEMINI_MODEL`); o Lu roda no `gemini-3.5-flash-lite` (`GEMINI_MODEL_LU`), com o
   Flash-Lite também como reserva (`GEMINI_MODEL_RESERVA`). Os créditos do Lu passam a seguir o preço do modelo que

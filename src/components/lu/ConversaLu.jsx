@@ -4,16 +4,43 @@
 // responde com os documentos enviados na análise, o parecer, o cálculo de prazos, a peça atual e a base de
 // legislação, citando de onde tirou. Quando o pedido é mudar um parágrafo, o Lu PROPÕE: a proposta aparece embaixo do
 // parágrafo na folha, com Aceitar / Recusar, como no "Pedir ao Lu". A conversa não é salva: fechou o editor, sumiu.
+// O mesmo chat aparece na tela do resultado da análise (contexto 'analise', via ConversaDaAnalise.jsx): lá não há peça
+// nem proposta.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { MessageCircle, X, Send, Loader2, AlertTriangle, FileText, ArrowRight, Trash2 } from 'lucide-react';
 
-const SUGESTOES = [
-  'Qual a data de vencimento de cada CDA, segundo os documentos?',
-  'Em que página dos autos está a citação do executado?',
-  'A peça já pede a condenação em honorários?',
-  'Há documento que comprove a entrega da declaração?',
-];
+// o chat aparece no editor da peça e na tela do resultado da análise: muda a explicação e as sugestões
+const CONTEXTO = {
+  peca: {
+    intro: (
+      <>
+        Pergunte sobre <b className="text-yellow-400">este caso e esta peça</b>: o Lu procura nos documentos enviados, no parecer, no cálculo dos prazos e
+        na peça, e diz de onde tirou. Para mudar um parágrafo, peça aqui: a proposta aparece na folha para você aceitar ou recusar.
+      </>
+    ),
+    sugestoes: [
+      'Qual a data de vencimento de cada CDA, segundo os documentos?',
+      'Em que página dos autos está a citação do executado?',
+      'A peça já pede a condenação em honorários?',
+      'Há documento que comprove a entrega da declaração?',
+    ],
+  },
+  analise: {
+    intro: (
+      <>
+        Pergunte sobre <b className="text-yellow-400">este caso</b>: o Lu procura nos documentos enviados e no parecer, e diz de onde tirou. Para redigir ou
+        mudar a peça, use o botão da peça: o Lu também está lá.
+      </>
+    ),
+    sugestoes: [
+      'Por que o parecer concluiu assim? Explique o raciocínio.',
+      'Qual a data de vencimento de cada CDA, segundo os documentos?',
+      'Em que página dos autos está a citação do executado?',
+      'Há algum ato que possa ter interrompido a prescrição?',
+    ],
+  },
+};
 
 /** **negrito** do Lu vira <b>; o resto é texto puro (React escapa). */
 function TextoDoLu({ texto }) {
@@ -25,10 +52,11 @@ function TextoDoLu({ texto }) {
 /**
  * @param {{ mensagens: Array<{ papel: 'advogado'|'lu', texto: string, erro?: boolean, fontes?: Array<{ tipo: string, rotulo: string }>,
  *   proposta?: { paragrafo: number, topico: string, situacao: 'pendente'|'aceita'|'recusada' }, deFora?: string[] }>,
- *   enviando: boolean, bloqueio?: string, medidor?: React.ReactNode,
+ *   enviando: boolean, bloqueio?: string, medidor?: React.ReactNode, contexto?: 'peca'|'analise',
  *   onEnviar: (texto: string) => void, onVerProposta: (indice: number) => void, onLimpar: () => void, onFechar: () => void }} props
  */
-export default function ConversaLu({ mensagens, enviando, bloqueio = '', medidor = null, onEnviar, onVerProposta, onLimpar, onFechar }) {
+export default function ConversaLu({ mensagens, enviando, bloqueio = '', medidor = null, contexto = 'peca', onEnviar, onVerProposta, onLimpar, onFechar }) {
+  const { intro, sugestoes } = CONTEXTO[contexto] || CONTEXTO.peca;
   const [texto, setTexto] = useState('');
   const fimRef = useRef(null);
   const campoRef = useRef(null);
@@ -66,12 +94,9 @@ export default function ConversaLu({ mensagens, enviando, bloqueio = '', medidor
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3" aria-live="polite">
         {mensagens.length === 0 && (
           <div className="text-xs text-neutral-300 space-y-2">
-            <p>
-              Pergunte sobre <b className="text-yellow-400">este caso e esta peça</b>: o Lu procura nos documentos enviados, no parecer, no cálculo dos
-              prazos e na peça, e diz de onde tirou. Para mudar um parágrafo, peça aqui: a proposta aparece na folha para você aceitar ou recusar.
-            </p>
+            <p>{intro}</p>
             <div className="flex flex-col gap-1.5 pt-1">
-              {SUGESTOES.map((s) => (
+              {sugestoes.map((s) => (
                 <button
                   key={s}
                   onClick={() => enviar(s)}
@@ -154,7 +179,7 @@ export default function ConversaLu({ mensagens, enviando, bloqueio = '', medidor
             rows={2}
             maxLength={2000}
             disabled={Boolean(bloqueio)}
-            placeholder="Pergunte sobre o caso ou peça uma mudança na peça…"
+            placeholder={contexto === 'peca' ? 'Pergunte sobre o caso ou peça uma mudança na peça…' : 'Pergunte sobre o caso, os documentos ou o parecer…'}
             aria-label="Pergunta para o Lu"
             className="flex-1 resize-none rounded-lg bg-neutral-900 border border-neutral-700 px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-yellow-400 disabled:opacity-50"
           />
@@ -167,7 +192,7 @@ export default function ConversaLu({ mensagens, enviando, bloqueio = '', medidor
             {enviando ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
           </button>
         </div>
-        <p className="text-[10px] text-neutral-500">O Lu só responde sobre este caso e esta peça. A conversa não fica salva. Enter envia · Shift+Enter quebra a linha.</p>
+        <p className="text-[10px] text-neutral-500">O Lu só responde sobre este caso{contexto === 'peca' ? ' e esta peça' : ''}. A conversa não fica salva. Enter envia · Shift+Enter quebra a linha.</p>
       </footer>
     </section>
   );
