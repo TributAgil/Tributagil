@@ -1296,6 +1296,16 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Réplica à manifestação da Fazenda** (25/11/2026): no modal da peça, "Outras peças deste caso" →
+  "Réplica à manifestação da Fazenda": o advogado envia o PDF da impugnação (vai para a pasta dele no bucket
+  `documentos`), e `/api/gerar-peca` com `tipo: 'replica'` lê os documentos do caso, roda o motor, extrai os
+  argumentos da manifestação (IA só extrai, `api/_replica.js`) e confronta cada data alegada com os prazos calculados
+  (código): refutado, conferir, pode proceder ou resposta a redigir. A peça sai no **modelo genérico**
+  (`templates/pecas/Peca_generica.docx` + `api/_pecas-extras.js`) e entra na mesma lista (revisar no editor, baixar,
+  salvar). Peças extras são salvas sozinhas (`salvarPecaExtra`): gerar de novo a peça das teses não as apaga
+  (`docs/sql/pecas-extras.sql`, aplicado em 25/11/2026). A base curada ganhou os dispositivos das novas teses e peças
+  (art. 135 CTN, Súmulas 430/435/392/106 STJ, Temas 962/981/444, art. 2º § 5º e art. 16 LEF, arts. 85 § 3º, 919,
+  1.003 § 5º, 1.015 e 1.019 do CPC).
 - **Carteira de casos com alerta de prazo** (25/11/2026): tela "Carteira e prazos" (botão no painel,
   `src/pages/Carteira.jsx`), uma linha por caso com a fase (analisado, peça gerada, protocolado, decidido, arquivado)
   e os marcos de prazo do motor (`api/_carteira.js`): **consumado** (prescrito/decaído: tese pronta) e

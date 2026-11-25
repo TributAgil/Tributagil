@@ -178,6 +178,29 @@ Em português simples, na ordem do que mais importa. As minutas já renderizadas
 
 ---
 
+## Peças montadas em código (modelo genérico) — minutas para revisão
+
+Desde 25/11/2026 há um **modelo genérico** (`templates/pecas/Peca_generica.docx`, gerado por
+`scripts/templates-pecas/modelo_generico.py` a partir da EPE de intercorrente): timbre, qualificação, fecho e
+assinatura são os seus; o **corpo é montado em código** (`api/_pecas-extras.js` e um arquivo por peça). Todo o texto
+dessas peças é **minuta redigida pelo sistema, sem a sua revisão**. O que depende do caso e o sistema não sabe sai
+como `[PREENCHER]` ou `[CONFIRMAR]`.
+
+### Réplica à manifestação da Fazenda (`api/_replica.js`)
+
+- A IA só **extrai** os argumentos da manifestação; a resposta a cada um é texto fixo, escolhido pelo **cálculo**:
+  - ato alegado **depois** da consumação → refutado (art. 156, V, do CTN; ato posterior não interrompe prazo já
+    extinto; parcelamento/confissão de dívida prescrita não a faz renascer);
+  - ato **dentro** do prazo de um crédito prescrito → `[CONFIRMAR]` (pode ter interrompido; art. 174, parágrafo
+    único, do CTN);
+  - pedido de penhora sem constrição efetiva, dentro da janela da intercorrente → refutado com o REsp 1.340.553/RS;
+  - penhora ou citação efetiva dentro da janela da intercorrente → `[CONFIRMAR]` dizendo que **a Fazenda pode ter razão**;
+  - inadequação da via → Súmula 393/STJ e matéria de ordem pública;
+  - qualquer outro argumento → `[PREENCHER: resposta ao argumento ...]`.
+- **Revisar:** a redação de cada resposta fixa; o pedido de honorários (art. 85, §§ 2º e 3º, do CPC); o título
+  "MANIFESTAÇÃO SOBRE A IMPUGNAÇÃO À EXCEÇÃO DE PRÉ-EXECUTIVIDADE" (na revisão PGFN: "MANIFESTAÇÃO SOBRE A RESPOSTA
+  DA PROCURADORIA").
+
 ## Trechos repetidos entre os modelos (para ajustar em mais de um arquivo)
 
 A biblioteca de modelos (`docx-templates`) não permite "incluir" um trecho de outro arquivo Word sem

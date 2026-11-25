@@ -63,14 +63,41 @@ async function apagarPasta(prefixo) {
 // Gravar a peça gerada (substitui a anterior)
 // ---------------------------------------------------------------------------------------------------------------------
 
+// Peças EXTRAS (modelo genérico, api/_gerar-extra.js): cada uma é gerada e substituída sozinha. "Gerar de novo" a peça
+// das teses não as apaga.
+export const TIPOS_EXTRA = ['replica', 'embargos', 'agravo', 'reconhecimento_intercorrente'];
+
 /**
- * Apaga as peças salvas desta análise (linhas, versões em cascata, e os arquivos). "Gerar de novo" substitui: o que
+ * Apaga peças salvas desta análise (linhas, versões em cascata, e os arquivos). "Gerar de novo" substitui: o que
  * estava salvo some de vez.
+ *   sem filtro      — todas (exclusão da análise);
+ *   `teses`         — só as dessas teses (uma peça extra gerada de novo);
+ *   `manter`        — todas menos essas (a peça das teses gerada de novo mantém as extras).
  * @returns {Promise<boolean>}
  */
-export async function apagarPecasDaAnalise({ userId, analiseId }) {
+export async function apagarPecasDaAnalise({ userId, analiseId, teses = null, manter = null }) {
   const uid = userId || (await usuarioDaSessao());
   if (!uid || !analiseId) return false;
+  if (teses || manter) {
+    try {
+      const { data, error } = await supabase.from('pecas').select('id, tese').eq('analise_id', analiseId);
+      if (error) throw new Error(error.message);
+      const alvo = (data || []).filter((p) => (teses ? teses.includes(p.tese) : !manter.includes(p.tese)));
+      if (alvo.length) {
+        const { error: erroApagar } = await supabase.from('pecas').delete().in('id', alvo.map((p) => p.id));
+        if (erroApagar) throw new Error(erroApagar.message);
+      }
+      for (const p of alvo) {
+        await apagarPasta(pastaDaPeca(uid, analiseId, p.id)).catch((err) =>
+          console.warn('[pecasSalvas] Arquivos da peça não removidos agora (a limpeza diária remove):', err?.message),
+        );
+      }
+      return true;
+    } catch (err) {
+      console.warn('[pecasSalvas] Falha ao apagar as peças da análise:', err?.message);
+      return false;
+    }
+  }
   try {
     const { error } = await supabase.from('pecas').delete().eq('analise_id', analiseId);
     if (error) throw new Error(error.message);
@@ -95,7 +122,20 @@ export async function apagarPecasDaAnalise({ userId, analiseId }) {
 export async function salvarPecasGeradas({ userId, analiseId, pecas }) {
   const salvas = {};
   if (!userId || !analiseId || !pecas?.length) return { ok: false, salvas };
-  if (!(await apagarPecasDaAnalise({ userId, analiseId }))) return { ok: false, salvas };
+  // as peças extras (réplica, embargos...) ficam: só as das teses são substituídas
+  if (!(await apagarPecasDaAnalise({ userId, analiseId, manter: TIPOS_EXTRA }))) return { ok: false, salvas };
+  return gravarPecas({ userId, analiseId, pecas, salvas });
+}
+
+/** Grava UMA peça extra no lugar da anterior do mesmo tipo (as outras peças da análise ficam). */
+export async function salvarPecaExtra({ userId, analiseId, peca }) {
+  const salvas = {};
+  if (!userId || !analiseId || !peca) return { ok: false, salvas };
+  if (!(await apagarPecasDaAnalise({ userId, analiseId, teses: [peca.tese] }))) return { ok: false, salvas };
+  return gravarPecas({ userId, analiseId, pecas: [peca], salvas });
+}
+
+async function gravarPecas({ userId, analiseId, pecas, salvas }) {
   let ok = true;
   for (const p of pecas) {
     const id = crypto.randomUUID();
@@ -116,7 +156,8 @@ export async function salvarPecasGeradas({ userId, analiseId, pecas }) {
           titulo: String(p.resumo?.modelo || '').slice(0, 200) || null,
           original_path: caminho,
           nome_arquivo: String(p.arquivo.nome || '').slice(0, 200) || null,
-          resumo: { ...(p.resumo || {}), tese_nome: p.tese_nome || '' },
+          // `detalhe`: o que a peça extra mostra na tela além do resumo (ex.: o confronto de cada argumento da réplica)
+          resumo: { ...(p.resumo || {}), tese_nome: p.tese_nome || '', ...(p.detalhe ? { detalhe: p.detalhe } : {}) },
           figuras: p.figuras || [],
         })
         .select('id, versao_atual, updated_at')

@@ -16,7 +16,7 @@ vi.mock('../src/lib/supabase', () => ({
   },
 }));
 
-const { salvarPecasGeradas, salvarVersao, carregarPecasSalvas, apagarPecasDaAnalise, salvarLocalizacao, temPecaSalva } = await import('../src/lib/pecasSalvas.js');
+const { salvarPecasGeradas, salvarPecaExtra, salvarVersao, carregarPecasSalvas, apagarPecasDaAnalise, salvarLocalizacao, temPecaSalva } = await import('../src/lib/pecasSalvas.js');
 const { montarPecaRevisada } = await import('../src/lib/pecaRevisada.js');
 const { abrirPecaParaEdicao } = await import('../src/lib/docxEdicao.js');
 
@@ -192,5 +192,42 @@ describe('peças salvas no banco', () => {
   it('sem tabela ou sem acesso, reabrir só não traz nada', async () => {
     falso.atual = criarSupabaseFalso({ userId: USUARIO, falhas: { 'pecas.select': true } });
     expect(await carregarPecasSalvas(ANALISE)).toEqual([]);
+  });
+});
+
+describe('peças extras (réplica...): salvas sozinhas', () => {
+  const replica = () => ({ ...pecaGerada, tese: 'replica', tese_nome: 'Réplica', figuras: [], detalhe: { argumentos: [{ resumo: 'x', situacao: 'refutado' }] } });
+
+  it('gerar de novo a peça das teses mantém a réplica; gerar a réplica de novo troca só ela', async () => {
+    await salvarPecasGeradas({ userId: USUARIO, analiseId: ANALISE, pecas: [pecaGerada] });
+    const r1 = await salvarPecaExtra({ userId: USUARIO, analiseId: ANALISE, peca: replica() });
+    expect(r1.ok).toBe(true);
+    let salvas = await carregarPecasSalvas(ANALISE);
+    expect(salvas.map((p) => p.tese).sort()).toEqual(['prescricao_ordinaria', 'replica']);
+    // o detalhe (confronto dos argumentos) volta no resumo
+    expect(salvas.find((p) => p.tese === 'replica').resumo.detalhe.argumentos[0].situacao).toBe('refutado');
+
+    const idReplica = r1.salvas.replica.id;
+    await salvarPecasGeradas({ userId: USUARIO, analiseId: ANALISE, pecas: [pecaGerada] });
+    salvas = await carregarPecasSalvas(ANALISE);
+    expect(salvas.find((p) => p.tese === 'replica').id).toBe(idReplica);
+
+    const idTese = salvas.find((p) => p.tese === 'prescricao_ordinaria').id;
+    const r2 = await salvarPecaExtra({ userId: USUARIO, analiseId: ANALISE, peca: replica() });
+    salvas = await carregarPecasSalvas(ANALISE);
+    expect(salvas.find((p) => p.tese === 'prescricao_ordinaria').id).toBe(idTese);
+    expect(salvas.find((p) => p.tese === 'replica').id).toBe(r2.salvas.replica.id);
+    expect(r2.salvas.replica.id).not.toBe(idReplica);
+    // o Word da réplica antiga saiu do bucket; o da peça das teses ficou
+    expect(arquivosDoBucket().some((k) => k.includes(idReplica))).toBe(false);
+    expect(arquivosDoBucket().some((k) => k.includes(idTese))).toBe(true);
+  });
+
+  it('excluir a análise leva também as extras', async () => {
+    await salvarPecasGeradas({ userId: USUARIO, analiseId: ANALISE, pecas: [pecaGerada] });
+    await salvarPecaExtra({ userId: USUARIO, analiseId: ANALISE, peca: replica() });
+    expect(await apagarPecasDaAnalise({ analiseId: ANALISE })).toBe(true);
+    expect(await carregarPecasSalvas(ANALISE)).toEqual([]);
+    expect(arquivosDoBucket()).toEqual([]);
   });
 });

@@ -190,12 +190,14 @@ const LETRAS = 'abcdefghij';
  * @param {Date}   [args.agora]
  * @param {boolean}[args.incluirBlocoDecretoLei]  liga/desliga o bloco Decreto 20.910/32 + Lei 9.873/99
  */
-export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new Date(), incluirBlocoDecretoLei = true, perfil = {} }) {
+/**
+ * A parte de TODO contexto de peça que não depende da tese: endereçamento, número do processo, qualificação, tratamento
+ * do procurador, mandato, fecho e advogados. Usada por montarContexto e pelas peças montadas em código
+ * (api/_pecas-extras.js, modelo Peca_generica).
+ */
+export function contextoBase({ dados, escritorio = {}, agora = new Date(), perfil = {} }) {
   const processo = dados?.processo_execucao || {};
   const executado = dados?.executado || {};
-  const tese = avaliacao?.tese;
-  const creditos = avaliacao?.creditos || [];
-
   const { vara, local: comarca } = separarVaraELocal(processo);
   const juizo = vara
     ? `AO JUÍZO DA ${vara}${comarca ? ` DE ${comarca}` : ''}.`.toUpperCase()
@@ -209,7 +211,7 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
   const dev = partesQualificacao(executado, 'devedor');
   const advogados = montarAdvogados(escritorio);
 
-  const contexto = {
+  return {
     juizo,
     juizo_intercorrente: juizoIntercorrente,
     destinatario_pgfn: `AO ILUSTRÍSSIMO SENHOR PROCURADOR-CHEFE DA FAZENDA NACIONAL DA SEÇÃO DE ${comarca ? comarca.toUpperCase() : preencher('seção da PGFN')}`,
@@ -230,6 +232,16 @@ export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new 
     escritorio_email: escritorio?.email || '',
     escritorio_site: escritorio?.site || '',
     escritorio_endereco: escritorio?.endereco || '',
+  };
+}
+
+export function montarContexto({ dados, avaliacao, escritorio = {}, agora = new Date(), incluirBlocoDecretoLei = true, perfil = {} }) {
+  const processo = dados?.processo_execucao || {};
+  const tese = avaliacao?.tese;
+  const creditos = avaliacao?.creditos || [];
+
+  const contexto = {
+    ...contextoBase({ dados, escritorio, agora, perfil }),
     incluir_bloco_decreto_lei: Boolean(incluirBlocoDecretoLei),
   };
 

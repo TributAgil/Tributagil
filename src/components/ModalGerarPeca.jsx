@@ -17,8 +17,9 @@ import { X, Loader2, FileType2, AlertTriangle, CheckCircle2, Building2, Download
 import { lerEscritorio } from '../lib/escritorio';
 import { gerarPeca, baixarArquivo } from '../lib/peca';
 import { lerPerfilPeca, salvarPerfilPeca, perfilPecaVazio, CAMPOS_CLIENTE } from '../lib/perfilPeca';
-import { carregarPecasSalvas, salvarPecasGeradas, salvarVersao, salvarLocalizacao } from '../lib/pecasSalvas';
+import { carregarPecasSalvas, salvarPecasGeradas, salvarPecaExtra, salvarVersao, salvarLocalizacao, TIPOS_EXTRA } from '../lib/pecasSalvas';
 import ModalEscritorio from './ModalEscritorio';
+import OutrasPecas from './OutrasPecas';
 // o editor (com o leitor de PDF das figuras) só é baixado quando o advogado o abre
 const EditorPeca = lazy(() => import('./EditorPeca'));
 
@@ -38,6 +39,36 @@ function resultadoDasSalvas(salvas) {
       mensagem: '', bloqueios: [], divergencias: [], avisos: [],
     })),
   };
+}
+
+const SITUACAO_ARGUMENTO = {
+  refutado: { rotulo: 'afastado pelo cálculo', cor: 'text-emerald-400' },
+  conferir: { rotulo: 'conferir nos autos', cor: 'text-amber-400' },
+  procede: { rotulo: 'pode proceder', cor: 'text-red-400' },
+  sem_resposta: { rotulo: 'resposta a redigir', cor: 'text-sky-400' },
+};
+
+/** O que a peça extra mostra além do resumo: na réplica, a situação de cada argumento da Fazenda. */
+function DetalheExtra({ detalhe }) {
+  if (!detalhe?.argumentos?.length) return null;
+  return (
+    <div className="rounded-lg border border-line bg-ink-800/60 p-2.5">
+      <p className="text-[11px] text-parchment/50 mb-1.5">
+        Argumentos da Fazenda{detalhe.data_manifestacao ? ` (manifestação de ${detalhe.data_manifestacao})` : ''}
+      </p>
+      <ol className="space-y-1.5 text-xs list-decimal pl-4">
+        {detalhe.argumentos.map((a, i) => {
+          const s = SITUACAO_ARGUMENTO[a.situacao] || SITUACAO_ARGUMENTO.sem_resposta;
+          return (
+            <li key={i} className="text-parchment/80">
+              {a.resumo} <span className={`font-semibold ${s.cor}`}>· {s.rotulo}</span>
+              {a.explicacao && <span className="block text-parchment/50">{a.explicacao}</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
 }
 
 const Lista = ({ itens, cor }) =>
@@ -118,20 +149,25 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
       return;
     }
     const novas = (r.pecas || []).filter((p) => p.status === 'ok');
-    const tinhaSalva = Object.keys(salvas).length > 0;
-    setResultado(r);
+    const tinhaSalva = Object.keys(salvas).some((t) => !TIPOS_EXTRA.includes(t));
+    // as peças extras (réplica...) não são tocadas por esta geração: continuam na tela e no banco
+    const extras = (resultado?.pecas || []).filter((p) => TIPOS_EXTRA.includes(p.tese));
+    setResultado({ ...r, pecas: [...(r.pecas || []), ...extras] });
     setDaBase(false);
     setAvisoGeracao('');
-    setEdicoes({}); // peça nova: as alterações eram sobre a anterior
-    setBuscasDeFiguras({});
+    // peça nova: as alterações eram sobre a anterior (as das peças extras ficam)
+    const soExtras = (obj) => Object.fromEntries(Object.entries(obj).filter(([t]) => TIPOS_EXTRA.includes(t)));
+    setEdicoes(soExtras);
+    setBuscasDeFiguras(soExtras);
     setFase('resultado');
     if (novas.length > 0) {
       // grava a peça nova no lugar da anterior (a anterior, com as edições e figuras dela, some de vez)
-      setSalvas({});
-      setGravacao(Object.fromEntries(novas.map((p) => [p.tese, 'salvando'])));
+      const soExtras = (obj) => Object.fromEntries(Object.entries(obj).filter(([t]) => TIPOS_EXTRA.includes(t)));
+      setSalvas(soExtras);
+      setGravacao((g) => ({ ...soExtras(g), ...Object.fromEntries(novas.map((p) => [p.tese, 'salvando'])) }));
       salvarPecasGeradas({ userId: user?.id, analiseId: analise.id, pecas: novas }).then(({ salvas: gravadas }) => {
-        setSalvas(gravadas);
-        setGravacao(Object.fromEntries(novas.map((p) => [p.tese, gravadas[p.tese] ? 'salvo' : 'erro'])));
+        setSalvas((s) => ({ ...soExtras(s), ...gravadas }));
+        setGravacao((g) => ({ ...g, ...Object.fromEntries(novas.map((p) => [p.tese, gravadas[p.tese] ? 'salvo' : 'erro'])) }));
       });
     } else if (tinhaSalva) {
       setAvisoGeracao('A nova geração não trouxe peça disponível; a peça salva anteriormente foi mantida e volta na próxima vez que você abrir.');
@@ -143,6 +179,24 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
       });
     }
   };
+
+  /** Peça extra gerada (réplica...): entra na lista no lugar da anterior do mesmo tipo e é salva sozinha. */
+  const adicionarExtra = (peca, usados) => {
+    const semEsta = (obj) => Object.fromEntries(Object.entries(obj).filter(([t]) => t !== peca.tese));
+    setResultado((atual) => ({ ...(atual || { status: 'ok' }), pecas: [...(atual?.pecas || []).filter((p) => p.tese !== peca.tese), peca] }));
+    setEdicoes(semEsta);
+    setBuscasDeFiguras(semEsta);
+    setDaBase(false);
+    setFase('resultado');
+    setGravacao((g) => ({ ...g, [peca.tese]: 'salvando' }));
+    salvarPecaExtra({ userId: user?.id, analiseId: analise.id, peca }).then(({ salvas: gravadas }) => {
+      setSalvas((s) => ({ ...semEsta(s), ...gravadas }));
+      setGravacao((g) => ({ ...g, [peca.tese]: gravadas[peca.tese] ? 'salvo' : 'erro' }));
+    });
+    if (usados) salvarPerfilPeca({ userId: user?.id, analiseId: analise.id, usados }).then((ok) => ok && setPerfil(usados));
+  };
+
+  const outrasPecas = <OutrasPecas analiseId={analise.id} userId={user?.id} dadosPeca={perfil} onGerada={adicionarExtra} />;
 
   if (fase === 'cadastro' || editando) {
     return (
@@ -312,6 +366,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                 Gerar peça
               </button>
             </div>
+            {outrasPecas}
           </div>
         )}
 
@@ -339,7 +394,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
           </div>
         )}
 
-        {fase === 'resultado' && r?.status === 'ok' && (
+        {fase === 'resultado' && disponiveis.length > 0 && (
           <div className="space-y-4">
             {daBase && (
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-parchment/80 space-y-2">
@@ -362,6 +417,8 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               <div key={p.tese} className="rounded-xl bg-ink-900/60 border border-line p-4 space-y-2 text-sm">
                 <p className="text-parchment font-semibold">{p.resumo.modelo}</p>
                 <p className="text-xs text-parchment/70">{p.resumo.descricao}</p>
+                <DetalheExtra detalhe={p.detalhe || p.resumo?.detalhe} />
+                {(p.resumo.creditos?.length > 0 || p.resumo.intercorrente) && (
                 <div>
                   <p className="text-parchment/50 text-xs mb-1">{p.tese === 'prescricao_intercorrente' ? 'CDAs e datas' : 'CDAs / períodos que entram na peça'}</p>
                   <ul className="text-xs text-parchment/80 space-y-0.5">
@@ -379,6 +436,7 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                     )}
                   </ul>
                 </div>
+                )}
                 <p className="text-parchment">
                   <span className="text-parchment/50">A preencher no Word: </span>
                   {pendenciasDa(p).preencher} campo(s) <span className="text-parchment/40">+</span> {pendenciasDa(p).figuras} figura(s) a inserir
@@ -440,13 +498,15 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               <AlertTriangle size={14} className="mt-0.5 shrink-0" /> <span>{disponiveis[0].resumo.aviso_fixo}</span>
             </p>
 
+            {outrasPecas}
+
             <button onClick={fecharModal} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
               Fechar
             </button>
           </div>
         )}
 
-        {fase === 'resultado' && r?.status !== 'ok' && (
+        {fase === 'resultado' && disponiveis.length === 0 && r?.status !== 'ok' && (
           <div className="space-y-3">
             <p className="text-sm text-amber-400 flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -476,13 +536,14 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
               </div>
             ))}
             {r?.status === 'bloqueada' && <p className="text-xs text-parchment/50">Este caso exige análise manual do advogado responsável.</p>}
+            {outrasPecas}
             <button onClick={onFechar} className="w-full py-2.5 text-sm text-parchment/60 bg-ink-700 hover:bg-ink-600 rounded-xl">
               Fechar
             </button>
           </div>
         )}
 
-        {fase === 'resultado' && r?.status === 'ok' && (
+        {fase === 'resultado' && disponiveis.length > 0 && (
           <p className="mt-3 flex items-center gap-1.5 text-[11px] text-parchment/40">
             <CheckCircle2 size={11} /> Peça montada com sucesso — a revisão profissional continua obrigatória.
           </p>

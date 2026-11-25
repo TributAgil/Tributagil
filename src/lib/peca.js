@@ -68,6 +68,32 @@ export async function gerarPeca({ analiseId, incluirBlocoDecretoLei = true, dado
   }
 }
 
+/**
+ * Peça EXTRA no modelo genérico (api/_gerar-extra.js): réplica à manifestação da Fazenda, embargos, agravo,
+ * reconhecimento de ofício. Mesmo endpoint, com `tipo`; a resposta tem o mesmo formato (uma peça) e `detalhe`.
+ * @param {{ analiseId: string, tipo: string, manifestacao?: { storage_path: string, nome: string, mime_type: string },
+ *   entrada?: object, dadosPeca?: object }} args
+ */
+export async function gerarPecaExtra({ analiseId, tipo, manifestacao = null, entrada = {}, dadosPeca = null }) {
+  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
+  const token = sess?.session?.access_token;
+  if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
+  try {
+    const resposta = await fetch('/api/gerar-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ analise_id: analiseId, tipo, manifestacao, entrada, dados_peca: dadosPeca }),
+    });
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok || dados.status !== 'ok') return { ok: false, error: dados.error || 'Não foi possível gerar a peça agora.' };
+    const peca = { ...dados.pecas[0], detalhe: dados.detalhe || null };
+    return { ok: true, peca, dados_peca_usados: dados.dados_peca_usados };
+  } catch (err) {
+    console.warn('[peca] Falha ao gerar a peça extra:', err);
+    return { ok: false, error: 'Erro de rede ao gerar a peça.' };
+  }
+}
+
 /** Baixa o .docx devolvido pela API (base64) no navegador. */
 export function baixarArquivo({ nome, mime, base64 }) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));

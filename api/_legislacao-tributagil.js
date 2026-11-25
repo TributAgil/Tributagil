@@ -132,4 +132,112 @@ export const LEGISLACAO_TRIBUTAGIL = [
       'O Supremo Tribunal Federal, em repercussão geral, confirmou a constitucionalidade da sistemática de prescrição intercorrente prevista no art. 40 da Lei 6.830/1980 (LEF), inclusive quanto à possibilidade de reconhecimento de ofício pelo juiz. ' +
       'IMPORTANTE: a jurisprudência mais recente do STJ (aplicando o REsp 1.340.553/RS) exige que, mesmo no reconhecimento de ofício, a Fazenda Pública seja PREVIAMENTE INTIMADA antes da decretação da prescrição intercorrente, sob pena de nulidade por violação ao contraditório (LEF, art. 40, §4º).',
   },
+  // ---- 2.3 — Complementos de 25/11/2026: novas teses (redirecionamento, CDA, pagamento) e novas peças ----------------
+  {
+    norma: 'CTN',
+    identificador: 'art. 135, III',
+    texto_integral:
+      'Art. 135. São pessoalmente responsáveis pelos créditos correspondentes a obrigações tributárias resultantes de atos praticados com excesso de poderes ou infração de lei, contrato social ou estatutos: [...] III - os diretores, gerentes ou representantes de pessoas jurídicas de direito privado. ' +
+      'Base do redirecionamento da execução fiscal ao sócio-gerente: exige ato com excesso de poderes ou infração de lei, contrato ou estatuto (o mero inadimplemento não basta, Súmula 430/STJ).',
+  },
+  {
+    norma: 'Súmula STJ',
+    identificador: 'Súmula 430',
+    texto_integral: 'O inadimplemento da obrigação tributária pela sociedade não gera, por si só, a responsabilidade solidária do sócio-gerente.',
+  },
+  {
+    norma: 'Súmula STJ',
+    identificador: 'Súmula 435',
+    texto_integral:
+      'Presume-se dissolvida irregularmente a empresa que deixar de funcionar no seu domicílio fiscal, sem comunicação aos órgãos competentes, legitimando o redirecionamento da execução fiscal para o sócio-gerente.',
+  },
+  {
+    norma: 'STJ — Recurso Repetitivo',
+    identificador: 'REsp 1.643.944/SP (Tema 981)',
+    texto_integral:
+      'Tese firmada: O redirecionamento da execução fiscal, quando fundado na dissolução irregular da pessoa jurídica executada ou na presunção de sua ocorrência, pode ser autorizado contra o sócio ou o terceiro não sócio, com poderes de administração na data em que configurada ou presumida a dissolução irregular, ainda que não tenha exercido poderes de gerência quando ocorrido o fato gerador do tributo não adimplido, conforme art. 135, III, do CTN.',
+  },
+  {
+    norma: 'STJ — Recurso Repetitivo',
+    identificador: 'REsp 1.377.019/SP (Tema 962)',
+    texto_integral:
+      'Tese firmada: O redirecionamento da execução fiscal, quando fundado na dissolução irregular da pessoa jurídica executada ou na presunção de sua ocorrência, não pode ser autorizado contra o sócio ou o terceiro não sócio que, embora exercesse poderes de gerência ao tempo do fato gerador, sem incorrer em prática de atos com excesso de poderes ou infração à lei, ao contrato social ou aos estatutos, dele regularmente se retirou e não deu causa à sua posterior dissolução irregular, conforme art. 135, III, do CTN.',
+  },
+  {
+    norma: 'STJ — Recurso Repetitivo',
+    identificador: 'REsp 1.201.993/SP (Tema 444)',
+    texto_integral:
+      'Síntese da tese firmada sobre a prescrição para o redirecionamento: (i) o prazo de cinco anos para redirecionar a execução fiscal ao sócio-gerente, contado da citação da pessoa jurídica, aplica-se quando o ato ilícito do art. 135, III, do CTN é anterior a essa citação; (ii) se a dissolução irregular é posterior à citação, o prazo conta da prática de ato inequívoco indicador do intuito de inviabilizar a satisfação do crédito, a ser demonstrado pelo Fisco; (iii) em qualquer hipótese, a decretação da prescrição para o redirecionamento exige a demonstração da inércia da Fazenda Pública no quinquênio.',
+  },
+  {
+    norma: 'STJ — Recurso Repetitivo',
+    identificador: 'REsp 1.110.925/SP',
+    texto_integral:
+      'Não cabe exceção de pré-executividade em execução fiscal promovida contra sócio que figura como responsável na Certidão de Dívida Ativa (CDA): a presunção de liquidez e certeza da CDA transfere ao sócio o ônus de provar que não incorreu nas hipóteses do art. 135 do CTN, o que exige dilação probatória, própria dos embargos à execução.',
+  },
+  {
+    norma: 'CTN',
+    identificador: 'art. 203',
+    texto_integral:
+      'Art. 203. A omissão de quaisquer dos requisitos previstos no artigo anterior, ou o erro a eles relativo, são causas de nulidade da inscrição e do processo de cobrança dela decorrente, mas a nulidade poderá ser sanada até a decisão de primeira instância, mediante substituição da certidão nula, devolvido ao sujeito passivo, acusado ou interessado o prazo para defesa, que somente poderá versar sobre a parte modificada.',
+  },
+  {
+    norma: 'LEF (Lei 6.830/80)',
+    identificador: 'art. 2º, § 5º',
+    texto_integral:
+      'Art. 2º [...] § 5º O Termo de Inscrição de Dívida Ativa deverá conter: I - o nome do devedor, dos co-responsáveis e, sempre que conhecido, o domicílio ou residência de um e de outros; II - o valor originário da dívida, bem como o termo inicial e a forma de calcular os juros de mora e demais encargos previstos em lei ou contrato; III - a origem, a natureza e o fundamento legal ou contratual da dívida; IV - a indicação, se for o caso, de estar a dívida sujeita à atualização monetária, bem como o respectivo fundamento legal e o termo inicial para o cálculo; V - a data e o número da inscrição, no Registro de Dívida Ativa; e VI - o número do processo administrativo ou do auto de infração, se neles estiver apurado o valor da dívida. § 6º A Certidão de Dívida Ativa conterá os mesmos elementos do Termo de Inscrição e será autenticada pela autoridade competente.',
+  },
+  {
+    norma: 'Súmula STJ',
+    identificador: 'Súmula 392',
+    texto_integral:
+      'A Fazenda Pública pode substituir a certidão de dívida ativa (CDA) até a prolação da sentença de embargos, quando se tratar de correção de erro material ou formal, vedada a modificação do sujeito passivo da execução.',
+  },
+  {
+    norma: 'CTN',
+    identificador: 'art. 156, I',
+    texto_integral: 'Art. 156. Extinguem o crédito tributário: I - o pagamento; [...]. Pagamento comprovado anterior à inscrição extingue o crédito e torna indevida a cobrança.',
+  },
+  {
+    norma: 'Súmula STJ',
+    identificador: 'Súmula 106',
+    texto_integral:
+      'Proposta a ação no prazo fixado para o seu exercício, a demora na citação, por motivos inerentes ao mecanismo da Justiça, não justifica o acolhimento da arguição de prescrição ou decadência.',
+  },
+  {
+    norma: 'LEF (Lei 6.830/80)',
+    identificador: 'art. 16',
+    texto_integral:
+      'Art. 16. O executado oferecerá embargos, no prazo de 30 (trinta) dias, contados: I - do depósito; II - da juntada da prova da fiança bancária ou do seguro garantia; III - da intimação da penhora. § 1º Não são admissíveis embargos do executado antes de garantida a execução. § 2º No prazo dos embargos, o executado deverá alegar toda matéria útil à defesa, requerer provas e juntar aos autos documentos e rol de testemunhas, até três, ou, a critério do juiz, até o dobro desse limite. § 3º Não será admitida reconvenção, nem compensação, e as exceções, salvo as de suspeição, incompetência e impedimentos, serão argüidas como matéria preliminar e serão processadas e julgadas com os embargos.',
+  },
+  {
+    norma: 'CPC/2015',
+    identificador: 'art. 919, § 1º',
+    texto_integral:
+      'Art. 919. Os embargos à execução não terão efeito suspensivo. § 1º O juiz poderá, a requerimento do embargante, atribuir efeito suspensivo aos embargos quando verificados os requisitos para a concessão da tutela provisória e desde que a execução já esteja garantida por penhora, depósito ou caução suficientes.',
+  },
+  {
+    norma: 'CPC/2015',
+    identificador: 'art. 85, § 3º',
+    texto_integral:
+      'Art. 85. [...] § 3º Nas causas em que a Fazenda Pública for parte, a fixação dos honorários observará os critérios estabelecidos nos incisos I a IV do § 2º e os seguintes percentuais: I - mínimo de dez e máximo de vinte por cento sobre o valor da condenação ou do proveito econômico obtido até 200 (duzentos) salários-mínimos; II - mínimo de oito e máximo de dez por cento sobre o valor da condenação ou do proveito econômico obtido acima de 200 (duzentos) salários-mínimos até 2.000 (dois mil) salários-mínimos; III - mínimo de cinco e máximo de oito por cento sobre o valor da condenação ou do proveito econômico obtido acima de 2.000 (dois mil) salários-mínimos até 20.000 (vinte mil) salários-mínimos; IV - mínimo de três e máximo de cinco por cento sobre o valor da condenação ou do proveito econômico obtido acima de 20.000 (vinte mil) salários-mínimos até 100.000 (cem mil) salários-mínimos; V - mínimo de um e máximo de três por cento sobre o valor da condenação ou do proveito econômico obtido acima de 100.000 (cem mil) salários-mínimos.',
+  },
+  {
+    norma: 'CPC/2015',
+    identificador: 'art. 1.015, parágrafo único',
+    texto_integral:
+      'Art. 1.015. [...] Parágrafo único. Também caberá agravo de instrumento contra decisões interlocutórias proferidas na fase de liquidação de sentença ou de cumprimento de sentença, no processo de execução e no processo de inventário.',
+  },
+  {
+    norma: 'CPC/2015',
+    identificador: 'art. 1.003, § 5º',
+    texto_integral:
+      'Art. 1.003. [...] § 5º Excetuados os embargos de declaração, o prazo para interpor os recursos e para responder-lhes é de 15 (quinze) dias. Contagem em dias úteis (art. 219 do CPC).',
+  },
+  {
+    norma: 'CPC/2015',
+    identificador: 'art. 1.019, I',
+    texto_integral:
+      'Art. 1.019. Recebido o agravo de instrumento no tribunal e distribuído imediatamente, se não for o caso de aplicação do art. 932, incisos III e IV, o relator, no prazo de 5 (cinco) dias: I - poderá atribuir efeito suspensivo ao recurso ou deferir, em antecipação de tutela, total ou parcialmente, a pretensão recursal, comunicando ao juiz sua decisão;',
+  },
 ];

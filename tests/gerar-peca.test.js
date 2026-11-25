@@ -62,6 +62,9 @@ beforeEach(() => {
     if (u.includes('/storage/v1/object/documentos/')) return cenario.storageStatus === 200 ? resp(Buffer.from('%PDF-1.4 teste'), 200, { 'content-type': 'application/pdf' }) : resp('', cenario.storageStatus);
     if (u.includes('generativelanguage.googleapis.com')) {
       if (cenario.geminiStatus !== 200) return resp(cenario.geminiCorpo || { error: 'x' }, cenario.geminiStatus);
+      if (String(opcoes.body || '').includes('MANIFESTAÇÃO DA FAZENDA PÚBLICA')) {
+        return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.manifestacao) }] } }], usageMetadata: { totalTokenCount: 99 } });
+      }
       return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.dadosGemini) }] } }], usageMetadata: { totalTokenCount: 321 } });
     }
     throw new Error(`fetch inesperado: ${u}`);
@@ -409,5 +412,52 @@ describe('carteira: marcos de prazo gravados junto com a peça', () => {
     const r = await chamar({ analise_id: ANALISE_ID, so_prazos: true });
     expect(r.status).toBe(502);
     expect(r.corpo.gravada).toBe(false);
+  });
+});
+
+describe('peça extra: réplica à manifestação da Fazenda (tipo: replica)', () => {
+  const MANIFESTACAO = { storage_path: 'user-1/caso-1/manifestacao-1_impugnacao.pdf', nome: 'impugnacao.pdf', mime_type: 'application/pdf' };
+  const manifestacaoGemini = {
+    alerta_ilegivel: '',
+    data_manifestacao: '15/09/2026',
+    argumentos: [
+      { tipo: 'inadequacao_da_via', resumo: 'A matéria exige dilação probatória.', evento: 'nenhum', data_evento: '', cda: '', periodo: '', trecho_literal: 'exige dilação', pagina: 2 },
+      { tipo: 'outro', resumo: 'A CDA goza de presunção de certeza.', evento: 'nenhum', data_evento: '', cda: '', periodo: '', trecho_literal: 'presunção', pagina: 3 },
+    ],
+  };
+
+  it('tipo inválido: 400; sem a manifestação ou com arquivo de outro usuário: 400', async () => {
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'qualquer' })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica' })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: { ...MANIFESTACAO, storage_path: 'outro-usuario/x.pdf' } })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: { ...MANIFESTACAO, storage_path: 'user-1/../x.pdf' } })).status).toBe(400);
+  });
+
+  it('gera a réplica no modelo genérico, com o confronto de cada argumento e a peça pronta para o editor', async () => {
+    cenario.manifestacao = manifestacaoGemini;
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: MANIFESTACAO });
+    expect(status).toBe(200);
+    expect(corpo.tipo).toBe('replica');
+    expect(corpo.detalhe.data_manifestacao).toBe('15/09/2026');
+    expect(corpo.detalhe.argumentos.map((a) => a.situacao)).toEqual(['refutado', 'sem_resposta']);
+    const [p] = corpo.pecas;
+    expect(p.tese).toBe('replica');
+    expect(p.template).toBe('Peca_generica');
+    expect(p.resumo.campos_preencher).toBeGreaterThan(0);
+    expect(p.arquivo.nome).toMatch(/^Replica_/);
+    const { texto } = await abrir(p.arquivo);
+    expect(texto).toContain('MANIFESTAÇÃO SOBRE A IMPUGNAÇÃO À EXCEÇÃO DE PRÉ-EXECUTIVIDADE');
+    expect(texto).toContain('Súmula 393');
+    // duas chamadas ao Gemini: os dados do caso e a manifestação; a manifestação lida com o token do usuário
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(2);
+    const leitura = chamadas.find((c) => c.url.includes('manifestacao-1_impugnacao.pdf'));
+    expect(leitura.opcoes.headers.Authorization).toBe(`Bearer ${USER_TOKEN}`);
+  });
+
+  it('manifestação sem argumentos: 422 com explicação', async () => {
+    cenario.manifestacao = { alerta_ilegivel: '', data_manifestacao: '', argumentos: [] };
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: MANIFESTACAO });
+    expect(status).toBe(422);
+    expect(corpo.error).toMatch(/Não encontrei argumentos/);
   });
 });
