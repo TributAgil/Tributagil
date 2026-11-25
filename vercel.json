@@ -25,6 +25,9 @@
       "maxDuration": 150
     }
   },
+  "crons": [
+    { "path": "/api/alertas-prazo", "schedule": "23 10 * * *" }
+  ],
   "rewrites": [
     { "source": "/((?!api/|privacidade|termos).*)", "destination": "/index.html" }
   ],

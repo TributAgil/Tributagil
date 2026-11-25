@@ -160,7 +160,7 @@ export function calcularDecadencia({ fatoGerador, vencimento, houvePagamentoAnte
 // Escolha do modelo
 // ---------------------------------------------------------------------------
 
-function execucaoAjuizada(processo) {
+export function execucaoAjuizada(processo) {
   return Boolean(processo && (String(processo.numero || '').trim() || preenchido(processo.data_ajuizamento)));
 }
 

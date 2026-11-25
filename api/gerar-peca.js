@@ -37,6 +37,7 @@ import { extrairDados } from './_extracao-peca.js';
 import { ErroGemini } from './_gemini-resiliente.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
 import { avaliarPecas } from './_motor-peca.js';
+import { marcosDoCaso, dataIso } from './_carteira.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
 import { renderizarPeca, contarMarcadores, figurasDoDocx } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
@@ -86,9 +87,27 @@ export async function POST(request) {
       statusPeca: ctx.statusPeca || null,
       template: ctx.template || null,
       tokens: ctx.tokens ?? null,
+      carteira: ctx.carteiraGravada ?? null,
       httpStatus: resposta?.status ?? null,
       duracaoMs: Date.now() - inicio,
     }));
+  }
+}
+
+/** Grava os marcos na carteira (RPC salvar_prazos_caso, com o token do usuário: RLS). Devolve se gravou. */
+async function gravarCarteira({ supabaseUrl, supabaseAnonKey, userToken, analiseId, carteira, pecaGerada }) {
+  try {
+    const marcos = carteira.marcos.map((m) => ({ ...m, data: dataIso(m.data) })).filter((m) => m.data);
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/salvar_prazos_caso`, {
+      method: 'POST',
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_analise_id: analiseId, p_ajuizada: carteira.ajuizada, p_teses: carteira.teses, p_marcos: marcos, p_peca_gerada: pecaGerada }),
+    });
+    if (!resp.ok && resp.status !== 404) console.warn(`[api/gerar-peca] Carteira não gravada (HTTP ${resp.status})`);
+    return resp.ok;
+  } catch (err) {
+    console.warn('[api/gerar-peca] Carteira não gravada:', err?.message);
+    return false;
   }
 }
 
@@ -256,6 +275,19 @@ async function processar(request, ctx) {
   }
 
   const geraveis = avaliacoes.filter((a) => a.status === 'ok');
+
+  // ---- Carteira: os marcos de prazo do caso (best-effort: falha aqui nunca derruba a peça) ----------
+  // Com `so_prazos` (botão "Calcular prazos" da carteira) a requisição para aqui: lê os documentos, roda o motor e grava
+  // os marcos, sem montar peça.
+  ctx.fase = 'carteira';
+  const carteira = marcosDoCaso({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
+  const soPrazos = body?.so_prazos === true;
+  ctx.carteiraGravada = await gravarCarteira({
+    supabaseUrl, supabaseAnonKey, userToken, analiseId, carteira, pecaGerada: !soPrazos && geraveis.length > 0,
+  });
+  if (soPrazos) {
+    return json({ status: 'prazos', carteira, gravada: ctx.carteiraGravada }, ctx.carteiraGravada ? 200 : 502);
+  }
   if (geraveis.length === 0) {
     const naoOk = avaliacoes.length ? avaliacoes : [];
     return json({

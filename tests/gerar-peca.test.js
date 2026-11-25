@@ -53,6 +53,7 @@ beforeEach(() => {
     const u = String(url);
     chamadas.push({ url: u, opcoes });
     if (u.includes('/rest/v1/rpc/rate_limit_checar')) return resp([{ ok: true }]);
+    if (u.includes('/rest/v1/rpc/salvar_prazos_caso')) return cenario.carteiraStatus ? resp({ message: 'x' }, cenario.carteiraStatus) : resp(3);
     if (u.endsWith('/auth/v1/user')) return cenario.authOk ? resp({ id: 'user-1' }) : resp({}, 401);
     if (u.includes('/rest/v1/analises?')) return resp(cenario.analises);
     if (u.includes('/rest/v1/escritorios')) return resp(cenario.escritorios);
@@ -371,5 +372,42 @@ describe('política de créditos centralizada', () => {
     expect(r.status).toBe(501);
     expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
     vi.doUnmock('../api/_politica-peca.js');
+  });
+});
+
+describe('carteira: marcos de prazo gravados junto com a peça', () => {
+  const corpoCarteira = () => JSON.parse(chamadas.find((c) => c.url.includes('/rpc/salvar_prazos_caso')).opcoes.body);
+
+  it('ao gerar a peça, grava os marcos (datas em ISO) com o token do usuário e marca a peça como gerada', async () => {
+    const { status, corpo } = await chamar();
+    expect(status).toBe(200);
+    expect(corpo.status).toBe('ok');
+    const rpc = chamadas.find((c) => c.url.includes('/rpc/salvar_prazos_caso'));
+    expect(rpc.opcoes.headers.Authorization).toBe(`Bearer ${USER_TOKEN}`);
+    const c = corpoCarteira();
+    expect(c.p_analise_id).toBe(ANALISE_ID);
+    expect(c.p_peca_gerada).toBe(true);
+    expect(c.p_teses.map((t) => t.tese)).toEqual(['prescricao_ordinaria', 'decadencia', 'prescricao_intercorrente']);
+    expect(c.p_marcos.length).toBeGreaterThan(0);
+    expect(c.p_marcos.every((m) => /^\d{4}-\d{2}-\d{2}$/.test(m.data))).toBe(true);
+  });
+
+  it('so_prazos: lê os documentos e roda o motor, mas não monta peça', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, so_prazos: true });
+    expect(status).toBe(200);
+    expect(corpo.status).toBe('prazos');
+    expect(corpo.gravada).toBe(true);
+    expect(corpo.carteira.marcos.length).toBeGreaterThan(0);
+    expect(corpo.pecas).toBeUndefined();
+    expect(corpoCarteira().p_peca_gerada).toBe(false);
+    expect(chamadas.some((c) => c.url.includes('/storage/v1/object/logos/'))).toBe(false);
+  });
+
+  it('carteira fora do ar não derruba a peça (e o so_prazos avisa)', async () => {
+    cenario.carteiraStatus = 500;
+    expect((await chamar()).corpo.status).toBe('ok');
+    const r = await chamar({ analise_id: ANALISE_ID, so_prazos: true });
+    expect(r.status).toBe(502);
+    expect(r.corpo.gravada).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Scale, Clock, ArrowUpRight, Sparkles } from 'lucide-react';
+import { LogOut, Scale, Clock, ArrowUpRight, Sparkles, CalendarClock } from 'lucide-react';
 import BotaoComecarAnalise from '../components/BotaoComecarAnalise';
 import BarraCreditos from '../components/BarraCreditos';
 import Logo from '../components/Logo';
@@ -18,7 +18,7 @@ function formatarData(iso) {
     : d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogout }) => {
+const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onVerCarteira, onLogout }) => {
   const [recentes, setRecentes] = useState([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -84,12 +84,22 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onLogou
             <BotaoComecarAnalise onComecar={onNovaAnalise} />
           </div>
 
-          <button
-            onClick={onVerHistorico}
-            className="mt-8 text-sm text-parchment/40 underline-offset-4 transition-colors hover:text-gold hover:underline"
-          >
-            Ver histórico completo
-          </button>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+            {onVerCarteira && (
+              <button
+                onClick={onVerCarteira}
+                className="inline-flex items-center gap-2 rounded-xl border border-gold/40 px-4 py-2 text-sm text-gold transition-colors hover:bg-gold/10"
+              >
+                <CalendarClock size={15} /> Carteira e prazos
+              </button>
+            )}
+            <button
+              onClick={onVerHistorico}
+              className="text-sm text-parchment/40 underline-offset-4 transition-colors hover:text-gold hover:underline"
+            >
+              Ver histórico completo
+            </button>
+          </div>
         </section>
 
         {/* ---- Análises recentes ---- */}

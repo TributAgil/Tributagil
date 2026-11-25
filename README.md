@@ -1296,6 +1296,16 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Carteira de casos com alerta de prazo** (25/11/2026): tela "Carteira e prazos" (botão no painel,
+  `src/pages/Carteira.jsx`), uma linha por caso com a fase (analisado, peça gerada, protocolado, decidido, arquivado)
+  e os marcos de prazo do motor (`api/_carteira.js`): **consumado** (prescrito/decaído: tese pronta) e
+  **acompanhar** (prescrição ordinária sem execução e intercorrente em curso: consuma numa data conhecida, desde que
+  nada interrompa). Os marcos são gravados a cada "Gerar peça" e pelo botão "Calcular prazos" da carteira
+  (`api/gerar-peca.js` com `so_prazos`, lê os documentos e roda o motor, sem montar peça). Um cron diário da Vercel
+  (`api/alertas-prazo.js`, 10h23 UTC) manda um e-mail por advogado com os marcos "acompanhar" cuja data passou
+  (Resend; caso decidido ou arquivado não recebe). Banco em [`docs/sql/carteira.sql`](docs/sql/carteira.sql)
+  (aplicado em 25/11/2026). Variáveis: `CRON_SECRET` (obrigatória para o cron), `SUPABASE_RPC_SEGREDO`,
+  `RESEND_API_KEY`, `CONTATO_EMAIL_FROM` e, opcional, `APP_URL` (link do e-mail).
 - **Conversar com o Lu também no resultado da análise** (25/11/2026): botão fixo "Conversar com o Lu" (preto e
   amarelo) no canto da tela do resultado; abre o mesmo chat do editor (`src/components/lu/ConversaDaAnalise.jsx`),
   com os documentos enviados e o parecer (inclusive raciocínio e recomendações). Ali não há peça: o Lu não propõe
