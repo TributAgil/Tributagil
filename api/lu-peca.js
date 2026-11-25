@@ -37,7 +37,9 @@ import { LEGISLACAO_TRIBUTAGIL } from './_legislacao-tributagil.js';
 import { baixarDocumentosDoCaso, tokensEstimados } from './_documentos-caso.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
-const MODELO_PADRAO = 'gemini-3.5-flash'; // GEMINI_MODEL
+// O Lu tem modelo próprio (decisão do Luan, 25/11/2026): Flash-Lite, mais barato e rápido, porque é usado muitas vezes
+// e o advogado sempre revisa o que ele propõe. A análise, a extração da peça e as figuras seguem em GEMINI_MODEL.
+const MODELO_LU_PADRAO = 'gemini-3.5-flash-lite'; // GEMINI_MODEL_LU
 const TIMEOUT_MS = 50_000;
 const TIMEOUT_CONVERSA_MS = 100_000; // a conversa lê os PDFs do caso: mais lenta (vercel.json: maxDuration 120)
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
@@ -75,32 +77,50 @@ const RL_USUARIO = { limite: 20, janela: 60_000 };
 
 // ---- Limite diário em CRÉDITOS INFORMATIVOS (decisão do Luan, 30/10/2026) --------------------------------------------
 // 1.000.000 de créditos = US$ 1,00 de Gemini por usuário por dia, ou seja, 1 crédito = US$ 0,000001 (meia-noite de
-// Brasília; contador em public.consumo_lu, docs/sql/consumo-lu.sql). Preço de lista do gemini-3.5-flash: US$ 1,50 por
-// milhão de tokens de entrada e US$ 9,00 de saída => 1 token de entrada = 1,5 crédito; 1 de saída (inclusive
-// raciocínio) = 9 créditos.
+// Brasília; contador em public.consumo_lu, docs/sql/consumo-lu.sql). O crédito segue o preço de lista do modelo que
+// atendeu o pedido (por milhão de tokens; o raciocínio conta como saída):
+//   gemini-3.5-flash-lite: US$ 0,30 entrada / US$ 2,50 saída => 0,3 e 2,5 créditos por token;
+//   gemini-3.5-flash:      US$ 1,50 entrada / US$ 9,00 saída => 1,5 e 9 créditos por token.
+// Modelo fora da tabela conta pelo Flash. Use no Lu só Flash ou Flash-Lite: um Pro custaria mais do que o crédito mede.
 export const LIMITE_CREDITOS_DIA = 1_000_000;
 export const USD_DO_LIMITE = 1;
-const CREDITOS_POR_TOKEN_ENTRADA = 1.5;
-const CREDITOS_POR_TOKEN_SAIDA = 9;
+const PRECO_FLASH = { entrada: 1.5, saida: 9 };
+const PRECO_FLASH_LITE = { entrada: 0.3, saida: 2.5 };
 // teto da resposta: um pedido sozinho nunca passa de ~37 mil créditos de saída, então o dia não estoura além disso
 const MAX_TOKENS_SAIDA = 4096;
+
+/** Créditos por token do modelo (ver a tabela acima). */
+export function precoDoModelo(modelo) {
+  return /flash-lite/i.test(String(modelo || '')) ? PRECO_FLASH_LITE : PRECO_FLASH;
+}
+
+/**
+ * O preço para a RESERVA: o mais caro entre o modelo do Lu e o de reserva (GEMINI_MODEL_RESERVA), porque o pedido pode
+ * acabar atendido por qualquer um dos dois.
+ */
+export function precoDaReserva(modelo, modeloReserva = '') {
+  const a = precoDoModelo(modelo);
+  const b = modeloReserva ? precoDoModelo(modeloReserva) : a;
+  return { entrada: Math.max(a.entrada, b.entrada), saida: Math.max(a.saida, b.saida) };
+}
 
 /**
  * Reserva ANTES de chamar o Gemini: o máximo que este pedido pode custar (entrada estimada pelo tamanho do texto,
  * com folga de ~3 caracteres por token, e a saída no teto). Se o saldo do dia não cobre a reserva, o pedido não sai:
  * assim o gasto do dia não passa de 1.000.000 de créditos (US$ 1,00).
  */
-export function reservaDoPedido(corpoJson, tokensDeDocumentos = 0) {
-  return Math.ceil((Math.ceil(String(corpoJson || '').length / 3) + tokensDeDocumentos) * CREDITOS_POR_TOKEN_ENTRADA + MAX_TOKENS_SAIDA * CREDITOS_POR_TOKEN_SAIDA);
+export function reservaDoPedido(corpoJson, tokensDeDocumentos = 0, preco = PRECO_FLASH) {
+  return Math.ceil((Math.ceil(String(corpoJson || '').length / 3) + tokensDeDocumentos) * preco.entrada + MAX_TOKENS_SAIDA * preco.saida);
 }
 
-/** Créditos gastos num pedido, pelos tokens que o próprio Gemini informa (usageMetadata). */
-export function creditosDoUso(uso) {
+/** Créditos gastos num pedido, pelos tokens que o próprio Gemini informa (usageMetadata), no preço do modelo usado. */
+export function creditosDoUso(uso, modelo = '') {
+  const preco = precoDoModelo(modelo);
   const entrada = Number(uso?.promptTokenCount) || 0;
   const saida = (Number(uso?.candidatesTokenCount) || 0) + (Number(uso?.thoughtsTokenCount) || 0);
-  if (entrada || saida) return Math.ceil(entrada * CREDITOS_POR_TOKEN_ENTRADA + saida * CREDITOS_POR_TOKEN_SAIDA);
+  if (entrada || saida) return Math.ceil(entrada * preco.entrada + saida * preco.saida);
   // sem o detalhe: conta tudo como saída (o mais caro), para nunca subestimar
-  return Math.ceil((Number(uso?.totalTokenCount) || 0) * CREDITOS_POR_TOKEN_SAIDA);
+  return Math.ceil((Number(uso?.totalTokenCount) || 0) * preco.saida);
 }
 
 const MSG_LIMITE = 'Os créditos do Lu de hoje acabaram (1.000.000 por dia). Eles voltam à meia-noite (horário de Brasília). A peça, as edições e o "Trocar em toda a peça" continuam funcionando.';
@@ -620,7 +640,7 @@ async function processar(request, ctx) {
 
   // ---- Lu (Gemini, JSON com schema) -------------------------------------------------------------------------------------
   ctx.fase = 'gemini';
-  const modelo = process.env.GEMINI_MODEL || MODELO_PADRAO;
+  const modelo = process.env.GEMINI_MODEL_LU || MODELO_LU_PADRAO;
   const montarCorpo = (comDocumentos) => JSON.stringify({
     systemInstruction: { parts: [{ text: conversar ? REGRAS_CONVERSA : REGRAS_COMUNS }] },
     contents: [{
@@ -646,9 +666,10 @@ async function processar(request, ctx) {
   const corpo = montarCorpo(true);
   // o saldo do dia precisa cobrir o pior caso deste pedido; senão ele não sai (o teto de US$ 1,00 vale de verdade).
   // Os PDFs não entram pelo tamanho do base64: entram pela estimativa de páginas.
+  const preco = precoDaReserva(modelo, process.env.GEMINI_MODEL_RESERVA);
   const reserva = conversar
-    ? reservaDoPedido(montarCorpo(false), documentos.reduce((n, d) => n + tokensEstimados(d), 0))
-    : reservaDoPedido(corpo);
+    ? reservaDoPedido(montarCorpo(false), documentos.reduce((n, d) => n + tokensEstimados(d), 0), preco)
+    : reservaDoPedido(corpo, 0, preco);
   if (gastoHoje + reserva > LIMITE_CREDITOS_DIA) {
     return json({ error: MSG_LIMITE, limiteAtingido: true, consumo: consumoDe(gastoHoje) }, 429);
   }
@@ -661,7 +682,7 @@ async function processar(request, ctx) {
     ctx.modelo = usado;
     const dados = await resp.json();
     ctx.tokens = dados?.usageMetadata?.totalTokenCount ?? null;
-    ctx.creditos = creditosDoUso(dados?.usageMetadata);
+    ctx.creditos = creditosDoUso(dados?.usageMetadata, usado);
     saida = JSON.parse(dados?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '{}');
   } catch (err) {
     if (err instanceof ErroGemini) {

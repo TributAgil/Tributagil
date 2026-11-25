@@ -13,6 +13,7 @@ delete process.env.GEMINI_MODEL_RESERVA;
 
 let POST;
 let rpcs; // nomes das RPCs do Supabase chamadas, em ordem
+let corposRpc; // { nome, corpo } de cada RPC, em ordem
 let urlsGemini; // URLs do Gemini chamadas, em ordem
 let gemini; // roteiro do Gemini: { extracao: [fn...], geracao: [fn...] }; a última se repete
 
@@ -39,17 +40,19 @@ beforeAll(async () => {
 
 beforeEach(() => {
   rpcs = [];
+  corposRpc = [];
   urlsGemini = [];
   gemini = roteiroPadrao();
   const cursor = { extracao: -1, geracao: -1 };
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  vi.stubGlobal('fetch', async (url) => {
+  vi.stubGlobal('fetch', async (url, opcoes = {}) => {
     const u = String(url);
     if (u.includes('/rest/v1/rpc/')) {
       const nome = u.split('/rpc/')[1];
       rpcs.push(nome);
+      corposRpc.push({ nome, corpo: JSON.parse(opcoes.body || '{}') });
       if (nome === 'rate_limit_checar') return resp([{ ok: true }]);
       if (nome === 'idempotencia_reclamar') return resp([{ acao: 'cobrar' }]);
       if (nome === 'consumir_credito') return gemini.credito === 'ok' ? resp('', 200) : resp({ message: 'SEM_CREDITOS' }, 400);
@@ -73,6 +76,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete process.env.GEMINI_MODEL_RESERVA;
+  delete process.env.SUPABASE_RPC_SEGREDO;
 });
 
 const requisicao = () =>
@@ -210,5 +214,27 @@ describe('api/gemini.js: 402 e cota do Gemini', () => {
     expect((await r.json()).error).toBe('Falha na API do Gemini (HTTP 400).');
     expect(urlsGemini.length).toBe(1);
     expect(estornou()).toBe(true);
+  });
+});
+
+describe('api/gemini.js: RPCs de idempotência só com o segredo do servidor', () => {
+  it('manda SUPABASE_RPC_SEGREDO em todas as RPCs de idempotência (e só nelas)', async () => {
+    process.env.SUPABASE_RPC_SEGREDO = 'segredo-de-teste-com-mais-de-32-caracteres';
+    const r = await chamar();
+    expect(r.status).toBe(200);
+    await r.text();
+    await vi.waitFor(() => expect(rpcs).toContain('idempotencia_confirmar_entrega'));
+    const idem = corposRpc.filter((c) => c.nome.startsWith('idempotencia_'));
+    expect(idem.map((c) => c.nome)).toEqual(['idempotencia_reclamar', 'idempotencia_marcar_debitado', 'idempotencia_confirmar_entrega']);
+    expect(idem.every((c) => c.corpo.p_segredo === 'segredo-de-teste-com-mais-de-32-caracteres')).toBe(true);
+    expect(corposRpc.filter((c) => !c.nome.startsWith('idempotencia_')).some((c) => 'p_segredo' in c.corpo)).toBe(false);
+  });
+
+  it('sem a variável, não inventa segredo e avisa no log (a análise segue)', async () => {
+    const r = await chamar();
+    expect(r.status).toBe(200);
+    await r.text();
+    expect(corposRpc.some((c) => 'p_segredo' in c.corpo)).toBe(false);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('SUPABASE_RPC_SEGREDO ausente'));
   });
 });

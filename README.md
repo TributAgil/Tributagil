@@ -33,6 +33,8 @@ yarn dev
 | `SUPABASE_ANON_KEY` | servidor | — | Idem `VITE_SUPABASE_ANON_KEY`, lado servidor. Recomendado. |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
 | `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash`. Use `gemini-3.1-pro-preview` **após ativar o billing** no Google Cloud (o Pro dá HTTP 429 no free tier) |
+| `GEMINI_MODEL_LU` | servidor | — | Modelo só do Lu ("Pedir ao Lu" e "Conversar"). Padrão `gemini-3.5-flash-lite` (decisão de 25/11/2026: a análise, a extração da peça e as figuras ficam em `GEMINI_MODEL`, Flash; o Lu, usado muitas vezes e sempre revisado pelo advogado, fica no Flash-Lite). Use só Flash ou Flash-Lite: os créditos do Lu seguem o preço desses dois |
+| `SUPABASE_RPC_SEGREDO` | servidor | ✅ | Segredo (≥ 32 caracteres) que o `/api/gemini` manda nas RPCs de idempotência da análise; o mesmo valor fica em `privado.segredos` no banco. Sem ele, essas RPCs recusam e não há estorno automático. Ver [`docs/sql/seguranca-rpcs.sql`](docs/sql/seguranca-rpcs.sql) |
 | `GEMINI_MODEL_RESERVA` | servidor | — | Modelo de reserva (ex.: um Flash-Lite ou outro Flash). Usado só quando o principal continua sobrecarregado (502/503) depois de 3 repetições, ou com a cota diária esgotada. Vazio = sem reserva. Ver "Resistência a sobrecarga do Gemini" |
 | `GEMINI_TEMPERATURE` | servidor | — | Temperatura da geração (padrão `0.3`) |
 | `GEMINI_THINKING_LEVEL` | servidor | — | Nível de *thinking* dos modelos 3.x: `high` (padrão), `low` ou `off`. Para a forma numérica dos modelos 2.5: `budget` + `GEMINI_THINKING_BUDGET` |
@@ -1294,6 +1296,14 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Modelos e segurança das RPCs** (25/11/2026): a análise, a extração da peça e as figuras rodam no
+  `gemini-3.5-flash` (`GEMINI_MODEL`); o Lu roda no `gemini-3.5-flash-lite` (`GEMINI_MODEL_LU`), com o
+  Flash-Lite também como reserva (`GEMINI_MODEL_RESERVA`). Os créditos do Lu passam a seguir o preço do modelo que
+  atendeu o pedido (Flash-Lite: 0,3 crédito por token de entrada e 2,5 por token de saída), mantendo 1.000.000 =
+  US$ 1,00. No banco ([`docs/sql/seguranca-rpcs.sql`](docs/sql/seguranca-rpcs.sql) e `-fase2.sql`): as RPCs de
+  idempotência da análise exigem o segredo do servidor (fechava uma falha em que um usuário logado podia criar
+  crédito de graça chamando marcar_debitado + falhar_e_estornar direto) e as funções SECURITY DEFINER deixaram de
+  ser chamáveis sem login, menos `rate_limit_checar` (o servidor a usa antes de saber quem é o usuário).
 - **Créditos do Lu (limite diário)** (30/10/2026): cada usuário tem **1.000.000 de créditos informativos por dia**
   para o "Pedir ao Lu", o equivalente a **US$ 1,00** de Gemini (era US$ 1,50 até 30/10/2026; preço de lista do
   gemini-3.5-flash: 1 token de entrada = 1,5 crédito; 1 de saída ou de raciocínio = 9). O gasto vem dos tokens que o Gemini informa em cada resposta
