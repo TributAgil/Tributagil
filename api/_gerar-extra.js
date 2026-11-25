@@ -7,10 +7,37 @@
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
 
 import { lerManifestacao, confrontar, montarReplica } from './_replica.js';
+import { pecaEmbargos, pecaAgravo, pecaReconhecimento } from './_pecas-processuais.js';
+import { execucaoAjuizada } from './_pecas-extras.js';
 
 export const TIPOS_EXTRAS = {
   replica: { nome: 'Réplica à manifestação da Fazenda', arquivo: 'Replica', precisaManifestacao: true },
+  embargos: { nome: 'Embargos à execução fiscal', arquivo: 'Embargos_Execucao' },
+  agravo: { nome: 'Agravo de instrumento', arquivo: 'Agravo_Instrumento' },
+  reconhecimento_intercorrente: { nome: 'Pedido de reconhecimento da prescrição intercorrente', arquivo: 'Reconhecimento_Intercorrente' },
 };
+
+const DATA_RE = /^\d{2}\/\d{2}\/\d{4}$/;
+const texto = (v, max) => String(v ?? '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, max);
+
+/** A entrada que a tela manda para cada tipo, validada (data inválida vira "", e a peça leva [PREENCHER]). */
+export function sanearEntrada(tipo, entrada = {}) {
+  const e = entrada && typeof entrada === 'object' ? entrada : {};
+  if (tipo === 'embargos') {
+    return {
+      data_garantia: DATA_RE.test(texto(e.data_garantia, 10)) ? texto(e.data_garantia, 10) : '',
+      forma_garantia: ['penhora', 'deposito', 'fianca_seguro'].includes(e.forma_garantia) ? e.forma_garantia : 'penhora',
+    };
+  }
+  if (tipo === 'agravo') {
+    return {
+      data_intimacao_decisao: DATA_RE.test(texto(e.data_intimacao_decisao, 10)) ? texto(e.data_intimacao_decisao, 10) : '',
+      tribunal: texto(e.tribunal, 120),
+      resumo_decisao: texto(e.resumo_decisao, 1500),
+    };
+  }
+  return {};
+}
 
 /** Erro de entrada do usuário (vira 422 com a mensagem). */
 export class ErroEntrada extends Error {}
@@ -20,7 +47,15 @@ export class ErroEntrada extends Error {}
  *   tesesConsumadas: string[], entrada?: object }} args
  * @returns {Promise<{ peca: object, descricao: string, avisos: string[], detalhe: object }>}
  */
-export async function montarPecaExtra({ tipo, dados, agora, apiKey, partesManifestacao = [], ctx = {}, tesesConsumadas = [] }) {
+export async function montarPecaExtra({ tipo, dados, agora, apiKey, partesManifestacao = [], ctx = {}, tesesConsumadas = [], entrada = {} }) {
+  if (tipo === 'embargos' || tipo === 'agravo' || tipo === 'reconhecimento_intercorrente') {
+    if (!execucaoAjuizada(dados)) throw new ErroEntrada('Esta peça exige execução fiscal ajuizada, e os documentos desta análise não mostram uma.');
+    const e = sanearEntrada(tipo, entrada);
+    const r = tipo === 'embargos' ? pecaEmbargos({ dados, entrada: e, agora }) : tipo === 'agravo' ? pecaAgravo({ dados, entrada: e, agora }) : pecaReconhecimento({ dados, agora });
+    if (!r) throw new ErroEntrada('O cálculo do caso não mostra prescrição intercorrente consumada: não há o que pedir com esta peça.');
+    const materias = r.materias.length ? r.materias.join(', ') : 'nenhuma matéria sustentada pelo cálculo';
+    return { peca: r.peca, descricao: `${TIPOS_EXTRAS[tipo].nome}: ${materias}.`, avisos: r.avisos, detalhe: { materias: r.materias } };
+  }
   if (tipo === 'replica') {
     const manifestacao = await lerManifestacao({ apiKey, partesManifestacao, ctx });
     if (manifestacao.alerta_ilegivel) throw new ErroEntrada(`Não consegui ler a manifestação: ${manifestacao.alerta_ilegivel}`);

@@ -462,6 +462,43 @@ describe('peça extra: réplica à manifestação da Fazenda (tipo: replica)', (
   });
 });
 
+describe('peças processuais: embargos, agravo e reconhecimento da intercorrente', () => {
+  it('embargos: a data da garantia entra na tempestividade e as matérias do cálculo vão para a peça', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'embargos', entrada: { data_garantia: '10/11/2026', forma_garantia: 'deposito' } });
+    expect(status).toBe(200);
+    expect(corpo.tipo).toBe('embargos');
+    expect(corpo.detalhe.materias).toContain('prescrição');
+    const [p] = corpo.pecas;
+    expect(p.tese).toBe('embargos');
+    expect(p.template).toBe('Peca_generica');
+    expect(p.arquivo.nome).toMatch(/^Embargos_Execucao_/);
+    const { texto } = await abrir(p.arquivo);
+    expect(texto).toContain('EMBARGOS À EXECUÇÃO FISCAL');
+    expect(texto).toContain('garantida por depósito em dinheiro');
+    expect(texto).toContain('intimado(a) em 10/11/2026');
+    // uma chamada ao Gemini (os dados do caso); as peças processuais não leem arquivo extra
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(1);
+  });
+
+  it('agravo: entrada inválida é neutralizada (data some e vira [PREENCHER]) e a peça sai mesmo assim', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'agravo', entrada: { data_intimacao_decisao: '2026-11-20', tribunal: 'x'.repeat(500), resumo_decisao: 7 } });
+    expect(status).toBe(200);
+    const { texto } = await abrir(corpo.pecas[0].arquivo);
+    expect(texto).toContain('AGRAVO DE INSTRUMENTO');
+    expect(texto).toContain('[PREENCHER: data da intimação]');
+  });
+
+  it('reconhecimento sem intercorrente consumada e embargos sem execução: 422 com a explicação', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, tipo: 'reconhecimento_intercorrente' });
+    expect(r.status).toBe(422);
+    expect(r.corpo.error).toMatch(/intercorrente consumada/);
+    cenario.dadosGemini = dadosPrescricao({ ajuizada: false });
+    const e = await chamar({ analise_id: ANALISE_ID, tipo: 'embargos' });
+    expect(e.status).toBe(422);
+    expect(e.corpo.error).toMatch(/execução fiscal ajuizada/);
+  });
+});
+
 describe('novas teses junto com as originais', () => {
   it('redirecionamento por mero inadimplemento: a exceção do sócio sai ao lado da peça de prescrição', async () => {
     const d = dadosPrescricao();

@@ -1296,6 +1296,18 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Embargos, agravo e reconhecimento da intercorrente** (25/11/2026): três opções novas em "Outras peças deste
+  caso" (`api/_pecas-processuais.js`, mesmo endpoint com `tipo` = `embargos`, `agravo` ou
+  `reconhecimento_intercorrente` e `entrada` com as datas). **Embargos à execução fiscal**: data da intimação da
+  garantia + forma (penhora, depósito, fiança/seguro); tempestividade de 30 dias (art. 16 da LEF) calculada em dias
+  corridos e em dias úteis, com `[CONFIRMAR]` (feriados e suspensões o sistema não conhece) e aviso se venceu;
+  matérias de defesa tiradas do cálculo do caso (prescrição, decadência, intercorrente, novas teses; a
+  ilegitimidade do sócio com nome na CDA entra aqui, porque nos embargos cabe a prova); efeito suspensivo (art. 919,
+  § 1º, do CPC), provas e valor da causa. **Agravo de instrumento** contra a decisão que rejeitou a exceção: data
+  da intimação (15 dias úteis), tribunal (TRF/TJ pelo ente credor quando não informado), resumo da decisão, peças do
+  art. 1.017 e efeito suspensivo (art. 1.019, I). **Reconhecimento da intercorrente**: petição simples (art. 40, § 4º,
+  da LEF), só quando o cálculo mostra a intercorrente consumada (senão 422 com a explicação). Embargos e agravo
+  exigem execução ajuizada.
 - **Novas teses** (25/11/2026): ilegitimidade passiva do sócio redirecionado (Súmula 430, Temas 962/981/444,
   REsp 1.110.925), nulidade da CDA (requisito essencial ausente, art. 202 CTN / art. 2º § 5º LEF) e cobrança indevida
   (quitação antes da inscrição e duplicidade). A extração da peça ganhou os campos `redirecionamento`, e por

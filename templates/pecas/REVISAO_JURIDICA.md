@@ -221,6 +221,23 @@ A decisão de gerar ou bloquear é do **código**, a partir dos fatos extraídos
   duas inscrições. Duplicidade sai com `[CONFIRMAR]` (pode ser lançamento complementar). Cita o art. 3º, parágrafo
   único, da LEF (presunção relativa da CDA). **Revisar.**
 
+### Embargos, agravo e reconhecimento da intercorrente (`api/_pecas-processuais.js`)
+
+As **matérias** vêm do cálculo do caso (as mesmas da exceção e das novas teses); o restante é minuta.
+
+- **Embargos à execução fiscal** — tempestividade pelo art. 16 da LEF com as duas contagens (dias corridos e dias
+  úteis do art. 219 do CPC) em `[CONFIRMAR]`: **decidir qual contagem adotar** como padrão. Garantia do juízo
+  (art. 16, § 1º), efeito suspensivo pelo art. 919, § 1º, do CPC, provas (art. 16, § 2º) e valor da causa
+  `[PREENCHER]`. Com nome do sócio na CDA, a ilegitimidade entra **aqui** (a prova cabe nos embargos), com os fatos
+  a preencher. **Revisar** o texto do efeito suspensivo e os pedidos.
+- **Agravo de instrumento** — contra a decisão que rejeitou a exceção (art. 1.015, parágrafo único, do CPC); 15
+  dias úteis (art. 1.003, § 5º) contados só sem fins de semana, com `[CONFIRMAR]` para feriados; lista de peças do
+  art. 1.017, I (dispensa em processo eletrônico, § 5º) com `[PREENCHER]`; Súmula 393/STJ contra o argumento de
+  dilação probatória; efeito suspensivo pelo art. 1.019, I. **Revisar** o endereçamento (Presidente do tribunal) e
+  se o recurso deve pedir também a tutela recursal.
+- **Reconhecimento da prescrição intercorrente** — petição simples pedindo a oitiva da Fazenda e o reconhecimento
+  (art. 40, § 4º, da LEF; REsp 1.340.553/RS), com as datas do cálculo. Só sai quando a intercorrente está consumada.
+
 ## Trechos repetidos entre os modelos (para ajustar em mais de um arquivo)
 
 A biblioteca de modelos (`docx-templates`) não permite "incluir" um trecho de outro arquivo Word sem

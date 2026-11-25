@@ -50,6 +50,14 @@ const SITUACAO_ARGUMENTO = {
 
 /** O que a peça extra mostra além do resumo: na réplica, a situação de cada argumento da Fazenda. */
 function DetalheExtra({ detalhe }) {
+  if (Array.isArray(detalhe?.materias)) {
+    return (
+      <p className="text-xs text-parchment/70">
+        <span className="text-parchment/50">Matérias que o cálculo sustenta: </span>
+        {detalhe.materias.length ? detalhe.materias.join(', ') : <span className="text-amber-400">nenhuma (redija a defesa antes de protocolar)</span>}
+      </p>
+    );
+  }
   if (!detalhe?.argumentos?.length) return null;
   return (
     <div className="rounded-lg border border-line bg-ink-800/60 p-2.5">
