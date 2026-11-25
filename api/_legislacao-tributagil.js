@@ -240,4 +240,16 @@ export const LEGISLACAO_TRIBUTAGIL = [
     texto_integral:
       'Art. 1.019. Recebido o agravo de instrumento no tribunal e distribuído imediatamente, se não for o caso de aplicação do art. 932, incisos III e IV, o relator, no prazo de 5 (cinco) dias: I - poderá atribuir efeito suspensivo ao recurso ou deferir, em antecipação de tutela, total ou parcialmente, a pretensão recursal, comunicando ao juiz sua decisão;',
   },
+  {
+    norma: 'STJ — Recurso Repetitivo',
+    identificador: 'REsp 1.358.837/SP (Tema 961)',
+    texto_integral:
+      'Tese firmada: Observado o princípio da causalidade, é cabível a fixação de honorários advocatícios, em exceção de pré-executividade, quando o sócio é excluído do polo passivo da execução fiscal, que não é extinta.',
+  },
+  {
+    norma: 'LEF (Lei 6.830/80)',
+    identificador: 'art. 3º, parágrafo único',
+    texto_integral:
+      'Art. 3º A Dívida Ativa regularmente inscrita goza da presunção de certeza e liquidez. Parágrafo único. A presunção a que se refere este artigo é relativa e pode ser ilidida por prova inequívoca, a cargo do executado ou de terceiro, a quem aproveite.',
+  },
 ];

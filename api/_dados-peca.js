@@ -25,6 +25,39 @@ export const TIPOS_EVENTO = ['parcelamento', 'pagamento', 'protesto', 'compensac
 export const CATEGORIAS_EXECUCAO = ['intimacao_nao_localizacao_bens', 'requerimento_constricao', 'penhora_constricao', 'citacao'];
 export const OBJETOS_NAO_LOCALIZADO = ['devedor', 'bens', 'devedor_e_bens', 'não consta'];
 
+export const REQUISITOS_CDA = [
+  'nome_devedor', 'domicilio', 'valor_originario', 'forma_calculo_juros_encargos', 'origem_natureza_fundamento_legal',
+  'data_numero_inscricao', 'processo_administrativo',
+];
+const ESTADOS_REQUISITO = ['consta', 'ausente', 'não verificável'];
+export const FUNDAMENTOS_REDIRECIONAMENTO = ['mero_inadimplemento', 'dissolucao_irregular', 'outro', 'não consta'];
+
+function requisitos(r, anexada) {
+  // sem a CDA anexada não há o que verificar, diga a leitura o que disser
+  return Object.fromEntries(REQUISITOS_CDA.map((k) => [k, anexada === 'sim' ? enumDe(r?.[k], ESTADOS_REQUISITO, 'não verificável') : 'não verificável']));
+}
+
+function quitacao(q) {
+  const situacao = enumDe(q?.situacao, TRES_ESTADOS, 'não consta');
+  return { situacao, data: DATA_RE.test(s(q?.data)) ? s(q.data) : '', fonte: s(q?.fonte) };
+}
+
+function redirecionamento(r) {
+  const houve = enumDe(r?.houve, TRES_ESTADOS, 'não consta');
+  return {
+    houve,
+    socio_nome: s(r?.socio_nome),
+    socio_documento: s(r?.socio_documento),
+    socio_consta_na_cda: enumDe(r?.socio_consta_na_cda, TRES_ESTADOS, 'não consta'),
+    fundamento: enumDe(r?.fundamento, FUNDAMENTOS_REDIRECIONAMENTO, 'não consta'),
+    data_dissolucao_irregular: dataFonte(r?.data_dissolucao_irregular),
+    socio_gerente_na_dissolucao: enumDe(r?.socio_gerente_na_dissolucao, TRES_ESTADOS, 'não consta'),
+    data_saida_socio: dataFonte(r?.data_saida_socio),
+    data_pedido_redirecionamento: dataFonte(r?.data_pedido_redirecionamento),
+    fonte: s(r?.fonte),
+  };
+}
+
 const CAMPOS_DATA_PERIODO = ['data_entrega_declaracao', 'data_vencimento', 'data_fato_gerador', 'data_decisao_anulatoria', 'data_notificacao_lancamento'];
 function periodoFantasma(p) {
   return s(p?.periodo) === '' && CAMPOS_DATA_PERIODO.every((k) => !DATA_RE.test(s(p?.[k]?.data)));
@@ -63,6 +96,11 @@ export function normalizarDadosPeca(bruto) {
       numero_cda: s(i?.numero_cda),
       tributo: s(i?.tributo),
       processo_administrativo: s(i?.processo_administrativo),
+      data_inscricao: dataFonte(i?.data_inscricao),
+      valor_consolidado: s(i?.valor_consolidado).slice(0, 60),
+      cda_anexada: enumDe(i?.cda_anexada, ['sim', 'não'], 'não'),
+      corresponsaveis: (Array.isArray(i?.corresponsaveis) ? i.corresponsaveis : []).map(s).filter(Boolean).slice(0, 20),
+      requisitos_cda: requisitos(i?.requisitos_cda, enumDe(i?.cda_anexada, ['sim', 'não'], 'não')),
       // Período fantasma (sem nome e sem nenhuma data) é invenção da leitura, típica de CDA sem período no documento:
       // descartado, senão o motor o avalia e aparece uma tese de decadência "bloqueada" sem existir nada a avaliar.
       periodos: (Array.isArray(i?.periodos) ? i.periodos : []).filter((p) => !periodoFantasma(p)).map((p) => ({
@@ -82,6 +120,7 @@ export function normalizarDadosPeca(bruto) {
         lancamento_anterior_anulado_vicio_formal_fonte: s(p?.lancamento_anterior_anulado_vicio_formal_fonte),
         data_decisao_anulatoria: dataFonte(p?.data_decisao_anulatoria),
         data_notificacao_lancamento: dataFonte(p?.data_notificacao_lancamento),
+        quitacao_integral: quitacao(p?.quitacao_integral),
       })),
       eventos_interruptivos: (Array.isArray(i?.eventos_interruptivos) ? i.eventos_interruptivos : [])
         .filter((e) => TIPOS_EVENTO.includes(s(e?.tipo)))
@@ -98,5 +137,6 @@ export function normalizarDadosPeca(bruto) {
         objeto_nao_localizado: enumDe(e?.objeto_nao_localizado, OBJETOS_NAO_LOCALIZADO, 'não consta'),
         fonte: s(e?.fonte),
       })),
+    redirecionamento: redirecionamento(b.redirecionamento),
   };
 }

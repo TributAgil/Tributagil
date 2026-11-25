@@ -40,6 +40,8 @@ import { avaliarPecas } from './_motor-peca.js';
 import { marcosDoCaso, dataIso } from './_carteira.js';
 import { contextoGenerico, TEMPLATE_GENERICO } from './_pecas-extras.js';
 import { montarPecaExtra, TIPOS_EXTRAS, ErroEntrada } from './_gerar-extra.js';
+import { avaliarTesesNovas, NOME_TESE_NOVA } from './_motor-teses-novas.js';
+import { montarPecaTeseNova, nomeModeloTeseNova } from './_pecas-teses-novas.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
 import { renderizarPeca, contarMarcadores, figurasDoDocx } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
@@ -63,7 +65,7 @@ const RL_JANELA_MS = 60_000;
 
 export const AVISO_FIXO = 'Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.';
 
-const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência', prescricao_intercorrente: 'Prescrição intercorrente' };
+const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência', prescricao_intercorrente: 'Prescrição intercorrente', ...NOME_TESE_NOVA };
 const NOME_MODELO = {
   EPE_prescricao_ordinaria: 'Exceção de Pré-Executividade — prescrição ordinária',
   EPE_decadencia: 'Exceção de Pré-Executividade — decadência',
@@ -270,6 +272,8 @@ async function processar(request, ctx) {
   // períodos + prescrição intercorrente da execução) e quem escolhe é o usuário, no modal.
   ctx.fase = 'motor';
   const { pecas: avaliacoes } = avaliarPecas({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
+  // as novas teses (redirecionamento, nulidade da CDA, cobrança indevida): só entram quando os fatos as indicam
+  avaliacoes.push(...avaliarTesesNovas({ dados }).filter((a) => a.relevante && a.status !== 'sem_tese'));
   ctx.statusPeca = statusGeral(avaliacoes);
   ctx.template = avaliacoes.filter((a) => a.template).map((a) => a.template).join(',') || null;
 
@@ -326,6 +330,41 @@ async function processar(request, ctx) {
   for (const avaliacao of avaliacoes) {
     if (avaliacao.status !== 'ok') {
       pecas.push(resumoSemArquivo(avaliacao));
+      continue;
+    }
+    if (avaliacao.generica) {
+      // nova tese: texto montado em código, no modelo genérico
+      const contextoNova = contextoGenerico({ dados, escritorio: dadosEscritorio, agora, perfil, peca: montarPecaTeseNova(avaliacao, dados) });
+      let docxNova;
+      try {
+        docxNova = await renderizarPeca({ template: TEMPLATE_GENERICO, contexto: contextoNova, logo });
+      } catch (err) {
+        console.error('[api/gerar-peca] Falha ao renderizar a peça da nova tese:', avaliacao.tese, err);
+        return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
+      }
+      const mk = await contarMarcadores(docxNova);
+      pecas.push({
+        ...resumoSemArquivo(avaliacao),
+        resumo: {
+          modelo: nomeModeloTeseNova(avaliacao, dados),
+          tese: NOME_TESE[avaliacao.tese],
+          descricao: avaliacao.descricao,
+          creditos: avaliacao.resumoCreditos,
+          intercorrente: null,
+          data_referencia: '',
+          campos_preencher: mk.preencher,
+          figuras: mk.figuras,
+          a_confirmar: mk.confirmar,
+          avisos: [...avaliacao.avisos, ...avisosLogo],
+          aviso_fixo: AVISO_FIXO,
+        },
+        figuras: [],
+        arquivo: {
+          nome: nomeArquivoPeca('', dados.executado.nome, agora).replace(/^Peca_/, `EPE_${avaliacao.tese}_`),
+          mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          base64: docxNova.toString('base64'),
+        },
+      });
       continue;
     }
     const contexto = montarContexto({

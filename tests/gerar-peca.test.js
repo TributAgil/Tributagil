@@ -461,3 +461,30 @@ describe('peça extra: réplica à manifestação da Fazenda (tipo: replica)', (
     expect(corpo.error).toMatch(/Não encontrei argumentos/);
   });
 });
+
+describe('novas teses junto com as originais', () => {
+  it('redirecionamento por mero inadimplemento: a exceção do sócio sai ao lado da peça de prescrição', async () => {
+    const d = dadosPrescricao();
+    cenario.dadosGemini = {
+      ...d,
+      inscricoes: d.inscricoes.map((i) => ({ ...i, cda_anexada: 'sim', requisitos_cda: {}, corresponsaveis: [] })),
+      redirecionamento: {
+        houve: 'sim', socio_nome: 'JOÃO SÓCIO', socio_documento: '123.456.789-00', socio_consta_na_cda: 'não', fundamento: 'mero_inadimplemento',
+        data_dissolucao_irregular: { data: '', fonte: '' }, socio_gerente_na_dissolucao: 'não consta', data_saida_socio: { data: '', fonte: '' },
+        data_pedido_redirecionamento: { data: '05/05/2016', fonte: 'pedido.pdf' }, fonte: 'pedido.pdf',
+      },
+    };
+    const { status, corpo } = await chamar();
+    expect(status).toBe(200);
+    const teses = corpo.pecas.filter((p) => p.status === 'ok').map((p) => p.tese);
+    expect(teses).toContain('prescricao_ordinaria');
+    expect(teses).toContain('ilegitimidade_passiva');
+    const nova = corpo.pecas.find((p) => p.tese === 'ilegitimidade_passiva');
+    expect(nova.tese_nome).toBe('Ilegitimidade passiva do sócio (redirecionamento indevido)');
+    expect(nova.resumo.modelo).toBe('Exceção de Pré-Executividade: ilegitimidade passiva do sócio');
+    expect(nova.template).toBe('Peca_generica');
+    const { texto } = await abrir(nova.arquivo);
+    expect(texto).toContain('JOÃO SÓCIO');
+    expect(texto).toContain('Súmula 430/STJ');
+  });
+});

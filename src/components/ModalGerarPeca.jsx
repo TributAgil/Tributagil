@@ -430,7 +430,9 @@ export default function ModalGerarPeca({ analise, user, onFechar }) {
                     ) : (
                       p.resumo.creditos.map((c, i) => (
                         <li key={i}>
-                          {c.cda} — período {c.periodo}: {c.termo_inicial} → {c.consumacao}
+                          {c.cda}
+                          {c.periodo ? ` — período ${c.periodo}` : ''}
+                          {c.termo_inicial ? `: ${c.termo_inicial} → ${c.consumacao}` : c.consumacao ? `: ${c.consumacao}` : ''}
                         </li>
                       ))
                     )}

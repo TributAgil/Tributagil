@@ -1296,6 +1296,13 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Novas teses** (25/11/2026): ilegitimidade passiva do sócio redirecionado (Súmula 430, Temas 962/981/444,
+  REsp 1.110.925), nulidade da CDA (requisito essencial ausente, art. 202 CTN / art. 2º § 5º LEF) e cobrança indevida
+  (quitação antes da inscrição e duplicidade). A extração da peça ganhou os campos `redirecionamento`, e por
+  inscrição `data_inscricao`, `valor_consolidado`, `cda_anexada`, `corresponsaveis`, `requisitos_cda` e, por período,
+  `quitacao_integral` (`api/_schema-dados-peca.js`, normalizados em `api/_dados-peca.js`, neutros quando ausentes).
+  Motor em código (`api/_motor-teses-novas.js`, conservador: na dúvida bloqueia) e peças no modelo genérico
+  (`api/_pecas-teses-novas.js`); saem na mesma lista do modal, ao lado das teses originais.
 - **Réplica à manifestação da Fazenda** (25/11/2026): no modal da peça, "Outras peças deste caso" →
   "Réplica à manifestação da Fazenda": o advogado envia o PDF da impugnação (vai para a pasta dele no bucket
   `documentos`), e `/api/gerar-peca` com `tipo: 'replica'` lê os documentos do caso, roda o motor, extrai os

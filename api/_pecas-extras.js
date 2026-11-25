@@ -68,6 +68,8 @@ export function contextoGenerico({ dados, escritorio = {}, agora = new Date(), p
   const ajuizada = execucaoAjuizada(dados);
   return {
     ...base,
+    // a parte que assina a peça: em regra o executado; na exceção do sócio redirecionado, o sócio
+    executado_nome: peca.parte_nome || base.executado_nome,
     enderecamento: peca.enderecamento || (ajuizada ? base.juizo : base.destinatario_pgfn),
     referencia_processo:
       peca.referencia_processo || (ajuizada ? `Execução Fiscal n.º ${base.processo_numero}` : `Inscrição(ões) em Dívida Ativa n.º ${listaCdas(dados)}`),

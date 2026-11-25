@@ -201,6 +201,26 @@ como `[PREENCHER]` ou `[CONFIRMAR]`.
   "MANIFESTAÇÃO SOBRE A IMPUGNAÇÃO À EXCEÇÃO DE PRÉ-EXECUTIVIDADE" (na revisão PGFN: "MANIFESTAÇÃO SOBRE A RESPOSTA
   DA PROCURADORIA").
 
+### Novas teses (`api/_motor-teses-novas.js` e `api/_pecas-teses-novas.js`)
+
+A decisão de gerar ou bloquear é do **código**, a partir dos fatos extraídos; o texto é minuta.
+
+- **Ilegitimidade passiva do sócio (redirecionamento)** — a peça é do **sócio** (ele é a parte que assina).
+  - Nome do sócio **na CDA** → bloqueia e orienta embargos (REsp 1.110.925/SP: ônus da prova é do sócio).
+  - Mero inadimplemento → Súmula 430/STJ.
+  - Dissolução irregular + retirada regular **antes** dela → Tema 962/STJ; sem poderes de gerência **na data**
+    da dissolução → Tema 981/STJ; gerente na dissolução → sem tese.
+  - Dissolução anterior à citação da empresa e pedido de redirecionamento mais de 5 anos depois → tópico de
+    prescrição para o redirecionamento (Tema 444/STJ) com `[CONFIRMAR]` (a inércia da Fazenda precisa ser demonstrada).
+  - Pedido de honorários citando o Tema 961/STJ (exclusão do sócio sem extinção da execução). **Revisar.**
+- **Nulidade da CDA** — gera só com requisito **essencial** ausente na CDA **anexada** (nome do devedor, valor
+  originário, forma de cálculo dos juros e encargos, origem/natureza/fundamento legal, data e número da inscrição).
+  Domicílio e processo administrativo viram aviso (dependem do caso). Aviso fixo da Súmula 392/STJ e do art. 203 do
+  CTN: a Fazenda pode substituir a CDA. **Revisar** se vale a pena alegar sozinha ou só como tese subsidiária.
+- **Cobrança indevida** — período quitado integralmente (com data e comprovante) e/ou o mesmo tributo e período em
+  duas inscrições. Duplicidade sai com `[CONFIRMAR]` (pode ser lançamento complementar). Cita o art. 3º, parágrafo
+  único, da LEF (presunção relativa da CDA). **Revisar.**
+
 ## Trechos repetidos entre os modelos (para ajustar em mais de um arquivo)
 
 A biblioteca de modelos (`docx-templates`) não permite "incluir" um trecho de outro arquivo Word sem
