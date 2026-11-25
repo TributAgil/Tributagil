@@ -20,7 +20,7 @@
 --        on conflict (nome) do update set valor = excluded.valor, criado_em = now();
 --   c) publicar o código que manda p_segredo;
 --   d) rodar docs/sql/seguranca-rpcs-fase2.sql (apaga as versões antigas, sem segredo).
--- É idempotente.
+-- É idempotente. Passos a) e b) APLICADOS em produção em 25/11/2026 (migração seguranca_rpcs); c) e d) pendentes.
 
 begin;
 
