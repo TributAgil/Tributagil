@@ -1296,6 +1296,16 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Relatório para o cliente** (25/11/2026): aba nova no resultado da análise
+  (`src/components/RelatorioCliente.jsx`, lógica em `src/lib/relatorioCliente.js`). O parecer em linguagem simples,
+  com o timbre do escritório (nome, logo, contato e advogados do cadastro): o que foi encontrado a favor do cliente
+  (explicação fixa por tese, só para conclusões favoráveis), os créditos atingidos e os prazos a acompanhar (marcos da
+  carteira, quando já calculados), os pontos a conferir (conclusões de atenção), os valores e os próximos passos. O
+  sistema não inventa valor: o escritório informa o valor total atualizado e quanto dele é atingido (o valor da causa
+  do parecer vem sugerido). Estimativa de honorários de sucumbência pelo art. 85, § 3º, do CPC, em escada (§ 5º),
+  sobre o valor atingido, com o salário mínimo editável (R$ 1.621,00 desde 01/01/2026, Decreto nº 12.797/2025); só
+  com execução ajuizada (na via administrativa não há condenação). Imprimir/salvar em PDF, baixar em Word ou copiar
+  o texto. Os valores digitados ficam no navegador (por análise), não no banco.
 - **Embargos, agravo e reconhecimento da intercorrente** (25/11/2026): três opções novas em "Outras peças deste
   caso" (`api/_pecas-processuais.js`, mesmo endpoint com `tipo` = `embargos`, `agravo` ou
   `reconhecimento_intercorrente` e `entrada` com as datas). **Embargos à execução fiscal**: data da intimação da

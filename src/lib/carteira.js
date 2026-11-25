@@ -64,3 +64,19 @@ export async function calcularPrazos(analiseId) {
     return { ok: false, error: 'Erro de rede ao calcular os prazos.' };
   }
 }
+
+/** Marcos de prazo de UM caso (RLS: só os do usuário). Nunca lança: sem tabela ou sem cálculo, devolve []. */
+export async function marcosDoCaso(casoId) {
+  if (!casoId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('marcos_prazo')
+      .select('tese, cda, periodo, data, tipo, condicao')
+      .eq('caso_id', casoId)
+      .order('data');
+    if (error) return [];
+    return data || [];
+  } catch {
+    return [];
+  }
+}

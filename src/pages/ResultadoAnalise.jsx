@@ -23,10 +23,12 @@ import {
   Loader2,
   FilePlus2,
   History,
+  Users,
 } from 'lucide-react';
 import RodapeLegal from '../components/RodapeLegal';
 import ModalGerarPeca from '../components/ModalGerarPeca';
 import ConversaDaAnalise from '../components/lu/ConversaDaAnalise';
+import RelatorioCliente from '../components/RelatorioCliente';
 import { podeGerarPeca, cenarioPrevio } from '../lib/peca';
 import { temPecaSalva } from '../lib/pecasSalvas';
 import Logo from '../components/Logo';
@@ -590,6 +592,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
     { id: 'raciocinio', label: 'Raciocínio Lógico', icon: Brain, count: resultado.raciocinio?.length || 0 },
     { id: 'recomendacoes', label: 'Recomendações', icon: Gavel, count: resultado.recomendacoes?.length || 0 },
     { id: 'anotacoes', label: 'Anotações do usuário', icon: Pencil, count: obs.trim() ? 1 : 0 },
+    { id: 'relatorio', label: 'Relatório para o cliente', icon: Users, count: null },
   ];
 
   return (
@@ -739,12 +742,14 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
                   />
                   <Icon size={16} className="mi-icon" />
                   {aba.label}
-                  <span className={`
-                    text-xs px-1.5 py-0.5 rounded-full
-                    ${ativa ? 'bg-gold/15 text-gold' : 'bg-ink-700 text-parchment/50'}
-                  `}>
-                    {aba.count}
-                  </span>
+                  {aba.count != null && (
+                    <span className={`
+                      text-xs px-1.5 py-0.5 rounded-full
+                      ${ativa ? 'bg-gold/15 text-gold' : 'bg-ink-700 text-parchment/50'}
+                    `}>
+                      {aba.count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -891,6 +896,7 @@ const ResultadoAnalise = ({ analise, user, onVoltar, onNovaAnalise, onReanalisar
           </div>
         )}
 
+        {abaAtiva === 'relatorio' && <RelatorioCliente resultado={resultado} analiseId={analiseId} casoId={casoId} user={user} />}
       </main>
 
       {mostrarPeca && <ModalGerarPeca analise={{ id: analiseId }} user={user} onFechar={() => setMostrarPeca(false)} />}
