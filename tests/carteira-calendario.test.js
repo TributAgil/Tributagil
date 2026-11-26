@@ -36,7 +36,7 @@ describe('calendário de prazos', () => {
   });
 
   it('avisos: consumados agora e prazos nos próximos 30 dias', () => {
-    expect(avisosDaCarteira(itens)).toEqual({ consumouAgora: 1, proximos: 1, andamentosNovos: 0, janela: 30 });
+    expect(avisosDaCarteira(itens)).toEqual({ consumouAgora: 1, proximos: 1, janela: 30 });
   });
 
   it('grade do mês começa no domingo; novembro de 2026 começa num domingo e tem 5 semanas', () => {

@@ -13,16 +13,12 @@ export async function carregarCarteira(userId) {
   const analises = await listarAnalises(userId);
   let carteira = [];
   let marcos = [];
-  let andamentos = [];
   let disponivel = true;
   try {
-    const [c, m, a] = await Promise.all([
+    const [c, m] = await Promise.all([
       supabase.from('carteira_casos').select('caso_id, analise_id, fase, fase_em, ajuizada, teses, calculado_em'),
       supabase.from('marcos_prazo').select('id, caso_id, chave, tese, cda, periodo, data, tipo, condicao, alertado_em').order('data'),
-      supabase.from('andamentos_caso').select('*'),
     ]);
-    // andamentos (DataJud) são opcionais: sem a tabela, a carteira segue sem eles
-    andamentos = a?.error ? [] : a?.data || [];
     if (c.error || m.error) {
       disponivel = false;
       console.warn('[carteira] Tabelas da carteira indisponíveis:', c.error?.message || m.error?.message);
@@ -34,7 +30,7 @@ export async function carregarCarteira(userId) {
     disponivel = false;
     console.warn('[carteira] Falha ao ler a carteira:', err);
   }
-  return { itens: montarCarteira({ analises, carteira, marcos, andamentos }), disponivel };
+  return { itens: montarCarteira({ analises, carteira, marcos }), disponivel };
 }
 
 /** Muda a fase do caso. @returns {Promise<{ ok: boolean, error?: string }>} */
@@ -82,27 +78,5 @@ export async function marcosDoCaso(casoId) {
     return data || [];
   } catch {
     return [];
-  }
-}
-
-/**
- * Consulta os andamentos do processo no DataJud (api/andamentos.js). Nunca lança.
- * @returns {Promise<{ ok: boolean, status?: string, mensagem?: string, error?: string }>}
- */
-export async function atualizarAndamentos(analiseId, { forcar = false, numero = '' } = {}) {
-  const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
-  const token = sess?.session?.access_token;
-  if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
-  try {
-    const resposta = await fetch('/api/andamentos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ analise_id: analiseId, forcar, ...(numero ? { numero } : {}) }),
-    });
-    const dados = await resposta.json().catch(() => ({}));
-    if (!resposta.ok) return { ok: false, status: dados.status, error: dados.error || 'Não foi possível consultar os andamentos agora.' };
-    return { ok: dados.status === 'ok' || dados.status === 'recente', status: dados.status, mensagem: dados.mensagem || '' };
-  } catch {
-    return { ok: false, error: 'Erro de rede ao consultar os andamentos.' };
   }
 }

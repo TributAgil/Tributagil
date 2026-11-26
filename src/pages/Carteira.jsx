@@ -6,22 +6,20 @@
 // combinam situação, fase, tese, busca e o dia escolhido no calendário. Caso sem prazos calculados tem o botão
 // "Calcular prazos" (lê os documentos de novo; não gera peça nem gasta crédito de análise).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Clock, CalendarClock, Calculator, ArrowUpRight, Info,
-  ChevronLeft, ChevronRight, Search, X, SlidersHorizontal, Activity, ChevronDown,
+  ChevronLeft, ChevronRight, Search, X, SlidersHorizontal,
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import RodapeLegal from '../components/RodapeLegal';
-import { carregarCarteira, calcularPrazos, definirFase, atualizarAndamentos } from '../lib/carteira';
-import { numeroCnj, formatarCnj } from '../../api/_datajud.js';
+import { carregarCarteira, calcularPrazos, definirFase } from '../lib/carteira';
 import {
   FASES, NOME_TESE, SITUACOES, contarSituacoes, formatarData, hojeEmBrasilia, filtrarCarteira, filtrosAtivos, FILTROS_PADRAO,
-  eventosDoCalendario, eventosPorDia, avisosDaCarteira, semanasDoMes, CATEGORIAS_ANDAMENTO, movimentosRelevantes,
+  eventosDoCalendario, eventosPorDia, avisosDaCarteira, semanasDoMes,
 } from '../lib/carteiraModelo';
 
 const COR_SITUACAO = {
-  andamento_novo: 'border-violet-400/60 bg-violet-500/10 text-violet-200',
   consumou_agora: 'border-red-400/60 bg-red-500/10 text-red-300',
   pronto: 'border-emerald-400/50 bg-emerald-500/10 text-emerald-300',
   acompanhando: 'border-amber-400/50 bg-amber-500/10 text-amber-300',
@@ -34,7 +32,6 @@ const COR_SITUACAO = {
 
 // os "cartões" de situação, que também são o filtro principal
 const CARTOES = [
-  { id: 'andamento_novo', rotulo: 'Andamento novo', dica: 'Movimentação no processo, depois da análise, que pode ter interrompido um prazo', ponto: 'bg-violet-400' },
   { id: 'consumou_agora', rotulo: 'Consumados agora', dica: 'Prazo em acompanhamento cuja data passou', ponto: 'bg-red-400' },
   { id: 'pronto', rotulo: 'Prontos para a peça', dica: 'Já prescrito ou decaído quando calculado', ponto: 'bg-emerald-400' },
   { id: 'acompanhando', rotulo: 'Em acompanhamento', dica: 'Consuma numa data conhecida', ponto: 'bg-amber-400' },
@@ -188,134 +185,12 @@ function Agenda({ eventos, dia, setDia, onAbrir }) {
                     <p className={`text-[11px] ${vermelho ? 'text-red-300' : 'text-amber-300'}`}>
                       {vermelho ? `consumou em ${formatarData(e.data)}: confira nos autos e gere a peça` : e.dias === 0 ? 'consuma hoje' : `faltam ${e.dias} dia(s)`}
                     </p>
-                    {e.conferir && <p className="text-[11px] text-violet-300">andamento novo no processo: confira se interrompeu o prazo</p>}
                   </div>
                 </div>
               </li>
             );
           })}
         </ul>
-      )}
-    </div>
-  );
-}
-
-const dataHoraBR = (iso) => {
-  const d = iso ? new Date(iso) : null;
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '';
-};
-
-/** Número CNJ do caso: o da última consulta (pode ter sido corrigido) ou o do parecer. */
-export const numeroDoItem = (item) => numeroCnj(item.andamento?.numero) || numeroCnj(item.analise?.resultado?.metadata?.processo);
-
-const MENSAGEM_STATUS = {
-  nao_encontrado: 'O DataJud não tem este processo (o tribunal pode ainda não ter enviado, ou o número está errado).',
-  indisponivel: 'Na última tentativa o DataJud não respondeu (o serviço do CNJ costuma ficar sobrecarregado).',
-  erro: 'Não foi possível consultar o DataJud na última tentativa.',
-};
-
-/** Andamentos do processo (DataJud): última movimentação, o que é novo depois da análise e as relevantes. */
-function Andamentos({ item, consultando, erro, onAtualizar }) {
-  const [numero, setNumero] = useState('');
-  const a = item.andamento;
-  const n = numeroDoItem(item);
-  const relevantes = movimentosRelevantes(a);
-  const ultima = a?.movimentos?.[0];
-  if (!n && !a) {
-    return (
-      <div className="mt-3 rounded-xl border border-line bg-ink-900/40 px-3 py-2.5">
-        <p className="flex items-center gap-1.5 text-xs text-parchment/60">
-          <Activity size={13} className="text-gold" />
-          {item.ajuizada === false
-            ? 'Sem execução fiscal ajuizada nos documentos. Se a Fazenda ajuizar, digite o número do processo para acompanhar pelo DataJud (CNJ): o ajuizamento com despacho de citação interrompe a prescrição.'
-            : 'Acompanhar o processo pelo DataJud (CNJ): o parecer não traz um número de processo válido. Digite o número da execução fiscal.'}
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <input
-            value={numero}
-            onChange={(ev) => setNumero(ev.target.value)}
-            placeholder="0000000-00.0000.0.00.0000"
-            className="flex-1 min-w-[14rem] rounded-lg bg-ink-900 border border-line px-2.5 py-1.5 text-xs text-parchment placeholder:text-parchment/30 focus:outline-none focus:border-gold/50"
-            aria-label="Número do processo"
-          />
-          <button
-            onClick={() => onAtualizar({ numero })}
-            disabled={consultando || !numero.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-gold/40 text-gold hover:bg-gold/10 disabled:opacity-40"
-          >
-            {consultando ? <Loader2 size={13} className="animate-spin" /> : <Activity size={13} />} Acompanhar
-          </button>
-        </div>
-        {erro && <p className="mt-1.5 text-[11px] text-amber-300">{erro}</p>}
-      </div>
-    );
-  }
-  return (
-    <div className="mt-3 rounded-xl border border-line bg-ink-900/40 px-3 py-2.5 space-y-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-parchment/80">
-          <Activity size={13} className="text-gold" /> Andamentos do processo
-        </p>
-        <span className="text-[11px] text-parchment/45">
-          {n ? `nº ${formatarCnj(n)}` : ''}
-          {a?.consultado_em ? ` · DataJud consultado em ${dataHoraBR(a.consultado_em)}` : ' · ainda não consultado'}
-        </span>
-        <button
-          onClick={() => onAtualizar({ forcar: true })}
-          disabled={consultando}
-          className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-lg border border-line text-parchment/70 hover:border-gold/50 hover:text-gold disabled:opacity-50"
-          title="Consulta as movimentações no DataJud (CNJ). Não gasta crédito."
-        >
-          {consultando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          {consultando ? 'Consultando… (até 1 min)' : 'Atualizar andamentos'}
-        </button>
-      </div>
-
-      {erro && <p className="text-[11px] text-amber-300">{erro}</p>}
-      {a && a.status !== 'ok' && MENSAGEM_STATUS[a.status] && <p className="text-[11px] text-amber-300/90">{MENSAGEM_STATUS[a.status]}</p>}
-
-      {item.novidades.length > 0 && (
-        <ul className="space-y-1 rounded-lg border border-violet-400/40 bg-violet-500/10 px-2.5 py-2">
-          {item.novidades.map((m, k) => (
-            <li key={k} className="text-xs text-violet-100">
-              <span className="font-semibold">{dataHoraBR(m.data)}: {m.nome}</span>
-              {m.complemento && <span className="text-violet-200/70"> ({m.complemento})</span>}
-              <span className="block text-[11px] text-violet-200/80">
-                {CATEGORIAS_ANDAMENTO[m.categoria]?.rotulo}, depois da análise: pode ter interrompido o prazo. Confira nos autos e, se for o caso, recalcule.
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {ultima && (
-        <p className="text-xs text-parchment/70">
-          Última movimentação: <span className="text-parchment/90">{dataHoraBR(ultima.data)} · {ultima.nome}</span>
-          {item.diasParado != null && item.diasParado >= 180 && (
-            <span className={`ml-1 ${item.diasParado >= 365 ? 'text-amber-300' : 'text-parchment/50'}`}>(processo parado há {item.diasParado} dias)</span>
-          )}
-        </p>
-      )}
-      {relevantes.length > 0 && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-parchment/60 hover:text-parchment inline-flex items-center gap-1">
-            <ChevronDown size={12} /> Movimentações que importam para os prazos ({relevantes.length})
-          </summary>
-          <ul className="mt-1.5 space-y-1 pl-1">
-            {relevantes.map((m, k) => (
-              <li key={k} className="text-parchment/70">
-                <span className="tabular-nums text-parchment/50">{dataHoraBR(m.data)}</span> · {m.nome}
-                {m.complemento && <span className="text-parchment/45"> ({m.complemento})</span>}
-                <span className="text-parchment/40"> · {CATEGORIAS_ANDAMENTO[m.categoria]?.rotulo}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {a?.status === 'ok' && (
-        <p className="text-[10px] text-parchment/35">
-          Fonte: DataJud (CNJ), só movimentações e com alguns dias de atraso. A classificação é automática: confira nos autos.
-        </p>
       )}
     </div>
   );
@@ -328,9 +203,6 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
   const [filtros, setFiltros] = useState(FILTROS_PADRAO);
   const [calculando, setCalculando] = useState({}); // analiseId -> true
   const [erros, setErros] = useState({});
-  const [consultando, setConsultando] = useState({}); // analiseId -> true
-  const [errosAndamento, setErrosAndamento] = useState({});
-  const automatico = useRef(false);
   const hojeIso = useMemo(() => hojeEmBrasilia().toISOString().slice(0, 10), []);
   const [mes, setMes] = useState(() => ({ ano: Number(hojeIso.slice(0, 4)), mes: Number(hojeIso.slice(5, 7)) - 1 }));
 
@@ -354,38 +226,6 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
   const mudar = (patch) => setFiltros((f) => ({ ...f, ...patch }));
 
   const escolherDia = (dia) => mudar({ dia });
-
-  const consultarAndamentos = useCallback(async (item, opcoes = {}) => {
-    const chave = item.analise.id;
-    setConsultando((c) => ({ ...c, [chave]: true }));
-    setErrosAndamento((e) => ({ ...e, [chave]: '' }));
-    const r = await atualizarAndamentos(chave, opcoes);
-    setConsultando((c) => ({ ...c, [chave]: false }));
-    if (!r.ok) setErrosAndamento((e) => ({ ...e, [chave]: r.error || r.mensagem || '' }));
-    return r;
-  }, []);
-
-  // ao abrir a carteira: consulta sozinha até 3 processos sem consulta nas últimas 24 h (em sequência; se o DataJud
-  // estiver fora do ar, para na primeira falha). Uma vez por abertura da tela.
-  useEffect(() => {
-    if (carregando || automatico.current || !itens.length) return;
-    automatico.current = true;
-    const dia = 24 * 60 * 60 * 1000;
-    const pendentes = itens
-      .filter((i) => i.situacao !== 'encerrado' && i.casoId && numeroDoItem(i))
-      .filter((i) => !i.andamento || Date.now() - new Date(i.andamento.consultado_em).getTime() > dia)
-      .slice(0, 3);
-    if (!pendentes.length) return;
-    (async () => {
-      let mudou = false;
-      for (const item of pendentes) {
-        const r = await consultarAndamentos(item);
-        if (r.status === 'indisponivel') break;
-        mudou = mudou || r.ok;
-      }
-      if (mudou) carregar();
-    })();
-  }, [carregando, itens, consultarAndamentos, carregar]);
 
   const calcular = async (item) => {
     const chave = item.analise.id;
@@ -440,17 +280,8 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
         )}
 
         {/* avisos: ficam aqui dentro (sem e-mail) */}
-        {(avisos.consumouAgora > 0 || avisos.proximos > 0 || avisos.andamentosNovos > 0) && (
+        {(avisos.consumouAgora > 0 || avisos.proximos > 0) && (
           <div className="flex flex-col sm:flex-row gap-2">
-            {avisos.andamentosNovos > 0 && (
-              <button
-                onClick={() => setFiltros({ ...FILTROS_PADRAO, situacao: 'andamento_novo' })}
-                className="flex-1 flex items-center gap-2 rounded-xl border border-violet-400/50 bg-violet-500/10 px-4 py-2.5 text-left text-sm text-violet-100 hover:bg-violet-500/15"
-              >
-                <Activity size={16} className="shrink-0 text-violet-300" />
-                {avisos.andamentosNovos} caso(s) com andamento novo que pode ter interrompido um prazo
-              </button>
-            )}
             {avisos.consumouAgora > 0 && (
               <button
                 onClick={() => setFiltros({ ...FILTROS_PADRAO, situacao: 'consumou_agora' })}
@@ -481,7 +312,7 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
 
         {/* filtros */}
         <section className="space-y-3" aria-label="Filtrar casos">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {CARTOES.map((c) => {
               const ativo = filtros.situacao === c.id;
               return (
@@ -626,17 +457,6 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
                         <LinhaMarco key={m.id || m.chave} m={m} />
                       ))}
                     </ul>
-                  )}
-                  {item.casoId && (
-                    <Andamentos
-                      item={item}
-                      consultando={Boolean(consultando[id])}
-                      erro={errosAndamento[id]}
-                      onAtualizar={async (op) => {
-                        const r = await consultarAndamentos(item, op);
-                        if (r.ok || r.status) carregar();
-                      }}
-                    />
                   )}
                   {item.calculado && item.marcos.length === 0 && (
                     <p className="mt-3 flex items-center gap-1.5 text-xs text-parchment/45">
