@@ -1306,6 +1306,12 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   sobre o valor atingido, com o salário mínimo editável (R$ 1.621,00 desde 01/01/2026, Decreto nº 12.797/2025); só
   com execução ajuizada (na via administrativa não há condenação). Imprimir/salvar em PDF, baixar em Word ou copiar
   o texto. Os valores digitados ficam no navegador (por análise), não no banco.
+- **Feriados no cálculo dos prazos processuais** (26/11/2026): `api/_feriados.js`. Embargos e agravo descontam fins
+  de semana, feriados nacionais (inclusive 20/11, Lei nº 14.759/2023), a Sexta-feira da Paixão e a suspensão de
+  20/12 a 20/01 (art. 220 do CPC); quando a credora é a União, também os dias sem expediente da Justiça Federal (Lei
+  nº 5.010/1966, art. 62: Carnaval, quarta e quinta-feira santas, 11/08, 01/11 e 08/12). Critério conservador:
+  feriado estadual, municipal ou ponto facultativo do tribunal não é descontado (descontar um dia com expediente
+  faria o prazo calculado passar do real) e vai no `[CONFIRMAR]` da peça, que lista os feriados que caíram no período.
 - **Embargos, agravo e reconhecimento da intercorrente** (25/11/2026): três opções novas em "Outras peças deste
   caso" (`api/_pecas-processuais.js`, mesmo endpoint com `tipo` = `embargos`, `agravo` ou
   `reconhecimento_intercorrente` e `entrada` com as datas). **Embargos à execução fiscal**: data da intimação da
@@ -1347,7 +1353,7 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   Filtros: cartões de situação (consumados agora, prontos, em acompanhamento, pedem revisão, sem cálculo), busca
   por caso ou CDA, fase, tese e "só encerrados" (lógica em `src/lib/carteiraModelo.js`, testes em
   `tests/carteira-calendario.test.js`). O antigo cron de e-mail (`api/alertas-prazo.js`) foi removido; as RPCs
-  `alertas_prazo_pendentes`/`marcar_alertas_enviados` e a coluna `alertado_em` continuam no banco, sem uso. Banco em
+  `alertas_prazo_pendentes`/`marcar_alertas_enviados` foram apagadas do banco; a coluna `alertado_em` ficou, sem uso. Banco em
   [`docs/sql/carteira.sql`](docs/sql/carteira.sql) (aplicado em 25/11/2026).
 - **Conversar com o Lu também no resultado da análise** (25/11/2026): botão fixo "Conversar com o Lu" (preto e
   amarelo) no canto da tela do resultado; abre o mesmo chat do editor (`src/components/lu/ConversaDaAnalise.jsx`),
@@ -1361,7 +1367,8 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   US$ 1,00. No banco ([`docs/sql/seguranca-rpcs.sql`](docs/sql/seguranca-rpcs.sql) e `-fase2.sql`): as RPCs de
   idempotência da análise exigem o segredo do servidor (fechava uma falha em que um usuário logado podia criar
   crédito de graça chamando marcar_debitado + falhar_e_estornar direto) e as funções SECURITY DEFINER deixaram de
-  ser chamáveis sem login, menos `rate_limit_checar` (o servidor a usa antes de saber quem é o usuário).
+  ser chamáveis sem login, menos `rate_limit_checar` (o servidor a usa antes de saber quem é o usuário). Fase 1 e
+  fase 2 (versões antigas sem segredo apagadas) aplicadas em produção em 25 e 26/11/2026.
 - **Créditos do Lu (limite diário)** (30/10/2026): cada usuário tem **1.000.000 de créditos informativos por dia**
   para o "Pedir ao Lu", o equivalente a **US$ 1,00** de Gemini (era US$ 1,50 até 30/10/2026; preço de lista do
   gemini-3.5-flash: 1 token de entrada = 1,5 crédito; 1 de saída ou de raciocínio = 9). O gasto vem dos tokens que o Gemini informa em cada resposta

@@ -14,52 +14,69 @@
 // Arquivo com prefixo "_": a Vercel não o expõe como endpoint.
 
 import { preencher } from './_contexto-peca.js';
+import { prazoEmDiasUteis, prazoEmDiasCorridos } from './_feriados.js';
 import { secao, cit, pedidos, confirmar, listaCdas, parseBR, formatarBR } from './_pecas-extras.js';
 import { prazosDoCaso } from './_replica.js';
 import { avaliarTesesNovas } from './_motor-teses-novas.js';
 import { montarPecaTeseNova, exequenteDe } from './_pecas-teses-novas.js';
 
-const MS_DIA = 24 * 60 * 60 * 1000;
 const rotulo = (c) => [c.cda && `CDA nº ${c.cda}`, c.periodo && `período ${c.periodo}`].filter(Boolean).join(', ') || 'crédito';
 
 // ---- Prazos ------------------------------------------------------------------------------------------------------------
-const ehDiaUtil = (d) => d.getUTCDay() !== 0 && d.getUTCDay() !== 6;
+// Calendário forense em api/_feriados.js: fins de semana, feriados nacionais, dias sem expediente da Justiça Federal
+// (Lei nº 5.010/1966) e a suspensão de 20/12 a 20/01 (art. 220 do CPC). Feriado local fica para conferir.
 
-/** Soma N dias úteis (só fins de semana; feriados o sistema não conhece). Exclui o dia do começo (art. 224 do CPC). */
-export function somarDiasUteis(inicio, n) {
-  let d = new Date(inicio.getTime());
-  let contados = 0;
-  while (contados < n) {
-    d = new Date(d.getTime() + MS_DIA);
-    if (ehDiaUtil(d)) contados += 1;
-  }
-  return d;
+/** Justiça Federal quando a credora é a União (PGFN); senão, Justiça Estadual. */
+export const justicaDoCaso = (dados) =>
+  dados?.ente_credor?.esfera === 'União' || /^pgfn$/i.test(String(dados?.orgao_cobranca || '')) ? 'federal' : 'estadual';
+
+/** Soma N dias úteis (exclui o dia do começo, art. 224 do CPC; sem fins de semana, feriados nem a suspensão). */
+export function somarDiasUteis(inicio, n, justica = 'estadual') {
+  return prazoEmDiasUteis(inicio, n, justica).final;
 }
 
-/** Soma N dias corridos; se o último cair em fim de semana, prorroga para o primeiro dia útil (art. 224, § 1º, do CPC). */
-export function somarDiasCorridos(inicio, n) {
-  let d = new Date(inicio.getTime() + n * MS_DIA);
-  while (!ehDiaUtil(d)) d = new Date(d.getTime() + MS_DIA);
-  return d;
+/** Soma N dias corridos (a suspensão não corre); fim em dia sem expediente prorroga (art. 224, § 1º, do CPC). */
+export function somarDiasCorridos(inicio, n, justica = 'estadual') {
+  return prazoEmDiasCorridos(inicio, n, justica).final;
 }
 
 /**
  * Prazo de um ato a partir da intimação.
- * @returns {{ intimacao: string, final: string, vencido: boolean, finalCorridos?: string }}
+ * @returns {null | { intimacao: string, final: string, vencido: boolean, feriados: string[], suspensao: boolean,
+ *   finalCorridos?: string, vencidoCorridos?: boolean }}
  */
-export function calcularPrazo({ data, dias, uteis, agora = new Date() }) {
+export function calcularPrazo({ data, dias, uteis, agora = new Date(), justica = 'estadual' }) {
   const ini = parseBR(data);
   if (!ini) return null;
   const hoje = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
-  const final = uteis ? somarDiasUteis(ini, dias) : somarDiasCorridos(ini, dias);
-  const r = { intimacao: formatarBR(ini), final: formatarBR(final), vencido: hoje > final };
+  const principal = uteis ? prazoEmDiasUteis(ini, dias, justica) : prazoEmDiasCorridos(ini, dias, justica);
+  const r = {
+    intimacao: formatarBR(ini),
+    final: formatarBR(principal.final),
+    vencido: hoje > principal.final,
+    feriados: principal.feriados,
+    suspensao: principal.suspensao,
+  };
   if (uteis === 'ambos') {
-    const corridos = somarDiasCorridos(ini, dias);
-    r.finalCorridos = formatarBR(corridos);
-    r.vencido = hoje > final;
-    r.vencidoCorridos = hoje > corridos;
+    const corridos = prazoEmDiasCorridos(ini, dias, justica);
+    r.finalCorridos = formatarBR(corridos.final);
+    r.vencidoCorridos = hoje > corridos.final;
+    r.feriados = [...new Set([...principal.feriados, ...corridos.feriados])];
+    r.suspensao = principal.suspensao || corridos.suspensao;
   }
   return r;
+}
+
+/** O que o cálculo já descontou e o que fica para o advogado conferir (vai no [CONFIRMAR] da peça). */
+export function notaDoCalendario(prazo, justica) {
+  const descontado = [
+    'os fins de semana',
+    justica === 'federal' ? 'os feriados nacionais e os dias sem expediente da Justiça Federal (Lei nº 5.010/1966, art. 62)' : 'os feriados nacionais e a Sexta-feira da Paixão',
+  ];
+  const detalhe = prazo.feriados.length ? ` (no período: ${prazo.feriados.join('; ')})` : '';
+  const suspensao = prazo.suspensao ? ' e a suspensão de 20/12 a 20/01 (art. 220 do CPC)' : '';
+  const conferir = justica === 'federal' ? 'feriados locais e portarias de suspensão do tribunal' : 'feriados estaduais e municipais, Carnaval, Corpus Christi e portarias de suspensão do tribunal';
+  return `já descontados ${descontado.join(', ')}${detalhe}${suspensao}; conferir ${conferir}`;
 }
 
 // ---- Matérias de defesa do caso ------------------------------------------------------------------------------------------
@@ -138,7 +155,8 @@ const GARANTIAS = { penhora: 'penhora', deposito: 'depósito em dinheiro', fianc
 export function pecaEmbargos({ dados, entrada = {}, agora = new Date() }) {
   const avisos = [];
   const garantia = GARANTIAS[entrada.forma_garantia] ? entrada.forma_garantia : 'penhora';
-  const prazo = calcularPrazo({ data: entrada.data_garantia, dias: 30, uteis: 'ambos', agora });
+  const justica = justicaDoCaso(dados);
+  const prazo = calcularPrazo({ data: entrada.data_garantia, dias: 30, uteis: 'ambos', agora, justica });
   const { secoes: materias, nomes } = materiasDeDefesa({ dados, agora, viaEmbargos: true });
   if (!prazo) avisos.push('Sem a data da garantia/intimação, a tempestividade saiu para preencher.');
   else if (prazo.vencidoCorridos) {
@@ -153,7 +171,7 @@ export function pecaEmbargos({ dados, entrada = {}, agora = new Date() }) {
       ? `A execução está garantida por ${GARANTIAS[garantia]}, e o(a) embargante foi intimado(a) em **${prazo.intimacao}**. Os presentes embargos são opostos dentro do prazo de 30 (trinta) dias previsto no art. 16 da Lei nº 6.830/1980.`
       : `A execução está garantida por ${GARANTIAS[garantia]}, e o(a) embargante foi intimado(a) em ${preencher('data da intimação da penhora, do depósito ou da juntada da fiança')}. Os presentes embargos são opostos dentro do prazo de 30 (trinta) dias previsto no art. 16 da Lei nº 6.830/1980.`,
     cit('Art. 16. O executado oferecerá embargos, no prazo de 30 (trinta) dias, contados: I - do depósito; II - da juntada da prova da fiança bancária ou do seguro garantia; III - da intimação da penhora. § 1º Não são admissíveis embargos do executado antes de garantida a execução.'),
-    prazo ? confirmar(`prazo final em ${prazo.finalCorridos} (dias corridos) ou ${prazo.final} (dias úteis, art. 219 do CPC); conferir a contagem aplicável, feriados e eventuais suspensões`) : '',
+    prazo ? confirmar(`prazo final em ${prazo.finalCorridos} (dias corridos) ou ${prazo.final} (dias úteis, art. 219 do CPC); conferir a contagem aplicável. Cálculo ${notaDoCalendario(prazo, justica)}`) : '',
   ]);
 
   const fatos = secao('DOS FATOS', [
@@ -202,13 +220,14 @@ export function pecaEmbargos({ dados, entrada = {}, agora = new Date() }) {
 // ---- Agravo de instrumento ------------------------------------------------------------------------------------------------
 export function pecaAgravo({ dados, entrada = {}, agora = new Date() }) {
   const avisos = [];
-  const prazo = calcularPrazo({ data: entrada.data_intimacao_decisao, dias: 15, uteis: true, agora });
+  const justica = justicaDoCaso(dados);
+  const prazo = calcularPrazo({ data: entrada.data_intimacao_decisao, dias: 15, uteis: true, agora, justica });
   if (!prazo) avisos.push('Sem a data da intimação da decisão, a tempestividade saiu para preencher.');
-  else if (prazo.vencido) avisos.push(`Atenção: pelo cálculo (15 dias úteis, sem feriados), o prazo do agravo venceu em ${prazo.final}. Confira antes de protocolar.`);
+  else if (prazo.vencido) avisos.push(`Atenção: pelo cálculo (15 dias úteis, descontados fins de semana, feriados nacionais e a suspensão de fim de ano), o prazo do agravo venceu em ${prazo.final}. Confira antes de protocolar.`);
   const { secoes: materias, nomes } = materiasDeDefesa({ dados, agora });
   if (!materias.length) avisos.push('O cálculo do caso não sustentou nenhuma matéria: as razões de reforma saíram para preencher.');
 
-  const federal = dados?.ente_credor?.esfera === 'União' || /^pgfn$/i.test(String(dados?.orgao_cobranca || ''));
+  const federal = justica === 'federal';
   const tribunal = String(entrada.tribunal || '').trim().slice(0, 120)
     || (federal ? `TRIBUNAL REGIONAL FEDERAL DA ${preencher('região')} REGIÃO` : `TRIBUNAL DE JUSTIÇA DO ESTADO DE ${preencher('estado')}`);
   const vara = dados?.processo_execucao?.vara || preencher('vara de origem');
@@ -230,7 +249,7 @@ export function pecaAgravo({ dados, entrada = {}, agora = new Date() }) {
           prazo
             ? `O(A) agravante foi intimado(a) da decisão em **${prazo.intimacao}**. O prazo de 15 (quinze) dias úteis (art. 1.003, § 5º, e art. 219 do CPC) se encerra em ${prazo.final}, de modo que o recurso é tempestivo.`
             : `O(A) agravante foi intimado(a) da decisão em ${preencher('data da intimação')}; o recurso é interposto no prazo de 15 (quinze) dias úteis (art. 1.003, § 5º, e art. 219 do CPC).`,
-          prazo ? confirmar(`prazo final em ${prazo.final}, contado só sem fins de semana; conferir feriados e suspensões do tribunal`) : '',
+          prazo ? confirmar(`prazo final em ${prazo.final}, ${notaDoCalendario(prazo, justica)}`) : '',
         ]),
         secao('DAS PEÇAS QUE INSTRUEM O RECURSO', [
           'O agravo é instruído com as cópias exigidas pelo art. 1.017, I, do CPC: a petição inicial da execução, a exceção de pré-executividade, a manifestação da exequente, a decisão agravada, a certidão da intimação e as procurações. Tratando-se de processo eletrônico, a juntada é dispensada (art. 1.017, § 5º, do CPC).',

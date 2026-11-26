@@ -238,6 +238,12 @@ As **matérias** vêm do cálculo do caso (as mesmas da exceção e das novas te
 - **Reconhecimento da prescrição intercorrente** — petição simples pedindo a oitiva da Fazenda e o reconhecimento
   (art. 40, § 4º, da LEF; REsp 1.340.553/RS), com as datas do cálculo. Só sai quando a intercorrente está consumada.
 
+- **Calendário dos prazos** (`api/_feriados.js`, 26/11/2026): descontados fins de semana, feriados nacionais,
+  Sexta-feira da Paixão, suspensão de 20/12 a 20/01 (art. 220 do CPC) e, na Justiça Federal, os dias da Lei nº
+  5.010/1966. Feriado local, Carnaval e Corpus Christi na Justiça Estadual **não** são descontados (de propósito: o
+  prazo calculado nunca passa do real) e ficam no `[CONFIRMAR]`. **Confirmar** se o escritório quer incluir os
+  feriados do TJ onde mais atua (dá para cadastrar por tribunal).
+
 ### Relatório para o cliente (`src/lib/relatorioCliente.js`)
 
 Não é peça, mas fala em nome do escritório. Textos fixos para **revisar**: a explicação em linguagem simples de
