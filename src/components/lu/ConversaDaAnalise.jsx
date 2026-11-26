@@ -54,13 +54,13 @@ export default function ConversaDaAnalise({ analiseId, escondido = false }) {
       {!aberto && (
         <button
           onClick={() => setAberto(true)}
-          className="no-print fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 px-5 py-3 text-sm font-extrabold text-yellow-400 bg-black border-2 border-yellow-400 rounded-2xl shadow-[0_0_0_4px_rgba(250,204,21,0.18)] hover:bg-yellow-400 hover:text-black transition-colors"
+          className="no-print fixed bottom-5 left-5 z-40 inline-flex items-center gap-2 px-5 py-3 text-sm font-extrabold text-yellow-400 bg-black border-2 border-yellow-400 rounded-2xl shadow-[0_0_0_4px_rgba(250,204,21,0.18)] hover:bg-yellow-400 hover:text-black transition-colors"
         >
           <MessageCircle size={18} /> Conversar com o Lu
         </button>
       )}
       {aberto && (
-        <div className="no-print fixed inset-0 z-50 sm:inset-auto sm:right-4 sm:bottom-4 sm:top-24 sm:w-[26rem] flex flex-col p-2 sm:p-0 bg-black/60 sm:bg-transparent">
+        <div className="no-print fixed inset-0 z-50 sm:inset-auto sm:left-4 sm:bottom-4 sm:top-24 sm:w-[26rem] flex flex-col p-2 sm:p-0 bg-black/60 sm:bg-transparent">
           <ConversaLu
             contexto="analise"
             mensagens={mensagens}
