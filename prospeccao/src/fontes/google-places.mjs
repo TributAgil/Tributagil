@@ -129,6 +129,8 @@ async function main() {
             nota_google: p.rating ?? '',
             avaliacoes_google: p.userRatingCount ?? '',
             categorias: [termo, p.primaryTypeDisplayName?.text].filter(Boolean),
+            // a busca por "advogado tributarista" não prova o foco: o sinal vem do nome e do tipo no Maps
+            tipo_google: p.primaryTypeDisplayName?.text || '',
             sinais: sinais(`${nome} ${p.primaryTypeDisplayName?.text || ''}`),
           })
         }

@@ -113,7 +113,17 @@ async function visitarSite(dominio, urlInicial) {
   resultado.emails.sort((a, b) => (b.endsWith('@' + dominio) ? 1 : 0) - (a.endsWith('@' + dominio) ? 1 : 0))
   resultado.sinais = sinais(textos.join(' '))
   const tudo = textos.join(' ')
-  resultado.juridico = /advog|advocacia|jur[ií]dic|escrit[óo]rio de advocacia|\bOAB\b|direito (tribut|empresar|civil)/i.test(resultado.titulo + ' ' + tudo.slice(0, 30000))
+  // Site de advocacia x site de contador/outro negócio: o e-mail do CNPJ às
+  // vezes leva ao site do contador, que fala muito de tributos.
+  const conta = (re) => (tudo.match(re) || []).length
+  const termosContabeis = conta(/contabilidade|cont[áa]bil|contador|escrita fiscal|departamento pessoal|abertura de empresa|\bCRC\b|honor[áa]rios cont/gi)
+  const termosJuridicos = conta(/advogad|advocacia|\bOAB\b|escrit[óo]rio de advocacia|s[óo]cio[- ]fundador|processo judicial/gi)
+  const cabecalho = resultado.titulo + ' ' + dominio
+  resultado.contabilidade = /contab|contador|cont[áa]bil/i.test(cabecalho) || (termosContabeis >= 5 && termosContabeis > termosJuridicos)
+  resultado.juridico =
+    !resultado.contabilidade &&
+    (/advog|advoc|jur[íi]dic|direito|\blaw\b|\badv\b|\.adv\.br$|advs?\./i.test(cabecalho) || termosJuridicos >= 3)
+  resultado.tamanho_texto = tudo.length
   resultado.menciona_uf = RE_BAHIA.test(tudo) || resultado.telefones.some((t) => DDDS_BAHIA.has(t.slice(2, 4)))
   const parking = /domain (is )?for sale|dominio (esta )?a venda|this domain|parked|godaddy|hostgator.*default|site em constru|under construction|account suspended|conta suspensa/i
   if (parking.test(resultado.titulo + ' ' + textos.slice(0, 2).join(' ').slice(0, 2000))) resultado.erro = 'site inativo/estacionado'

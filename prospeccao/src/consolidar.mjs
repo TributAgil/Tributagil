@@ -139,8 +139,27 @@ async function main() {
   const registros = []
   for (const a of await listar(PASTA_FONTES, (f) => f.endsWith('.jsonl'))) registros.push(...(await lerJsonl(a)))
   for (const a of await listar(PASTA_ENTRADA, (f) => f.endsWith('.csv'))) for (const l of await lerCsv(a)) if (l.nome) registros.push(deCsv(l, a))
-  const sites = new Map((await lerJsonl(path.join(PASTA_DADOS, 'sites.jsonl'))).filter((s) => !s.erro).map((s) => [s.dominio, s]))
+  const todosSites = (await lerJsonl(path.join(PASTA_DADOS, 'sites.jsonl'))).filter((s) => !s.erro)
+  // Só sites de advocacia alimentam os leads; os outros (contador, jornal...) marcam o domínio.
+  const sites = new Map(todosSites.filter((s) => s.juridico).map((s) => [s.dominio, s]))
+  const sitesContabeis = new Set(todosSites.filter((s) => s.contabilidade).map((s) => s.dominio))
+  // Site de outro negócio (portal, provedor, empresa): o e-mail continua sendo
+  // um contato da pessoa, mas o domínio não identifica o escritório.
+  const sitesOutros = new Set(todosSites.filter((s) => !s.juridico && !s.contabilidade && (s.tamanho_texto ?? 1000) >= 400).map((s) => s.dominio))
   console.log(`Consolidação: ${registros.length} registros de ${new Set(registros.map((r) => r.fonte)).size} fontes; ${sites.size} sites lidos`)
+
+  // Recalcula os sinais com as regras atuais (os coletores podem ter rodado
+  // com uma versão anterior de classificar.mjs).
+  for (const r of registros) {
+    if (r.fonte === 'cnpj') {
+      const cnaes = (r.cnaes_sinal || []).map((c) => (/tribut/.test(c) ? 'assessoria fiscal tributaria' : c)).join(' ')
+      r.sinais = sinais(`${r.razao_social} ${r.nome_fantasia} ${cnaes}`)
+    } else if (r.fonte === 'google_places') {
+      r.sinais = sinais(`${r.nome} ${r.tipo_google || ''}`)
+    } else if (['telelistas', 'analise_dna'].includes(r.fonte)) {
+      r.sinais = sinais(`${r.nome} ${(r.categorias || []).join(' ')} ${r.descricao || ''}`)
+    }
+  }
 
   for (const r of registros) {
     r.telefones = unicos(r.telefones || [])
@@ -189,9 +208,9 @@ async function main() {
     }
   const dominioDeContador = (d) => {
     if (!d) return false
-    if (NAO_E_SITE_DO_ESCRITORIO.test(d)) return true
+    if (NAO_E_SITE_DO_ESCRITORIO.test(d) || sitesContabeis.has(d)) return true
     if ((basicosPorDominio.get(d)?.size || 0) < 3) return false
-    return !sites.get(d)?.juridico
+    return !sites.has(d)
   }
   const emailDeContador = (e) =>
     emailCompartilhado(e) || dominioDeContador(dominioProprioDoEmail(e)) || /contab|contador|contadora|escritorio\.?contabil|\bcont\.|fiscal\.cont|dpessoal|departamentopessoal/.test(e.split('@')[0])
@@ -211,7 +230,7 @@ async function main() {
       if (emailDeContador(e)) continue
       ligar('email:' + e, i)
       const d = dominioProprioDoEmail(e)
-      if (d) ligar('dom:' + d, i)
+      if (d && !sitesOutros.has(d)) ligar('dom:' + d, i)
     }
     for (const t of [...r.telefones, ...r.whatsapp]) if (!telCompartilhado(t)) ligar('tel:' + t, i)
     const nomeBom = (k) => (k.length >= 8 && k.includes(' ')) || k.length >= 10
@@ -259,21 +278,26 @@ async function main() {
     const cnpjReg = regs
       .filter((r) => r.fonte === 'cnpj')
       .sort((a, b) => (a.tipo === 'Escritório' ? 0 : 1) - (b.tipo === 'Escritório' ? 0 : 1) || (b.matriz ? 1 : 0) - (a.matriz ? 1 : 0))[0]
-    let nomeBase = regs.find((r) => r.fonte !== 'cnpj' && r.nome)?.nome || cnpjReg?.nome_fantasia || cnpjReg?.razao_social || regs[0].nome
+    const nomeUtil = (n) => (n && /[a-zà-ú]{3}/i.test(n) && chaveNome(n) ? n : '')
+    let nomeBase =
+      regs.find((r) => r.fonte !== 'cnpj' && nomeUtil(r.nome))?.nome ||
+      nomeUtil(cnpjReg?.nome_fantasia) ||
+      cnpjReg?.razao_social ||
+      regs[0].nome
     // Pessoa (da web/Jusbrasil) unida a um escritório do CNPJ: o lead é o
     // escritório e a pessoa vira o contato.
     const pessoas = regs
       .filter((r) => r.fonte !== 'cnpj' && /^advog/i.test(semAcento(r.tipo || '')) && r.nome)
       .map((r) => r.nome.replace(/\s*\(.*\)\s*$/, ''))
     if (cnpjReg && cnpjReg.tipo === 'Escritório' && pessoas.length && regs.every((r) => r.fonte === 'cnpj' || pessoas.includes(r.nome.replace(/\s*\(.*\)\s*$/, ''))))
-      nomeBase = cnpjReg.nome_fantasia || cnpjReg.razao_social
+      nomeBase = nomeUtil(cnpjReg.nome_fantasia) || cnpjReg.razao_social
     const contatoPessoa = unicos(pessoas.filter((p) => chaveNome(p) !== chaveNome(nomeBase.replace(/\s*\(.*\)\s*$/, '')))).join(', ')
     const nome = /^[A-ZÀ-Ú0-9\s&.,'-]+$/.test(nomeBase) ? capitalizar(nomeBase) : nomeBase
     if (pareceNaoJuridico(nome) && !cnpjReg) continue
 
     const dominios = unicos([
       ...regs.map((r) => dominioDe(r.site)),
-      ...regs.flatMap((r) => r.emails.map(dominioProprioDoEmail)).filter((d) => d && !dominioDeContador(d)),
+      ...regs.flatMap((r) => r.emails.map(dominioProprioDoEmail)).filter((d) => d && !dominioDeContador(d) && !sitesOutros.has(d)),
     ])
     const dadosSites = dominios.map((d) => sites.get(d)).filter(Boolean)
     const siteOficial = regs.map((r) => r.site).find(Boolean) || (dadosSites[0] ? dadosSites[0].url_final || 'https://' + dadosSites[0].dominio : '')
@@ -293,8 +317,10 @@ async function main() {
       .filter((t) => t.slice(2, 4) !== '00')
       .slice(0, 6)
     const telsDoContador = unicos(telsCnpj.filter(telCompartilhado))
-    const whatsExplicito = unicos([...dadosSites.flatMap((s) => s.whatsapp), ...regs.flatMap((r) => r.whatsapp)])
-    const celular = telefones.find(ehCelular)
+    // Com vários números, prefere o de DDD da UF (escritórios com unidades em outros estados).
+    const daUf = (t) => (UF === 'BA' && DDDS_BAHIA.has(String(t).slice(2, 4)) ? 0 : 1)
+    const whatsExplicito = unicos([...regs.flatMap((r) => r.whatsapp), ...dadosSites.flatMap((s) => s.whatsapp)]).sort((a, b) => daUf(a) - daUf(b))
+    const celular = [...telefones].sort((a, b) => daUf(a) - daUf(b)).find(ehCelular)
     const whatsapp = whatsExplicito[0] || celular || ''
     const origemWhats = whatsExplicito[0] ? 'link de WhatsApp publicado' : celular ? 'celular (provável WhatsApp)' : ''
 

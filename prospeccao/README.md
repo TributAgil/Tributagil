@@ -81,6 +81,11 @@ ficam em cache (`.cache/`), então repetir a coleta não cobra de novo.
   registrou a empresa. Contatos repetidos em 3 ou mais CNPJs vão para
   "Observações" e não contam como contato do escritório.
 
+- **Sites**: só alimentam o lead os sites que parecem de advocacia (título,
+  domínio ou texto). Sites de contabilidade, que aparecem quando o e-mail do
+  CNPJ é do contador, marcam o domínio como "do contador". Sites de outros
+  negócios não unem leads.
+
 A deduplicação usa CNPJ, domínio do site/e-mail, telefone, Instagram e nome +
 cidade (`src/consolidar.mjs`).
 

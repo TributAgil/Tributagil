@@ -7,16 +7,19 @@ const TERMOS_TRIBUTARIO = [
   [/tributari[oa]s?|tributarist[ao]s?/, 5],
   [/direito fiscal|advocacia fiscal|contencioso fiscal|assessoria fiscal/, 4],
   [/planejamento tributario|recuperacao de (creditos?|tributos)|creditos? tributari|compensacao tributaria|restituicao de tributos/, 4],
-  [/execucao fiscal|execucoes fiscais|auto de infracao|divida ativa|certidao negativa|cnd\b|parcelamento|transacao tributaria/, 3],
-  [/\bicms\b|\biss\b|\bipi\b|pis\s*\/?\s*cofins|\birpj\b|\bcsll\b|\bitcmd\b|\bitbi\b|\biptu\b|\bincra\b/, 2],
-  [/\bcarf\b|\bconsef\b|sefaz|receita federal|pgfn|fisco|contribuinte/, 2],
+  [/execucao fiscal|execucoes fiscais|auto de infracao|autos de infracao|divida ativa|transacao tributaria|parcelamento de (debitos|tributos|impostos)/, 3],
+  [/\bicms\b|\bipi\b|pis\s*\/?\s*cofins|\birpj\b|\bcsll\b|\bitcmd\b|\bitbi\b|\biptu\b/, 2],
+  [/\bcarf\b|\bconsef\b|\bsefaz\b|receita federal|\bpgfn\b|\bfisco\b/, 2],
   [/reforma tributaria|\bibs\b|\bcbs\b|imposto seletivo|split payment/, 3],
-  [/elisao|elusao|evasao fiscal|substituicao tributaria|beneficios? fiscai?s|incentivos? fiscai?s|desenvolve/, 2],
+  [/elisao fiscal|evasao fiscal|substituicao tributaria|beneficios? fiscai?s|incentivos? fiscai?s|programa desenvolve/, 2],
+  [/\bcontribuintes?\b|\bimpostos?\b|certidao negativa de debitos/, 1],
 ]
 
+// "empresarial" sozinho aparece em endereço ("Edifício Empresarial X"):
+// só contam expressões que indicam área de atuação.
 const TERMOS_EMPRESARIAL = [
-  [/direito empresarial|advocacia empresarial|empresarial/, 3],
-  [/societari[oa]|contratos? (empresariais|comerciais)|fusoes|aquisicoes|m&a|reestruturacao|governanca/, 3],
+  [/direito empresarial|advocacia empresarial|advogad[oa]s? empresaria(l|is)|consultoria (juridica )?empresarial|juridico empresarial|contencioso empresarial|assessoria juridica empresarial|(tributari[oa]|civel|trabalhista) e empresarial|empresarial e (tributari|societari)/, 3],
+  [/societari[oa]|contratos? (empresariais|comerciais)|fusoes e aquisicoes|\bm&a\b|reestruturacao societaria|governanca corporativa/, 3],
   [/recuperacao judicial|falencia|insolvencia/, 3],
   [/compliance|holding|planejamento patrimonial|planejamento sucessorio/, 2],
   [/startups?|propriedade intelectual|marcas e patentes/, 1],

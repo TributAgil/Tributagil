@@ -101,9 +101,21 @@ export const PROVEDORES_EMAIL_GENERICOS = new Set(
   ).split(/\s+/),
 )
 
+// Erros de digitação comuns nos cadastros (sobretudo no CNPJ).
+const CORRECOES_DOMINIO = {
+  'gmail.com.br': 'gmail.com', 'gmail.co': 'gmail.com', 'gmal.com': 'gmail.com', 'gmial.com': 'gmail.com', 'gmai.com': 'gmail.com',
+  'gail.com': 'gmail.com', 'gamil.com': 'gmail.com', 'gmail.con': 'gmail.com', 'gmaill.com': 'gmail.com',
+  'hotimail.com': 'hotmail.com', 'homail.com': 'hotmail.com', 'hotmal.com': 'hotmail.com', 'hotmai.com': 'hotmail.com',
+  'hotmial.com': 'hotmail.com', 'hotmail.com.com.br': 'hotmail.com', 'hotmail.con': 'hotmail.com', 'hotmeil.com': 'hotmail.com',
+  'yaho.com.br': 'yahoo.com.br', 'yaooho.com.br': 'yahoo.com.br', 'yahoo.com.b': 'yahoo.com.br', 'yahho.com.br': 'yahoo.com.br',
+  'outlok.com': 'outlook.com', 'outloo.com': 'outlook.com', 'outlook.com.com': 'outlook.com',
+}
+
 export function normalizarEmail(bruto) {
   if (!bruto) return null
-  const e = String(bruto).trim().toLowerCase().replace(/^mailto:/, '').split('?')[0]
+  let e = String(bruto).trim().toLowerCase().replace(/^mailto:/, '').split('?')[0]
+  const [local, dom] = e.split('@')
+  if (dom && CORRECOES_DOMINIO[dom]) e = local + '@' + CORRECOES_DOMINIO[dom]
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(e)) return null
   if (/\.(png|jpe?g|gif|webp|svg|css|js)$/.test(e)) return null
   const dominio = e.split('@')[1]

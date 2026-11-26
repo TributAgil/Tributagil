@@ -273,7 +273,7 @@ async function main() {
     return {
       fonte: 'cnpj',
       fonte_url: `https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/Cnpjreva_Solicitacao.asp?cnpj=${cnpj}`,
-      nome: fantasia || razao,
+      nome: (/[a-zà-ú]{3}/i.test(fantasia) && fantasia) || razao,
       razao_social: razao,
       nome_fantasia: fantasia,
       tipo: emp.natureza === '2321' ? 'Advogado (sociedade individual)' : 'Escritório',

@@ -22,6 +22,8 @@ test('e-mails e domínios', () => {
   assert.equal(normalizarEmail('MAILTO:Contato@Exemplo.adv.br?subject=oi'), 'contato@exemplo.adv.br')
   assert.equal(normalizarEmail('logo@2x.png'), null)
   assert.equal(normalizarEmail('abc@sentry.io'), null)
+  assert.equal(normalizarEmail('fulano@hotimail.com'), 'fulano@hotmail.com')
+  assert.equal(normalizarEmail('fulano@gmail.com.br'), 'fulano@gmail.com')
   assert.equal(dominioDe('https://www.abpadv.com.br/contato'), 'abpadv.com.br')
   assert.ok(ehSiteProprio('https://abpadv.com.br'))
   assert.ok(!ehSiteProprio('https://www.instagram.com/escritorio'))
