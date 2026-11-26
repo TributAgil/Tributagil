@@ -1,0 +1,1470 @@
+[
+  {
+    "nome": "Salvador",
+    "sociedades": 4014
+  },
+  {
+    "nome": "Feira de Santana",
+    "sociedades": 515
+  },
+  {
+    "nome": "Vitória da Conquista",
+    "sociedades": 342
+  },
+  {
+    "nome": "Lauro de Freitas",
+    "sociedades": 275
+  },
+  {
+    "nome": "Itabuna",
+    "sociedades": 255
+  },
+  {
+    "nome": "Barreiras",
+    "sociedades": 160
+  },
+  {
+    "nome": "Ilhéus",
+    "sociedades": 124
+  },
+  {
+    "nome": "Camaçari",
+    "sociedades": 124
+  },
+  {
+    "nome": "Juazeiro",
+    "sociedades": 116
+  },
+  {
+    "nome": "Luís Eduardo Magalhães",
+    "sociedades": 110
+  },
+  {
+    "nome": "Teixeira de Freitas",
+    "sociedades": 105
+  },
+  {
+    "nome": "Porto Seguro",
+    "sociedades": 94
+  },
+  {
+    "nome": "Guanambi",
+    "sociedades": 93
+  },
+  {
+    "nome": "Eunápolis",
+    "sociedades": 93
+  },
+  {
+    "nome": "Santo Antônio de Jesus",
+    "sociedades": 83
+  },
+  {
+    "nome": "Jequié",
+    "sociedades": 80
+  },
+  {
+    "nome": "Irecê",
+    "sociedades": 73
+  },
+  {
+    "nome": "Alagoinhas",
+    "sociedades": 62
+  },
+  {
+    "nome": "Jacobina",
+    "sociedades": 51
+  },
+  {
+    "nome": "Paulo Afonso",
+    "sociedades": 51
+  },
+  {
+    "nome": "Serrinha",
+    "sociedades": 47
+  },
+  {
+    "nome": "Conceição do Coité",
+    "sociedades": 43
+  },
+  {
+    "nome": "Itaberaba",
+    "sociedades": 42
+  },
+  {
+    "nome": "Senhor do Bonfim",
+    "sociedades": 41
+  },
+  {
+    "nome": "Valença",
+    "sociedades": 36
+  },
+  {
+    "nome": "Brumado",
+    "sociedades": 33
+  },
+  {
+    "nome": "Itamaraju",
+    "sociedades": 32
+  },
+  {
+    "nome": "Simões Filho",
+    "sociedades": 31
+  },
+  {
+    "nome": "Caetité",
+    "sociedades": 28
+  },
+  {
+    "nome": "Cruz das Almas",
+    "sociedades": 27
+  },
+  {
+    "nome": "Itapetinga",
+    "sociedades": 26
+  },
+  {
+    "nome": "Seabra",
+    "sociedades": 26
+  },
+  {
+    "nome": "Bom Jesus da Lapa",
+    "sociedades": 25
+  },
+  {
+    "nome": "Cícero Dantas",
+    "sociedades": 23
+  },
+  {
+    "nome": "Riachão do Jacuípe",
+    "sociedades": 22
+  },
+  {
+    "nome": "Capim Grosso",
+    "sociedades": 22
+  },
+  {
+    "nome": "Livramento de Nossa Senhora",
+    "sociedades": 21
+  },
+  {
+    "nome": "Santo Estêvão",
+    "sociedades": 20
+  },
+  {
+    "nome": "Ipiaú",
+    "sociedades": 20
+  },
+  {
+    "nome": "Candeias",
+    "sociedades": 19
+  },
+  {
+    "nome": "Macaúbas",
+    "sociedades": 19
+  },
+  {
+    "nome": "Valente",
+    "sociedades": 19
+  },
+  {
+    "nome": "Campo Formoso",
+    "sociedades": 18
+  },
+  {
+    "nome": "Euclides da Cunha",
+    "sociedades": 18
+  },
+  {
+    "nome": "Inhambupe",
+    "sociedades": 18
+  },
+  {
+    "nome": "Ipirá",
+    "sociedades": 18
+  },
+  {
+    "nome": "Dias d'Ávila",
+    "sociedades": 17
+  },
+  {
+    "nome": "Ribeira do Pombal",
+    "sociedades": 17
+  },
+  {
+    "nome": "Jaguaquara",
+    "sociedades": 17
+  },
+  {
+    "nome": "Santa Maria da Vitória",
+    "sociedades": 17
+  },
+  {
+    "nome": "Paramirim",
+    "sociedades": 16
+  },
+  {
+    "nome": "Gandu",
+    "sociedades": 16
+  },
+  {
+    "nome": "Araci",
+    "sociedades": 15
+  },
+  {
+    "nome": "Conceição do Jacuípe",
+    "sociedades": 15
+  },
+  {
+    "nome": "Caculé",
+    "sociedades": 15
+  },
+  {
+    "nome": "Santo Amaro",
+    "sociedades": 14
+  },
+  {
+    "nome": "Ibotirama",
+    "sociedades": 14
+  },
+  {
+    "nome": "Mucuri",
+    "sociedades": 13
+  },
+  {
+    "nome": "Muritiba",
+    "sociedades": 13
+  },
+  {
+    "nome": "Camacan",
+    "sociedades": 13
+  },
+  {
+    "nome": "Jeremoabo",
+    "sociedades": 13
+  },
+  {
+    "nome": "Xique-Xique",
+    "sociedades": 13
+  },
+  {
+    "nome": "Catu",
+    "sociedades": 13
+  },
+  {
+    "nome": "Santaluz",
+    "sociedades": 12
+  },
+  {
+    "nome": "Mundo Novo",
+    "sociedades": 12
+  },
+  {
+    "nome": "Vera Cruz",
+    "sociedades": 12
+  },
+  {
+    "nome": "Carinhanha",
+    "sociedades": 11
+  },
+  {
+    "nome": "Mata de São João",
+    "sociedades": 11
+  },
+  {
+    "nome": "Canavieiras",
+    "sociedades": 10
+  },
+  {
+    "nome": "Ibicaraí",
+    "sociedades": 10
+  },
+  {
+    "nome": "Paripiranga",
+    "sociedades": 10
+  },
+  {
+    "nome": "João Dourado",
+    "sociedades": 10
+  },
+  {
+    "nome": "Morro do Chapéu",
+    "sociedades": 10
+  },
+  {
+    "nome": "Barra da Estiva",
+    "sociedades": 9
+  },
+  {
+    "nome": "Santa Rita de Cássia",
+    "sociedades": 9
+  },
+  {
+    "nome": "Itabela",
+    "sociedades": 9
+  },
+  {
+    "nome": "Central",
+    "sociedades": 9
+  },
+  {
+    "nome": "Ruy Barbosa",
+    "sociedades": 9
+  },
+  {
+    "nome": "Urandi",
+    "sociedades": 9
+  },
+  {
+    "nome": "Mairi",
+    "sociedades": 9
+  },
+  {
+    "nome": "São Gonçalo dos Campos",
+    "sociedades": 9
+  },
+  {
+    "nome": "São Felipe",
+    "sociedades": 9
+  },
+  {
+    "nome": "Tucano",
+    "sociedades": 9
+  },
+  {
+    "nome": "Fátima",
+    "sociedades": 9
+  },
+  {
+    "nome": "Itagibá",
+    "sociedades": 8
+  },
+  {
+    "nome": "Rio Real",
+    "sociedades": 8
+  },
+  {
+    "nome": "Ubaitaba",
+    "sociedades": 8
+  },
+  {
+    "nome": "Remanso",
+    "sociedades": 8
+  },
+  {
+    "nome": "Entre Rios",
+    "sociedades": 8
+  },
+  {
+    "nome": "Ibipeba",
+    "sociedades": 8
+  },
+  {
+    "nome": "Formosa do Rio Preto",
+    "sociedades": 8
+  },
+  {
+    "nome": "Jaguarari",
+    "sociedades": 8
+  },
+  {
+    "nome": "Barrocas",
+    "sociedades": 7
+  },
+  {
+    "nome": "Una",
+    "sociedades": 7
+  },
+  {
+    "nome": "Conceição do Almeida",
+    "sociedades": 7
+  },
+  {
+    "nome": "Ubatã",
+    "sociedades": 7
+  },
+  {
+    "nome": "Irará",
+    "sociedades": 7
+  },
+  {
+    "nome": "Wenceslau Guimarães",
+    "sociedades": 7
+  },
+  {
+    "nome": "Uauá",
+    "sociedades": 7
+  },
+  {
+    "nome": "Barra",
+    "sociedades": 7
+  },
+  {
+    "nome": "Itajuípe",
+    "sociedades": 7
+  },
+  {
+    "nome": "Guaratinga",
+    "sociedades": 7
+  },
+  {
+    "nome": "Piatã",
+    "sociedades": 7
+  },
+  {
+    "nome": "Maracás",
+    "sociedades": 7
+  },
+  {
+    "nome": "Nova Viçosa",
+    "sociedades": 7
+  },
+  {
+    "nome": "Sítio do Quinto",
+    "sociedades": 7
+  },
+  {
+    "nome": "Nazaré",
+    "sociedades": 7
+  },
+  {
+    "nome": "Itacaré",
+    "sociedades": 7
+  },
+  {
+    "nome": "Poções",
+    "sociedades": 7
+  },
+  {
+    "nome": "Aporá",
+    "sociedades": 7
+  },
+  {
+    "nome": "Itambé",
+    "sociedades": 7
+  },
+  {
+    "nome": "Conde",
+    "sociedades": 7
+  },
+  {
+    "nome": "Canarana",
+    "sociedades": 6
+  },
+  {
+    "nome": "Botuporã",
+    "sociedades": 6
+  },
+  {
+    "nome": "Santa Cruz Cabrália",
+    "sociedades": 6
+  },
+  {
+    "nome": "Santa Inês",
+    "sociedades": 6
+  },
+  {
+    "nome": "Mutuípe",
+    "sociedades": 6
+  },
+  {
+    "nome": "Madre de Deus",
+    "sociedades": 6
+  },
+  {
+    "nome": "Cansanção",
+    "sociedades": 6
+  },
+  {
+    "nome": "Ibitiara",
+    "sociedades": 6
+  },
+  {
+    "nome": "Governador Mangabeira",
+    "sociedades": 6
+  },
+  {
+    "nome": "Itanhém",
+    "sociedades": 6
+  },
+  {
+    "nome": "Presidente Dutra",
+    "sociedades": 6
+  },
+  {
+    "nome": "Miguel Calmon",
+    "sociedades": 6
+  },
+  {
+    "nome": "Correntina",
+    "sociedades": 6
+  },
+  {
+    "nome": "Ibiassucê",
+    "sociedades": 6
+  },
+  {
+    "nome": "Caravelas",
+    "sociedades": 6
+  },
+  {
+    "nome": "Sátiro Dias",
+    "sociedades": 6
+  },
+  {
+    "nome": "Tanque Novo",
+    "sociedades": 6
+  },
+  {
+    "nome": "Esplanada",
+    "sociedades": 6
+  },
+  {
+    "nome": "Taperoá",
+    "sociedades": 5
+  },
+  {
+    "nome": "Coribe",
+    "sociedades": 5
+  },
+  {
+    "nome": "Mucugê",
+    "sociedades": 5
+  },
+  {
+    "nome": "Heliópolis",
+    "sociedades": 5
+  },
+  {
+    "nome": "Barra do Choça",
+    "sociedades": 5
+  },
+  {
+    "nome": "Pojuca",
+    "sociedades": 5
+  },
+  {
+    "nome": "Retirolândia",
+    "sociedades": 5
+  },
+  {
+    "nome": "Manoel Vitorino",
+    "sociedades": 5
+  },
+  {
+    "nome": "Ubaíra",
+    "sociedades": 5
+  },
+  {
+    "nome": "Riacho de Santana",
+    "sociedades": 5
+  },
+  {
+    "nome": "Santa Bárbara",
+    "sociedades": 5
+  },
+  {
+    "nome": "Ibititá",
+    "sociedades": 5
+  },
+  {
+    "nome": "Olindina",
+    "sociedades": 5
+  },
+  {
+    "nome": "Teodoro Sampaio",
+    "sociedades": 5
+  },
+  {
+    "nome": "Lapão",
+    "sociedades": 5
+  },
+  {
+    "nome": "Serrolândia",
+    "sociedades": 5
+  },
+  {
+    "nome": "Boa Nova",
+    "sociedades": 5
+  },
+  {
+    "nome": "São Félix do Coribe",
+    "sociedades": 5
+  },
+  {
+    "nome": "Ituberá",
+    "sociedades": 5
+  },
+  {
+    "nome": "Sapeaçu",
+    "sociedades": 5
+  },
+  {
+    "nome": "Condeúba",
+    "sociedades": 5
+  },
+  {
+    "nome": "Prado",
+    "sociedades": 5
+  },
+  {
+    "nome": "Medeiros Neto",
+    "sociedades": 5
+  },
+  {
+    "nome": "Angical",
+    "sociedades": 5
+  },
+  {
+    "nome": "Rio do Antônio",
+    "sociedades": 5
+  },
+  {
+    "nome": "Chorrochó",
+    "sociedades": 5
+  },
+  {
+    "nome": "Queimadas",
+    "sociedades": 5
+  },
+  {
+    "nome": "Buritirama",
+    "sociedades": 5
+  },
+  {
+    "nome": "Nova Soure",
+    "sociedades": 5
+  },
+  {
+    "nome": "Crisópolis",
+    "sociedades": 5
+  },
+  {
+    "nome": "Jiquiriçá",
+    "sociedades": 5
+  },
+  {
+    "nome": "Serra Dourada",
+    "sociedades": 5
+  },
+  {
+    "nome": "Amargosa",
+    "sociedades": 5
+  },
+  {
+    "nome": "Pindaí",
+    "sociedades": 4
+  },
+  {
+    "nome": "Ibirapitanga",
+    "sociedades": 4
+  },
+  {
+    "nome": "Quijingue",
+    "sociedades": 4
+  },
+  {
+    "nome": "Candiba",
+    "sociedades": 4
+  },
+  {
+    "nome": "São Gabriel",
+    "sociedades": 4
+  },
+  {
+    "nome": "Santana",
+    "sociedades": 4
+  },
+  {
+    "nome": "Planalto",
+    "sociedades": 4
+  },
+  {
+    "nome": "Camamu",
+    "sociedades": 4
+  },
+  {
+    "nome": "Iuiu",
+    "sociedades": 4
+  },
+  {
+    "nome": "Iguaí",
+    "sociedades": 4
+  },
+  {
+    "nome": "Tanhaçu",
+    "sociedades": 4
+  },
+  {
+    "nome": "Cocos",
+    "sociedades": 4
+  },
+  {
+    "nome": "Mulungu do Morro",
+    "sociedades": 4
+  },
+  {
+    "nome": "Souto Soares",
+    "sociedades": 4
+  },
+  {
+    "nome": "Adustina",
+    "sociedades": 4
+  },
+  {
+    "nome": "Belmonte",
+    "sociedades": 4
+  },
+  {
+    "nome": "Amélia Rodrigues",
+    "sociedades": 4
+  },
+  {
+    "nome": "Utinga",
+    "sociedades": 4
+  },
+  {
+    "nome": "Castro Alves",
+    "sociedades": 4
+  },
+  {
+    "nome": "Presidente Tancredo Neves",
+    "sociedades": 4
+  },
+  {
+    "nome": "Riachão das Neves",
+    "sociedades": 4
+  },
+  {
+    "nome": "São Francisco do Conde",
+    "sociedades": 4
+  },
+  {
+    "nome": "Serra do Ramalho",
+    "sociedades": 4
+  },
+  {
+    "nome": "Ibipitanga",
+    "sociedades": 4
+  },
+  {
+    "nome": "Cristópolis",
+    "sociedades": 4
+  },
+  {
+    "nome": "Coração de Maria",
+    "sociedades": 4
+  },
+  {
+    "nome": "Wagner",
+    "sociedades": 4
+  },
+  {
+    "nome": "Encruzilhada",
+    "sociedades": 4
+  },
+  {
+    "nome": "Curaçá",
+    "sociedades": 4
+  },
+  {
+    "nome": "Itiruçu",
+    "sociedades": 4
+  },
+  {
+    "nome": "Pintadas",
+    "sociedades": 4
+  },
+  {
+    "nome": "Antas",
+    "sociedades": 4
+  },
+  {
+    "nome": "São Sebastião do Passé",
+    "sociedades": 4
+  },
+  {
+    "nome": "Teolândia",
+    "sociedades": 4
+  },
+  {
+    "nome": "Abaré",
+    "sociedades": 4
+  },
+  {
+    "nome": "Novo Triunfo",
+    "sociedades": 3
+  },
+  {
+    "nome": "Maragogipe",
+    "sociedades": 3
+  },
+  {
+    "nome": "Aracatu",
+    "sociedades": 3
+  },
+  {
+    "nome": "Água Fria",
+    "sociedades": 3
+  },
+  {
+    "nome": "Cândido Sales",
+    "sociedades": 3
+  },
+  {
+    "nome": "Brotas de Macaúbas",
+    "sociedades": 3
+  },
+  {
+    "nome": "Nova Canaã",
+    "sociedades": 3
+  },
+  {
+    "nome": "Alcobaça",
+    "sociedades": 3
+  },
+  {
+    "nome": "Milagres",
+    "sociedades": 3
+  },
+  {
+    "nome": "Ribeirão do Largo",
+    "sociedades": 3
+  },
+  {
+    "nome": "Baixa Grande",
+    "sociedades": 3
+  },
+  {
+    "nome": "Ibirataia",
+    "sociedades": 3
+  },
+  {
+    "nome": "Barra do Mendes",
+    "sociedades": 3
+  },
+  {
+    "nome": "Érico Cardoso",
+    "sociedades": 3
+  },
+  {
+    "nome": "Casa Nova",
+    "sociedades": 3
+  },
+  {
+    "nome": "Presidente Jânio Quadros",
+    "sociedades": 3
+  },
+  {
+    "nome": "Rio de Contas",
+    "sociedades": 3
+  },
+  {
+    "nome": "Anguera",
+    "sociedades": 3
+  },
+  {
+    "nome": "Cipó",
+    "sociedades": 3
+  },
+  {
+    "nome": "Coaraci",
+    "sociedades": 3
+  },
+  {
+    "nome": "Palmas de Monte Alto",
+    "sociedades": 3
+  },
+  {
+    "nome": "Almadina",
+    "sociedades": 3
+  },
+  {
+    "nome": "São Félix",
+    "sociedades": 3
+  },
+  {
+    "nome": "Campo Alegre de Lourdes",
+    "sociedades": 3
+  },
+  {
+    "nome": "Ituaçu",
+    "sociedades": 3
+  },
+  {
+    "nome": "Filadélfia",
+    "sociedades": 3
+  },
+  {
+    "nome": "Itororó",
+    "sociedades": 3
+  },
+  {
+    "nome": "Ipupiara",
+    "sociedades": 3
+  },
+  {
+    "nome": "Itapitanga",
+    "sociedades": 3
+  },
+  {
+    "nome": "Barro Alto",
+    "sociedades": 3
+  },
+  {
+    "nome": "Iaçu",
+    "sociedades": 3
+  },
+  {
+    "nome": "Itaparica",
+    "sociedades": 3
+  },
+  {
+    "nome": "Bonito",
+    "sociedades": 3
+  },
+  {
+    "nome": "Itapicuru",
+    "sociedades": 3
+  },
+  {
+    "nome": "Lagoa Real",
+    "sociedades": 3
+  },
+  {
+    "nome": "Buerarema",
+    "sociedades": 3
+  },
+  {
+    "nome": "Capela do Alto Alegre",
+    "sociedades": 3
+  },
+  {
+    "nome": "Paratinga",
+    "sociedades": 3
+  },
+  {
+    "nome": "Uibaí",
+    "sociedades": 3
+  },
+  {
+    "nome": "Cordeiros",
+    "sociedades": 3
+  },
+  {
+    "nome": "Jitaúna",
+    "sociedades": 3
+  },
+  {
+    "nome": "Iraquara",
+    "sociedades": 3
+  },
+  {
+    "nome": "Itiúba",
+    "sociedades": 3
+  },
+  {
+    "nome": "Várzea da Roça",
+    "sociedades": 3
+  },
+  {
+    "nome": "São Domingos",
+    "sociedades": 3
+  },
+  {
+    "nome": "Cachoeira",
+    "sociedades": 3
+  },
+  {
+    "nome": "Licínio de Almeida",
+    "sociedades": 3
+  },
+  {
+    "nome": "Feira da Mata",
+    "sociedades": 2
+  },
+  {
+    "nome": "Irajuba",
+    "sociedades": 2
+  },
+  {
+    "nome": "Teofilândia",
+    "sociedades": 2
+  },
+  {
+    "nome": "Elísio Medrado",
+    "sociedades": 2
+  },
+  {
+    "nome": "Ibicuí",
+    "sociedades": 2
+  },
+  {
+    "nome": "Itatim",
+    "sociedades": 2
+  },
+  {
+    "nome": "Caldeirão Grande",
+    "sociedades": 2
+  },
+  {
+    "nome": "Tabocas do Brejo Velho",
+    "sociedades": 2
+  },
+  {
+    "nome": "Mortugaba",
+    "sociedades": 2
+  },
+  {
+    "nome": "Piritiba",
+    "sociedades": 2
+  },
+  {
+    "nome": "Caturama",
+    "sociedades": 2
+  },
+  {
+    "nome": "Maraú",
+    "sociedades": 2
+  },
+  {
+    "nome": "Santa Cruz da Vitória",
+    "sociedades": 2
+  },
+  {
+    "nome": "Aramari",
+    "sociedades": 2
+  },
+  {
+    "nome": "Dom Basílio",
+    "sociedades": 2
+  },
+  {
+    "nome": "São José do Jacuípe",
+    "sociedades": 2
+  },
+  {
+    "nome": "Saúde",
+    "sociedades": 2
+  },
+  {
+    "nome": "Muquem de Sao Francisco",
+    "sociedades": 2
+  },
+  {
+    "nome": "Vereda",
+    "sociedades": 2
+  },
+  {
+    "nome": "Boquira",
+    "sociedades": 2
+  },
+  {
+    "nome": "Sento Sé",
+    "sociedades": 2
+  },
+  {
+    "nome": "Monte Santo",
+    "sociedades": 2
+  },
+  {
+    "nome": "Cotegipe",
+    "sociedades": 2
+  },
+  {
+    "nome": "Laje",
+    "sociedades": 2
+  },
+  {
+    "nome": "Matina",
+    "sociedades": 2
+  },
+  {
+    "nome": "Santa Luzia",
+    "sociedades": 2
+  },
+  {
+    "nome": "Iramaia",
+    "sociedades": 2
+  },
+  {
+    "nome": "Oliveira dos Brejinhos",
+    "sociedades": 2
+  },
+  {
+    "nome": "Santa Brígida",
+    "sociedades": 2
+  },
+  {
+    "nome": "Itagimirim",
+    "sociedades": 2
+  },
+  {
+    "nome": "Anagé",
+    "sociedades": 2
+  },
+  {
+    "nome": "Saubara",
+    "sociedades": 2
+  },
+  {
+    "nome": "Acajutiba",
+    "sociedades": 2
+  },
+  {
+    "nome": "Dário Meira",
+    "sociedades": 2
+  },
+  {
+    "nome": "Jussara",
+    "sociedades": 2
+  },
+  {
+    "nome": "Ibiquera",
+    "sociedades": 2
+  },
+  {
+    "nome": "Mascote",
+    "sociedades": 2
+  },
+  {
+    "nome": "Maetinga",
+    "sociedades": 2
+  },
+  {
+    "nome": "Jacaraci",
+    "sociedades": 2
+  },
+  {
+    "nome": "Itaguaçu da Bahia",
+    "sociedades": 2
+  },
+  {
+    "nome": "Muniz Ferreira",
+    "sociedades": 2
+  },
+  {
+    "nome": "Santa Teresinha",
+    "sociedades": 2
+  },
+  {
+    "nome": "Boninal",
+    "sociedades": 2
+  },
+  {
+    "nome": "Sobradinho",
+    "sociedades": 2
+  },
+  {
+    "nome": "Apuarema",
+    "sociedades": 2
+  },
+  {
+    "nome": "Itapebi",
+    "sociedades": 2
+  },
+  {
+    "nome": "Pau Brasil",
+    "sociedades": 2
+  },
+  {
+    "nome": "Maiquinique",
+    "sociedades": 2
+  },
+  {
+    "nome": "Araçás",
+    "sociedades": 2
+  },
+  {
+    "nome": "Várzea do Poço",
+    "sociedades": 2
+  },
+  {
+    "nome": "Cafarnaum",
+    "sociedades": 2
+  },
+  {
+    "nome": "Tapiramutá",
+    "sociedades": 2
+  },
+  {
+    "nome": "Uruçuca",
+    "sociedades": 2
+  },
+  {
+    "nome": "Belo Campo",
+    "sociedades": 2
+  },
+  {
+    "nome": "Quixabeira",
+    "sociedades": 2
+  },
+  {
+    "nome": "Igaporã",
+    "sociedades": 1
+  },
+  {
+    "nome": "Aratuípe",
+    "sociedades": 1
+  },
+  {
+    "nome": "Ponto Novo",
+    "sociedades": 1
+  },
+  {
+    "nome": "Palmeiras",
+    "sociedades": 1
+  },
+  {
+    "nome": "Macajuba",
+    "sociedades": 1
+  },
+  {
+    "nome": "Piraí do Norte",
+    "sociedades": 1
+  },
+  {
+    "nome": "Santanópolis",
+    "sociedades": 1
+  },
+  {
+    "nome": "Lajedão",
+    "sociedades": 1
+  },
+  {
+    "nome": "Ourolândia",
+    "sociedades": 1
+  },
+  {
+    "nome": "Pilão Arcado",
+    "sociedades": 1
+  },
+  {
+    "nome": "Guajeru",
+    "sociedades": 1
+  },
+  {
+    "nome": "Andorinha",
+    "sociedades": 1
+  },
+  {
+    "nome": "Mirangaba",
+    "sociedades": 1
+  },
+  {
+    "nome": "Cravolândia",
+    "sociedades": 1
+  },
+  {
+    "nome": "Ipecaetá",
+    "sociedades": 1
+  },
+  {
+    "nome": "Nova Ibiá",
+    "sociedades": 1
+  },
+  {
+    "nome": "Aiquara",
+    "sociedades": 1
+  },
+  {
+    "nome": "Itaquara",
+    "sociedades": 1
+  },
+  {
+    "nome": "Gentio do Ouro",
+    "sociedades": 1
+  },
+  {
+    "nome": "Varzedo",
+    "sociedades": 1
+  },
+  {
+    "nome": "Lamarão",
+    "sociedades": 1
+  },
+  {
+    "nome": "Arataca",
+    "sociedades": 1
+  },
+  {
+    "nome": "Macururé",
+    "sociedades": 1
+  },
+  {
+    "nome": "Pé de Serra",
+    "sociedades": 1
+  },
+  {
+    "nome": "Itagi",
+    "sociedades": 1
+  },
+  {
+    "nome": "Conceição da Feira",
+    "sociedades": 1
+  },
+  {
+    "nome": "São Miguel das Matas",
+    "sociedades": 1
+  },
+  {
+    "nome": "Gongogi",
+    "sociedades": 1
+  },
+  {
+    "nome": "Bom Jesus da Serra",
+    "sociedades": 1
+  },
+  {
+    "nome": "Itaeté",
+    "sociedades": 1
+  },
+  {
+    "nome": "Nilo Peçanha",
+    "sociedades": 1
+  },
+  {
+    "nome": "Dom Macedo Costa",
+    "sociedades": 1
+  },
+  {
+    "nome": "Umburanas",
+    "sociedades": 1
+  },
+  {
+    "nome": "Pindobaçu",
+    "sociedades": 1
+  },
+  {
+    "nome": "Salinas da Margarida",
+    "sociedades": 1
+  },
+  {
+    "nome": "Canudos",
+    "sociedades": 1
+  },
+  {
+    "nome": "Antônio Gonçalves",
+    "sociedades": 1
+  },
+  {
+    "nome": "Caém",
+    "sociedades": 1
+  },
+  {
+    "nome": "Rodelas",
+    "sociedades": 1
+  },
+  {
+    "nome": "Jussari",
+    "sociedades": 1
+  },
+  {
+    "nome": "Várzea Nova",
+    "sociedades": 1
+  },
+  {
+    "nome": "Marcionílio Souza",
+    "sociedades": 1
+  },
+  {
+    "nome": "Jussiape",
+    "sociedades": 1
+  },
+  {
+    "nome": "Biritinga",
+    "sociedades": 1
+  },
+  {
+    "nome": "Canápolis",
+    "sociedades": 1
+  },
+  {
+    "nome": "Wanderley",
+    "sociedades": 1
+  },
+  {
+    "nome": "Gavião",
+    "sociedades": 1
+  },
+  {
+    "nome": "Glória",
+    "sociedades": 1
+  },
+  {
+    "nome": "Lafaiete Coutinho",
+    "sociedades": 1
+  },
+  {
+    "nome": "São Desidério",
+    "sociedades": 1
+  },
+  {
+    "nome": "Banzaê",
+    "sociedades": 1
+  },
+  {
+    "nome": "Brejões",
+    "sociedades": 1
+  },
+  {
+    "nome": "Tanquinho",
+    "sociedades": 1
+  },
+  {
+    "nome": "Piripá",
+    "sociedades": 1
+  },
+  {
+    "nome": "Cairu",
+    "sociedades": 1
+  },
+  {
+    "nome": "Coronel João Sá",
+    "sociedades": 1
+  },
+  {
+    "nome": "Itarantim",
+    "sociedades": 1
+  },
+  {
+    "nome": "Ouriçangas",
+    "sociedades": 1
+  },
+  {
+    "nome": "Tremedal",
+    "sociedades": 1
+  },
+  {
+    "nome": "Planaltino",
+    "sociedades": 1
+  },
+  {
+    "nome": "Malhada",
+    "sociedades": 1
+  },
+  {
+    "nome": "Nordestina",
+    "sociedades": 1
+  },
+  {
+    "nome": "Ibicoara",
+    "sociedades": 1
+  },
+  {
+    "nome": "América Dourada",
+    "sociedades": 1
+  },
+  {
+    "nome": "Abaíra",
+    "sociedades": 1
+  },
+  {
+    "nome": "Barro Preto",
+    "sociedades": 1
+  },
+  {
+    "nome": "Mansidão",
+    "sociedades": 1
+  }
+]

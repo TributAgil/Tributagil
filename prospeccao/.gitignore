@@ -1,0 +1,9 @@
+# Dados com contatos de pessoas NÃO vão para o git (o repositório é público).
+node_modules/
+.cache/
+dados/fontes/
+dados/brutos/
+dados/entrada/*
+!dados/entrada/.gitkeep
+dados/sites.jsonl
+saida/

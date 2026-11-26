@@ -1471,6 +1471,15 @@ logo opcional) e o endpoint com Supabase/Gemini simulados (autenticação, RLS, 
 yarn test:pecas        # = vitest run --config vitest.pecas.config.js
 ```
 
+## Prospecção de clientes (leads de direito tributário)
+
+A pasta [`prospeccao/`](prospeccao/README.md) tem um sistema à parte, com
+`package.json` próprio e fora do build, que monta a lista de advogados e
+escritórios de direito tributário e empresarial de uma UF, começando pela Bahia.
+Ele usa a base de CNPJ da Receita, TeleListas, Análise DNA, Google Maps (com
+chave), os sites dos escritórios e pesquisa manual. As planilhas geradas têm
+contatos de pessoas e **não vão para o git** (ver o `.gitignore` da pasta).
+
 ## Testes (opcional)
 
 O projeto já tem `vitest.config.ts` e `src/test/`. Para habilitar:

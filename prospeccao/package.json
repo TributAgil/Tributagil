@@ -1,0 +1,24 @@
+{
+  "name": "tributagil-prospeccao",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Geração de leads de advogados e escritórios de direito tributário e empresarial (começando pela Bahia).",
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "cnpj": "node src/fontes/cnpj-receita.mjs",
+    "telelistas": "node src/fontes/telelistas.mjs",
+    "places": "node src/fontes/google-places.mjs",
+    "enriquecer": "node src/enriquecer.mjs",
+    "consolidar": "node src/consolidar.mjs",
+    "tudo": "node src/fontes/cnpj-receita.mjs && node src/fontes/telelistas.mjs && node src/fontes/google-places.mjs && node src/enriquecer.mjs && node src/consolidar.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "cheerio": "1.0.0",
+    "exceljs": "4.4.0",
+    "yauzl": "3.2.0"
+  }
+}
