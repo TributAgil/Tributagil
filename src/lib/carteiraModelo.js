@@ -20,6 +20,7 @@ export const NOME_TESE = {
 
 // situação do caso, da mais urgente para a menos
 export const SITUACOES = {
+  andamento_novo: { ordem: -1, rotulo: 'Andamento novo: conferir o prazo' },
   consumou_agora: { ordem: 0, rotulo: 'Prazo consumado: conferir e gerar a peça' },
   pronto: { ordem: 1, rotulo: 'Tese pronta para a peça' },
   acompanhando: { ordem: 2, rotulo: 'Em acompanhamento' },
@@ -66,7 +67,7 @@ export function estadoDoMarco(marco, hoje) {
  *   `marcos`: linhas de marcos_prazo
  * @returns {object[]} um item por caso, já ordenado
  */
-export function montarCarteira({ analises = [], carteira = [], marcos = [], hoje = hojeEmBrasilia() }) {
+export function montarCarteira({ analises = [], carteira = [], marcos = [], andamentos = [], hoje = hojeEmBrasilia() }) {
   // uma linha por caso: a versão mais nova (análise sem caso vira uma linha sozinha)
   const porCaso = new Map();
   for (const a of analises) {
@@ -77,6 +78,7 @@ export function montarCarteira({ analises = [], carteira = [], marcos = [], hoje
     }
   }
   const carteiraPorCaso = new Map(carteira.map((c) => [c.caso_id, c]));
+  const andamentoPorCaso = new Map(andamentos.map((a) => [a.caso_id, a]));
   const marcosPorCaso = new Map();
   for (const m of marcos) {
     if (!marcosPorCaso.has(m.caso_id)) marcosPorCaso.set(m.caso_id, []);
@@ -94,8 +96,12 @@ export function montarCarteira({ analises = [], carteira = [], marcos = [], hoje
     const revisar = (c?.teses || []).filter((t) => t.status === 'bloqueada');
     const proximo = lista.find((m) => m.estado === 'futuro') || null;
 
+    const andamento = analise.caso_id ? andamentoPorCaso.get(analise.caso_id) || null : null;
+    const novidades = novidadesDoAndamento(andamento, analise.created_at);
+
     let situacao;
     if (fase === 'decidido' || fase === 'arquivado') situacao = 'encerrado';
+    else if (novidades.length) situacao = 'andamento_novo';
     else if (!calculado) situacao = 'sem_calculo';
     else if (lista.some((m) => m.estado === 'consumou_agora')) situacao = 'consumou_agora';
     else if (lista.some((m) => m.estado === 'consumado') && fase === 'analisado') situacao = 'pronto';
@@ -104,7 +110,10 @@ export function montarCarteira({ analises = [], carteira = [], marcos = [], hoje
     else if (fase === 'peca_gerada' || fase === 'protocolado') situacao = 'tramitando';
     else situacao = 'nada';
 
-    return { analise, casoId: analise.caso_id, fase, calculado, desatualizado, calculadoEm: c?.calculado_em || null, marcos: lista, revisar, proximo, situacao };
+    return {
+      analise, casoId: analise.caso_id, fase, calculado, desatualizado, calculadoEm: c?.calculado_em || null, marcos: lista, revisar, proximo, situacao,
+      andamento, novidades, diasParado: diasDesde(andamento?.ultima_movimentacao, hoje), ajuizada: c?.ajuizada ?? null,
+    };
   });
 
   return itens.sort(
@@ -114,6 +123,42 @@ export function montarCarteira({ analises = [], carteira = [], marcos = [], hoje
       String(y.analise.created_at || '').localeCompare(String(x.analise.created_at || '')),
   );
 }
+
+// ---- Andamentos do processo (DataJud) --------------------------------------------------------------------------------
+// Mesma classificação de api/_datajud.js. "interrompe": atos que PODEM ter interrompido a prescrição (o advogado
+// confere); a tentativa frustrada não interrompe (REsp 1.340.553/RS).
+export const CATEGORIAS_ANDAMENTO = {
+  constricao: { rotulo: 'Penhora, bloqueio ou outra constrição', interrompe: true },
+  citacao: { rotulo: 'Citação', interrompe: true },
+  parcelamento: { rotulo: 'Parcelamento', interrompe: true },
+  tentativa_frustrada: { rotulo: 'Tentativa frustrada (não interrompe)', interrompe: false },
+  suspensao_art40: { rotulo: 'Suspensão ou arquivamento provisório (art. 40)', interrompe: false },
+  desarquivamento: { rotulo: 'Desarquivamento', interrompe: false },
+  extincao: { rotulo: 'Extinção, arquivamento definitivo ou baixa', interrompe: false },
+  outro: { rotulo: 'Outra movimentação', interrompe: false },
+};
+
+const MS_DIA_A = 24 * 60 * 60 * 1000;
+function diasDesde(isoData, hoje) {
+  const d = isoData ? new Date(isoData) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return Math.floor((hoje.getTime() - Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) / MS_DIA_A);
+}
+
+/**
+ * Movimentações que podem ter interrompido um prazo e que são POSTERIORES à análise (o parecer não as considerou).
+ * @returns {object[]} da mais nova para a mais antiga
+ */
+export function novidadesDoAndamento(andamento, dataAnalise) {
+  const desde = dataAnalise ? new Date(dataAnalise).getTime() : 0;
+  return (Array.isArray(andamento?.movimentos) ? andamento.movimentos : []).filter(
+    (m) => CATEGORIAS_ANDAMENTO[m.categoria]?.interrompe && new Date(m.data).getTime() > desde,
+  );
+}
+
+/** As movimentações que importam para os prazos (sem as "outras"), da mais nova para a mais antiga. */
+export const movimentosRelevantes = (andamento) =>
+  (Array.isArray(andamento?.movimentos) ? andamento.movimentos : []).filter((m) => m.categoria && m.categoria !== 'outro');
 
 /** Contagem por situação, para os filtros da tela. */
 export function contarSituacoes(itens) {
@@ -163,7 +208,7 @@ export function eventosDoCalendario(itens) {
     if (i.situacao === 'encerrado') continue;
     for (const m of i.marcos) {
       if (m.estado === 'consumado') continue;
-      ev.push({ data: String(m.data).slice(0, 10), estado: m.estado, dias: m.dias, tese: m.tese, cda: m.cda || '', periodo: m.periodo || '', condicao: m.condicao || '', titulo: i.analise?.titulo || 'Caso', item: i });
+      ev.push({ data: String(m.data).slice(0, 10), estado: m.estado, dias: m.dias, tese: m.tese, cda: m.cda || '', periodo: m.periodo || '', condicao: m.condicao || '', titulo: i.analise?.titulo || 'Caso', conferir: (i.novidades || []).length > 0, item: i });
     }
   }
   return ev.sort((a, b) => a.data.localeCompare(b.data));
@@ -175,6 +220,7 @@ export function avisosDaCarteira(itens, janela = 30) {
   return {
     consumouAgora: ev.filter((e) => e.estado === 'consumou_agora').length,
     proximos: ev.filter((e) => e.estado === 'futuro' && e.dias <= janela).length,
+    andamentosNovos: itens.filter((i) => i.situacao === 'andamento_novo').length,
     janela,
   };
 }

@@ -42,6 +42,7 @@ yarn dev
 | `VITE_HCAPTCHA_SITEKEY` | browser | — | Sitekey (pública) da hCaptcha do login. Tem fallback no código; o **secret key** correspondente vai no painel do Supabase (Authentication → Attack Protection), nunca aqui. |
 | `VITE_SENTRY_LOADER_SRC` | browser | — | URL do *Loader Script* do Sentry (rastreamento de erros). Sem ela, nenhum código do Sentry carrega. |
 | `RESEND_API_KEY` | servidor | — | Sem ela, mensagens de suporte só vão para o log |
+| `DATAJUD_API_KEY` | servidor | — | Chave pública da API do DataJud (CNJ), para os andamentos na carteira. Sem ela, o acompanhamento fica desligado |
 | `CONTATO_EMAIL_TO` | servidor | — | Destino do suporte (padrão `contato@tributagil.online`) |
 | `CONTATO_EMAIL_FROM` | servidor | — | Remetente verificado no Resend |
 | `GEMINI_EMBEDDING_MODEL` | servidor | — | Modelo de embedding do chatbot "Lu" (padrão `gemini-embedding-001`, 768 dimensões; o antigo `text-embedding-004` foi desativado pelo Google e, se vier nesta variável, é ignorado) |
@@ -1306,6 +1307,18 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   sobre o valor atingido, com o salário mínimo editável (R$ 1.621,00 desde 01/01/2026, Decreto nº 12.797/2025); só
   com execução ajuizada (na via administrativa não há condenação). Imprimir/salvar em PDF, baixar em Word ou copiar
   o texto. Os valores digitados ficam no navegador (por análise), não no banco.
+- **Andamentos do processo pelo DataJud (CNJ)** (26/11/2026): `api/andamentos.js` + `api/_datajud.js`. Na carteira,
+  cada caso com número CNJ válido (o do parecer, conferido pelo dígito verificador, ou o que o advogado digitar) tem
+  o bloco "Andamentos do processo": última movimentação, tempo parado e as movimentações que importam para os prazos
+  (constrição, citação, parcelamento, tentativa frustrada, suspensão/arquivamento do art. 40, desarquivamento,
+  extinção), classificadas pelo nome e, nos nomes ambíguos, pelo código da TPU. Constrição, citação ou parcelamento
+  **posteriores à análise** põem o caso em "Andamento novo: conferir o prazo" (topo da lista, faixa de aviso e marca
+  na agenda). O sistema avisa e não muda o cálculo sozinho. Ao abrir a carteira, consulta sozinho até 3 processos
+  sem consulta nas últimas 24 h; o botão "Atualizar andamentos" força. Resultado guardado por 6 h. A API do CNJ
+  costuma demorar (40 a 50 s) ou recusar por sobrecarga (429): vira "indisponível" e a última consulta boa é
+  mantida. Só movimentações, sem documentos, com alguns dias de atraso. Banco em
+  [`docs/sql/andamentos.sql`](docs/sql/andamentos.sql) (aplicado em 26/11/2026). Variável: `DATAJUD_API_KEY` (chave
+  pública do CNJ; ela pode mudar, a atual fica na wiki do DataJud).
 - **Feriados no cálculo dos prazos processuais** (26/11/2026): `api/_feriados.js`. Embargos e agravo descontam fins
   de semana, feriados nacionais (inclusive 20/11, Lei nº 14.759/2023), a Sexta-feira da Paixão e a suspensão de
   20/12 a 20/01 (art. 220 do CPC); quando a credora é a União, também os dias sem expediente da Justiça Federal (Lei
