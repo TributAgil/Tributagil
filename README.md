@@ -1340,11 +1340,15 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   e os marcos de prazo do motor (`api/_carteira.js`): **consumado** (prescrito/decaído: tese pronta) e
   **acompanhar** (prescrição ordinária sem execução e intercorrente em curso: consuma numa data conhecida, desde que
   nada interrompa). Os marcos são gravados a cada "Gerar peça" e pelo botão "Calcular prazos" da carteira
-  (`api/gerar-peca.js` com `so_prazos`, lê os documentos e roda o motor, sem montar peça). Um cron diário da Vercel
-  (`api/alertas-prazo.js`, 10h23 UTC) manda um e-mail por advogado com os marcos "acompanhar" cuja data passou
-  (Resend; caso decidido ou arquivado não recebe). Banco em [`docs/sql/carteira.sql`](docs/sql/carteira.sql)
-  (aplicado em 25/11/2026). Variáveis: `CRON_SECRET` (obrigatória para o cron), `SUPABASE_RPC_SEGREDO`,
-  `RESEND_API_KEY`, `CONTATO_EMAIL_FROM` e, opcional, `APP_URL` (link do e-mail).
+  (`api/gerar-peca.js` com `so_prazos`, lê os documentos e roda o motor, sem montar peça). **Os avisos ficam dentro
+  da plataforma, sem e-mail** (26/11/2026): no topo da carteira, o calendário do mês marca os dias com prazo
+  (vermelho: consumou; amarelo: vai consumar) e a agenda ao lado lista os próximos 90 dias e os consumados agora;
+  clicar num dia filtra os casos. Faixas de aviso no topo e um contador no botão "Carteira e prazos" do painel.
+  Filtros: cartões de situação (consumados agora, prontos, em acompanhamento, pedem revisão, sem cálculo), busca
+  por caso ou CDA, fase, tese e "só encerrados" (lógica em `src/lib/carteiraModelo.js`, testes em
+  `tests/carteira-calendario.test.js`). O antigo cron de e-mail (`api/alertas-prazo.js`) foi removido; as RPCs
+  `alertas_prazo_pendentes`/`marcar_alertas_enviados` e a coluna `alertado_em` continuam no banco, sem uso. Banco em
+  [`docs/sql/carteira.sql`](docs/sql/carteira.sql) (aplicado em 25/11/2026).
 - **Conversar com o Lu também no resultado da análise** (25/11/2026): botão fixo "Conversar com o Lu" (preto e
   amarelo) no canto da tela do resultado; abre o mesmo chat do editor (`src/components/lu/ConversaDaAnalise.jsx`),
   com os documentos enviados e o parecer (inclusive raciocínio e recomendações). Ali não há peça: o Lu não propõe

@@ -10,7 +10,7 @@
 //                    de citação) até a data;
 //                  * prescrição intercorrente com ciclo em curso: consuma se não houver penhora efetiva, citação ou
 //                    outro ato interruptivo até a data.
-//                  É este que vira alerta quando a data passa (api/alertas-prazo.js).
+//                  É este que vira aviso no calendário da carteira quando a data passa.
 // Decadência só entra como 'consumado': com o lançamento já notificado, a conta não muda com o tempo.
 // Prescrição ordinária COM execução ajuizada e ainda não prescrita também não entra: o ajuizamento já interrompeu.
 //

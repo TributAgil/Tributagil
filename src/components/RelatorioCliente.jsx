@@ -128,7 +128,7 @@ export default function RelatorioCliente({ resultado, analiseId, casoId, user })
         <span className="text-sm text-parchment/50">O parecer em linguagem simples, com o timbre do escritório</span>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         {/* formulário */}
         <div className="space-y-4">
           <section className="rounded-xl border border-line bg-ink-800/50 p-4 space-y-3">

@@ -1,28 +1,23 @@
 // src/pages/Carteira.jsx
 //
 // "Carteira de casos": uma linha por caso (a versão mais nova da análise), com a fase em que ele está e os marcos de
-// prazo calculados pelo motor (src/lib/carteiraModelo.js). O que já prescreveu ou decaiu aparece como tese pronta; o
-// que vai se consumar numa data conhecida fica "em acompanhamento", e o advogado recebe um e-mail quando a data passa
-// (api/alertas-prazo.js). Caso sem prazos calculados tem o botão "Calcular prazos" (lê os documentos de novo; não gera
-// peça nem gasta crédito de análise).
+// prazo calculados pelo motor (src/lib/carteiraModelo.js). Os avisos ficam DENTRO da plataforma (nada de e-mail): o
+// calendário de prazos no topo mostra o que consuma em cada dia e o que já consumou e pede atenção; os filtros
+// combinam situação, fase, tese, busca e o dia escolhido no calendário. Caso sem prazos calculados tem o botão
+// "Calcular prazos" (lê os documentos de novo; não gera peça nem gasta crédito de análise).
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Clock, CalendarClock, Calculator, ArrowUpRight, Bell, Info,
+  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Clock, CalendarClock, Calculator, ArrowUpRight, Info,
+  ChevronLeft, ChevronRight, Search, X, SlidersHorizontal,
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import RodapeLegal from '../components/RodapeLegal';
 import { carregarCarteira, calcularPrazos, definirFase } from '../lib/carteira';
-import { FASES, NOME_TESE, SITUACOES, contarSituacoes, formatarData } from '../lib/carteiraModelo';
-
-const FILTROS = [
-  { id: 'todos', rotulo: 'Todos' },
-  { id: 'consumou_agora', rotulo: 'Consumados agora' },
-  { id: 'pronto', rotulo: 'Prontos para peça' },
-  { id: 'acompanhando', rotulo: 'Em acompanhamento' },
-  { id: 'sem_calculo', rotulo: 'Sem cálculo' },
-  { id: 'encerrado', rotulo: 'Encerrados' },
-];
+import {
+  FASES, NOME_TESE, SITUACOES, contarSituacoes, formatarData, hojeEmBrasilia, filtrarCarteira, filtrosAtivos, FILTROS_PADRAO,
+  eventosDoCalendario, eventosPorDia, avisosDaCarteira, semanasDoMes,
+} from '../lib/carteiraModelo';
 
 const COR_SITUACAO = {
   consumou_agora: 'border-red-400/60 bg-red-500/10 text-red-300',
@@ -34,6 +29,18 @@ const COR_SITUACAO = {
   nada: 'border-line bg-ink-700/50 text-parchment/50',
   encerrado: 'border-line bg-ink-700/30 text-parchment/40',
 };
+
+// os "cartões" de situação, que também são o filtro principal
+const CARTOES = [
+  { id: 'consumou_agora', rotulo: 'Consumados agora', dica: 'Prazo em acompanhamento cuja data passou', ponto: 'bg-red-400' },
+  { id: 'pronto', rotulo: 'Prontos para a peça', dica: 'Já prescrito ou decaído quando calculado', ponto: 'bg-emerald-400' },
+  { id: 'acompanhando', rotulo: 'Em acompanhamento', dica: 'Consuma numa data conhecida', ponto: 'bg-amber-400' },
+  { id: 'revisar', rotulo: 'Pedem revisão', dica: 'O cálculo pediu conferência manual', ponto: 'bg-sky-400' },
+  { id: 'sem_calculo', rotulo: 'Sem cálculo', dica: 'Prazos ainda não calculados', ponto: 'bg-parchment/40' },
+];
+
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const DIAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
 function LinhaMarco({ m }) {
   const onde = [m.cda && `CDA ${m.cda}`, m.periodo && `período ${m.periodo}`].filter(Boolean).join(' · ');
@@ -62,13 +69,142 @@ function LinhaMarco({ m }) {
   );
 }
 
+/** Calendário do mês com os prazos marcados; clicar num dia filtra a lista. */
+function Calendario({ eventos, mes, setMes, dia, setDia, hojeIso }) {
+  const porDia = useMemo(() => eventosPorDia(eventos), [eventos]);
+  const semanas = semanasDoMes(mes.ano, mes.mes);
+  const andar = (delta) => {
+    const d = new Date(Date.UTC(mes.ano, mes.mes + delta, 1));
+    setMes({ ano: d.getUTCFullYear(), mes: d.getUTCMonth() });
+  };
+  return (
+    <div className="rounded-2xl border border-line bg-ink-800/50 p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button onClick={() => andar(-1)} className="p-1.5 rounded-lg text-parchment/60 hover:text-parchment hover:bg-ink-700" aria-label="Mês anterior">
+          <ChevronLeft size={16} />
+        </button>
+        <p className="text-sm font-semibold">
+          {MESES[mes.mes].charAt(0).toUpperCase() + MESES[mes.mes].slice(1)} de {mes.ano}
+        </p>
+        <button onClick={() => andar(1)} className="p-1.5 rounded-lg text-parchment/60 hover:text-parchment hover:bg-ink-700" aria-label="Próximo mês">
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-parchment/40 mb-1">
+        {DIAS_SEMANA.map((d, k) => (
+          <span key={k}>{d}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {semanas.flat().map((iso, k) => {
+          if (!iso) return <span key={k} />;
+          const doDia = porDia.get(iso) || [];
+          const vermelho = doDia.some((e) => e.estado === 'consumou_agora');
+          const escolhido = dia === iso;
+          const hoje = iso === hojeIso;
+          return (
+            <button
+              key={iso}
+              onClick={() => doDia.length && setDia(escolhido ? null : iso)}
+              disabled={!doDia.length}
+              aria-pressed={escolhido}
+              aria-label={`${formatarData(iso)}${doDia.length ? `: ${doDia.length} prazo(s)` : ''}`}
+              className={`relative h-9 rounded-lg text-xs tabular-nums transition-colors ${
+                escolhido
+                  ? 'bg-gold text-ink font-bold'
+                  : doDia.length
+                    ? `font-semibold ${vermelho ? 'bg-red-500/15 text-red-200 hover:bg-red-500/25' : 'bg-amber-500/15 text-amber-100 hover:bg-amber-500/25'}`
+                    : 'text-parchment/45 cursor-default'
+              } ${hoje && !escolhido ? 'ring-1 ring-gold/70' : ''}`}
+            >
+              {Number(iso.slice(8))}
+              {doDia.length > 1 && !escolhido && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-ink-900 border border-line text-[9px] leading-[14px] text-parchment/80">
+                  {doDia.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-parchment/50">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-red-400/70" /> consumou</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-400/70" /> vai consumar</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm ring-1 ring-gold/70" /> hoje</span>
+        <button
+          onClick={() => {
+            const h = new Date(`${hojeIso}T00:00:00Z`);
+            setMes({ ano: h.getUTCFullYear(), mes: h.getUTCMonth() });
+          }}
+          className="ml-auto text-gold hover:underline"
+        >
+          Hoje
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Agenda: os próximos prazos (e os consumados agora) em lista, ou só os do dia escolhido. */
+function Agenda({ eventos, dia, setDia, onAbrir }) {
+  const lista = dia ? eventos.filter((e) => e.data === dia) : eventos.filter((e) => e.estado === 'consumou_agora' || e.dias <= 90);
+  return (
+    <div className="rounded-2xl border border-line bg-ink-800/50 p-4 flex flex-col min-h-0">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <p className="text-sm font-semibold">{dia ? `Prazos de ${formatarData(dia)}` : 'Próximos 90 dias e consumados agora'}</p>
+        {dia && (
+          <button onClick={() => setDia(null)} className="inline-flex items-center gap-1 text-xs text-parchment/60 hover:text-parchment">
+            <X size={13} /> ver todos
+          </button>
+        )}
+      </div>
+      {lista.length === 0 ? (
+        <p className="text-xs text-parchment/45 py-6 text-center">
+          {eventos.length ? 'Nenhum prazo nos próximos 90 dias. Use as setas do calendário para ver os meses seguintes.' : 'Nenhum prazo em acompanhamento. Calcule os prazos dos casos abaixo.'}
+        </p>
+      ) : (
+        <ul className="space-y-2 overflow-y-auto max-h-[19rem] pr-1">
+          {lista.map((e, k) => {
+            const vermelho = e.estado === 'consumou_agora';
+            return (
+              <li key={`${e.data}-${k}`} className={`rounded-xl border px-3 py-2 ${vermelho ? 'border-red-400/40 bg-red-500/5' : 'border-line bg-ink-900/40'}`}>
+                <div className="flex items-start gap-3">
+                  <div className={`shrink-0 w-12 text-center rounded-lg py-1 ${vermelho ? 'bg-red-500/15 text-red-200' : 'bg-amber-500/15 text-amber-100'}`}>
+                    <span className="block text-sm font-bold leading-none tabular-nums">{e.data.slice(8)}</span>
+                    <span className="block text-[10px] uppercase">{MESES[Number(e.data.slice(5, 7)) - 1].slice(0, 3)}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <button onClick={() => onAbrir(e.item.analise)} className="block max-w-full text-left text-sm text-parchment/90 hover:text-gold truncate">
+                      {e.titulo}
+                    </button>
+                    <p className="text-xs text-parchment/55">
+                      {NOME_TESE[e.tese] || e.tese}
+                      {e.cda && ` · CDA ${e.cda}`}
+                      {e.periodo && ` · ${e.periodo}`}
+                    </p>
+                    <p className={`text-[11px] ${vermelho ? 'text-red-300' : 'text-amber-300'}`}>
+                      {vermelho ? `consumou em ${formatarData(e.data)}: confira nos autos e gere a peça` : e.dias === 0 ? 'consuma hoje' : `faltam ${e.dias} dia(s)`}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [disponivel, setDisponivel] = useState(true);
-  const [filtro, setFiltro] = useState('todos');
-  const [calculando, setCalculando] = useState({}); // casoId|analiseId -> true
+  const [filtros, setFiltros] = useState(FILTROS_PADRAO);
+  const [calculando, setCalculando] = useState({}); // analiseId -> true
   const [erros, setErros] = useState({});
+  const hojeIso = useMemo(() => hojeEmBrasilia().toISOString().slice(0, 10), []);
+  const [mes, setMes] = useState(() => ({ ano: Number(hojeIso.slice(0, 4)), mes: Number(hojeIso.slice(5, 7)) - 1 }));
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -83,10 +219,13 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
   }, [carregar]);
 
   const contagem = useMemo(() => contarSituacoes(itens), [itens]);
-  const visiveis = useMemo(
-    () => (filtro === 'todos' ? itens.filter((i) => i.situacao !== 'encerrado') : itens.filter((i) => i.situacao === filtro)),
-    [itens, filtro],
-  );
+  const eventos = useMemo(() => eventosDoCalendario(itens), [itens]);
+  const avisos = useMemo(() => avisosDaCarteira(itens), [itens]);
+  const visiveis = useMemo(() => filtrarCarteira(itens, filtros), [itens, filtros]);
+  const nFiltros = filtrosAtivos(filtros);
+  const mudar = (patch) => setFiltros((f) => ({ ...f, ...patch }));
+
+  const escolherDia = (dia) => mudar({ dia });
 
   const calcular = async (item) => {
     const chave = item.analise.id;
@@ -110,6 +249,9 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
     }
   };
 
+  const classeSelect =
+    'rounded-xl bg-ink-900 border border-line px-3 py-2 text-sm text-parchment focus:outline-none focus:border-gold/50';
+
   return (
     <div className="min-h-screen bg-noir text-parchment">
       <header className="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur-md">
@@ -120,8 +262,8 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
           <Logo size="md" showWordmark={false} />
           <span className="hidden h-11 w-px shrink-0 bg-line sm:block" aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg sm:text-xl font-bold">Carteira de casos</h1>
-            <p className="text-sm text-parchment/50 truncate">Prazos de cada caso, calculados pelo motor do TributÁgil</p>
+            <h1 className="text-lg sm:text-xl font-bold">Carteira e prazos</h1>
+            <p className="text-sm text-parchment/50 truncate">Calendário e situação de cada caso, calculados pelo motor do TributÁgil</p>
           </div>
           <button onClick={carregar} className="p-2.5 text-parchment/50 hover:text-parchment hover:bg-ink-700 rounded-xl" title="Atualizar" aria-label="Atualizar">
             <RefreshCw size={16} className={carregando ? 'animate-spin' : ''} />
@@ -130,12 +272,6 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-        <p className="flex items-start gap-2 text-xs text-parchment/55 rounded-xl border border-line bg-ink-800/50 px-3 py-2.5">
-          <Bell size={14} className="mt-0.5 shrink-0 text-gold" />
-          Os prazos em acompanhamento viram um e-mail para {user?.email || 'você'} no dia seguinte à data, se o caso não estiver decidido ou
-          arquivado. É cálculo automático: antes de protocolar, confira nos autos se houve algum ato que interrompeu o prazo.
-        </p>
-
         {!disponivel && (
           <p className="flex items-start gap-2 text-sm text-amber-300">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" /> A carteira ainda não está ativa no banco de dados. As análises aparecem, mas
@@ -143,24 +279,114 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
           </p>
         )}
 
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filtrar casos">
-          {FILTROS.map((f) => {
-            const n = f.id === 'todos' ? itens.filter((i) => i.situacao !== 'encerrado').length : contagem[f.id];
-            return (
+        {/* avisos: ficam aqui dentro (sem e-mail) */}
+        {(avisos.consumouAgora > 0 || avisos.proximos > 0) && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            {avisos.consumouAgora > 0 && (
               <button
-                key={f.id}
-                role="tab"
-                aria-selected={filtro === f.id}
-                onClick={() => setFiltro(f.id)}
-                className={`px-3 py-1.5 rounded-full border text-xs transition-colors ${
-                  filtro === f.id ? 'border-gold bg-gold/15 text-gold' : 'border-line text-parchment/60 hover:text-parchment'
-                }`}
+                onClick={() => setFiltros({ ...FILTROS_PADRAO, situacao: 'consumou_agora' })}
+                className="flex-1 flex items-center gap-2 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-2.5 text-left text-sm text-red-200 hover:bg-red-500/15"
               >
-                {f.rotulo} <span className="tabular-nums opacity-70">({n})</span>
+                <AlertTriangle size={16} className="shrink-0 text-red-400" />
+                {avisos.consumouAgora} prazo(s) consumaram: confira nos autos e gere a peça
               </button>
-            );
-          })}
-        </div>
+            )}
+            {avisos.proximos > 0 && (
+              <div className="flex-1 flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100">
+                <CalendarClock size={16} className="shrink-0 text-amber-400" />
+                {avisos.proximos} prazo(s) consumam nos próximos {avisos.janela} dias
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* calendário + agenda */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" aria-label="Calendário de prazos">
+          <Calendario eventos={eventos} mes={mes} setMes={setMes} dia={filtros.dia} setDia={escolherDia} hojeIso={hojeIso} />
+          <Agenda eventos={eventos} dia={filtros.dia} setDia={escolherDia} onAbrir={(a) => onReabrirAnalise?.(a)} />
+        </section>
+        <p className="flex items-start gap-1.5 text-[11px] text-parchment/45">
+          <Info size={13} className="mt-0.5 shrink-0" />
+          Cálculo automático a partir dos documentos de cada análise: antes de protocolar, confira nos autos se houve algum ato que interrompeu o prazo.
+        </p>
+
+        {/* filtros */}
+        <section className="space-y-3" aria-label="Filtrar casos">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {CARTOES.map((c) => {
+              const ativo = filtros.situacao === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => mudar({ situacao: ativo ? 'ativos' : c.id })}
+                  aria-pressed={ativo}
+                  title={c.dica}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                    ativo ? 'border-gold bg-gold/10' : 'border-line bg-ink-800/40 hover:border-gold/40'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] text-parchment/60">
+                    <span className={`h-2 w-2 rounded-full ${c.ponto}`} /> {c.rotulo}
+                  </span>
+                  <span className={`block text-xl font-bold tabular-nums ${ativo ? 'text-gold' : 'text-parchment'}`}>{contagem[c.id] || 0}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label className="relative flex-1 min-w-[12rem]">
+              <span className="sr-only">Buscar caso ou CDA</span>
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-parchment/40" />
+              <input
+                value={filtros.busca}
+                onChange={(ev) => mudar({ busca: ev.target.value })}
+                placeholder="Buscar caso ou CDA…"
+                className={`${classeSelect} w-full pl-9`}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <select value={filtros.fase} onChange={(ev) => mudar({ fase: ev.target.value })} className={classeSelect} aria-label="Fase do caso">
+                <option value="todas">Todas as fases</option>
+                {FASES.map((f) => (
+                  <option key={f.id} value={f.id}>{f.rotulo}</option>
+                ))}
+              </select>
+              <select value={filtros.tese} onChange={(ev) => mudar({ tese: ev.target.value })} className={classeSelect} aria-label="Tese">
+                <option value="todas">Todas as teses</option>
+                {Object.entries(NOME_TESE).map(([id, nome]) => (
+                  <option key={id} value={id}>{nome}</option>
+                ))}
+              </select>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-parchment/60 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="accent-gold"
+                checked={filtros.situacao === 'encerrado'}
+                onChange={(ev) => mudar({ situacao: ev.target.checked ? 'encerrado' : 'ativos' })}
+              />
+              Só encerrados ({contagem.encerrado || 0})
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-parchment/55">
+            <SlidersHorizontal size={13} />
+            <span>
+              {visiveis.length} caso(s){nFiltros === 0 ? ' ativos (decididos e arquivados ficam fora)' : ''}
+            </span>
+            {filtros.dia && (
+              <button onClick={() => mudar({ dia: null })} className="inline-flex items-center gap-1 rounded-full border border-gold/50 bg-gold/10 px-2 py-0.5 text-gold">
+                dia {formatarData(filtros.dia)} <X size={12} />
+              </button>
+            )}
+            {nFiltros > 0 && (
+              <button onClick={() => setFiltros(FILTROS_PADRAO)} className="ml-auto text-gold hover:underline">
+                Limpar filtros ({nFiltros})
+              </button>
+            )}
+          </div>
+        </section>
 
         {carregando && itens.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-parchment/60 py-10 justify-center">
@@ -168,7 +394,7 @@ export default function Carteira({ user, onVoltar, onReabrirAnalise }) {
           </div>
         ) : visiveis.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-line bg-ink-800/30 px-8 py-12 text-center text-sm text-parchment/50">
-            {itens.length === 0 ? 'Nenhuma análise ainda. Os casos aparecem aqui depois da primeira análise.' : 'Nenhum caso neste filtro.'}
+            {itens.length === 0 ? 'Nenhuma análise ainda. Os casos aparecem aqui depois da primeira análise.' : 'Nenhum caso com esses filtros.'}
           </div>
         ) : (
           <ul className="space-y-3">

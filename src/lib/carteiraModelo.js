@@ -121,3 +121,87 @@ export function contarSituacoes(itens) {
   for (const i of itens) n[i.situacao] += 1;
   return n;
 }
+
+// ---- Filtros --------------------------------------------------------------------------------------------------------
+// Situação: 'ativos' (tudo menos encerrado), 'encerrado' ou uma situação de SITUACOES. Fase e tese: 'todas' ou um id.
+// Busca: no título do caso e nas CDAs. Dia: 'AAAA-MM-DD' (só os casos com prazo nesse dia, vindo do calendário).
+export const FILTROS_PADRAO = { situacao: 'ativos', fase: 'todas', tese: 'todas', busca: '', dia: null };
+
+const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+export function filtrarCarteira(itens, filtros = FILTROS_PADRAO) {
+  const f = { ...FILTROS_PADRAO, ...filtros };
+  const termo = semAcento(f.busca).trim();
+  return itens.filter((i) => {
+    if (f.situacao === 'ativos' ? i.situacao === 'encerrado' : i.situacao !== f.situacao) return false;
+    if (f.fase !== 'todas' && i.fase !== f.fase) return false;
+    if (f.tese !== 'todas' && !i.marcos.some((m) => m.tese === f.tese)) return false;
+    if (f.dia && !i.marcos.some((m) => String(m.data).slice(0, 10) === f.dia && m.estado !== 'consumado')) return false;
+    if (termo) {
+      const onde = semAcento([i.analise?.titulo, ...i.marcos.map((m) => m.cda)].join(' '));
+      if (!onde.includes(termo)) return false;
+    }
+    return true;
+  });
+}
+
+/** Quantos filtros além do padrão estão ligados (para o botão "Limpar"). */
+export const filtrosAtivos = (filtros) =>
+  Object.entries(FILTROS_PADRAO).filter(([k, v]) => (filtros?.[k] ?? v) !== v).length;
+
+// ---- Calendário de prazos (os avisos ficam dentro da plataforma) ---------------------------------------------------------
+/**
+ * Os prazos que vão para o calendário: os "acompanhar" (consumam numa data; os que já passaram são o aviso
+ * "consumou agora"). Os "consumado" de origem já eram passado quando o motor calculou e não entram. Casos encerrados
+ * (decididos ou arquivados) também não.
+ * @returns {Array<{ data: string, estado: 'futuro'|'consumou_agora', dias: number, tese: string, cda: string,
+ *   periodo: string, condicao: string, titulo: string, item: object }>} em ordem de data
+ */
+export function eventosDoCalendario(itens) {
+  const ev = [];
+  for (const i of itens) {
+    if (i.situacao === 'encerrado') continue;
+    for (const m of i.marcos) {
+      if (m.estado === 'consumado') continue;
+      ev.push({ data: String(m.data).slice(0, 10), estado: m.estado, dias: m.dias, tese: m.tese, cda: m.cda || '', periodo: m.periodo || '', condicao: m.condicao || '', titulo: i.analise?.titulo || 'Caso', item: i });
+    }
+  }
+  return ev.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/** Avisos para o painel e para o topo da carteira: consumados agora e prazos nos próximos `janela` dias. */
+export function avisosDaCarteira(itens, janela = 30) {
+  const ev = eventosDoCalendario(itens);
+  return {
+    consumouAgora: ev.filter((e) => e.estado === 'consumou_agora').length,
+    proximos: ev.filter((e) => e.estado === 'futuro' && e.dias <= janela).length,
+    janela,
+  };
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+export const isoDoDia = (ano, mes, dia) => `${ano}-${pad(mes + 1)}-${pad(dia)}`;
+
+/**
+ * Semanas do mês (domingo a sábado) para a grade do calendário. `mes` de 0 a 11. Dias de fora do mês vêm null.
+ * @returns {Array<Array<string|null>>} datas 'AAAA-MM-DD'
+ */
+export function semanasDoMes(ano, mes) {
+  const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
+  const total = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  const celulas = [...Array(primeiro).fill(null), ...Array.from({ length: total }, (_, k) => isoDoDia(ano, mes, k + 1))];
+  while (celulas.length % 7) celulas.push(null);
+  const semanas = [];
+  for (let k = 0; k < celulas.length; k += 7) semanas.push(celulas.slice(k, k + 7));
+  return semanas;
+}
+
+/** Eventos agrupados por dia ('AAAA-MM-DD' -> eventos). */
+export function eventosPorDia(eventos) {
+  const mapa = new Map();
+  for (const e of eventos) {
+    if (!mapa.has(e.data)) mapa.set(e.data, []);
+    mapa.get(e.data).push(e);
+  }
+  return mapa;
+}

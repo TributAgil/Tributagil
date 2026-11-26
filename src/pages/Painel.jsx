@@ -5,6 +5,8 @@ import BarraCreditos from '../components/BarraCreditos';
 import Logo from '../components/Logo';
 import RodapeLegal from '../components/RodapeLegal';
 import { listarAnalises } from '../lib/analises';
+import { carregarCarteira } from '../lib/carteira';
+import { avisosDaCarteira } from '../lib/carteiraModelo';
 
 // ============================================================
 // PAINEL — tela inicial pós-login. "Autoridade Fluida": preto + dourado.
@@ -34,6 +36,21 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onVerCa
       vivo = false;
     };
   }, [user?.id]);
+
+  // avisos de prazo dentro da plataforma (sem e-mail): contador no botão da carteira
+  const [avisos, setAvisos] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    if (onVerCarteira && user?.id) {
+      carregarCarteira(user.id)
+        .then((r) => vivo && setAvisos(avisosDaCarteira(r.itens)))
+        .catch(() => {});
+    }
+    return () => {
+      vivo = false;
+    };
+  }, [user?.id, Boolean(onVerCarteira)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nAvisos = avisos ? avisos.consumouAgora || avisos.proximos : 0;
 
   return (
     <div className="bg-noir min-h-screen text-parchment font-sans">
@@ -91,6 +108,20 @@ const Painel = ({ user, onNovaAnalise, onReabrirAnalise, onVerHistorico, onVerCa
                 className="inline-flex items-center gap-2 rounded-xl border border-gold/40 px-4 py-2 text-sm text-gold transition-colors hover:bg-gold/10"
               >
                 <CalendarClock size={15} /> Carteira e prazos
+                {nAvisos > 0 && (
+                  <span
+                    className={`ml-1 min-w-[20px] rounded-full px-1.5 text-center text-[11px] font-bold leading-5 ${
+                      avisos.consumouAgora ? 'bg-red-500 text-white' : 'bg-amber-400 text-ink'
+                    }`}
+                    title={
+                      avisos.consumouAgora
+                        ? `${avisos.consumouAgora} prazo(s) consumaram`
+                        : `${avisos.proximos} prazo(s) nos próximos ${avisos.janela} dias`
+                    }
+                  >
+                    {nAvisos}
+                  </span>
+                )}
               </button>
             )}
             <button
