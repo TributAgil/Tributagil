@@ -120,7 +120,7 @@ function pareceNomeDePessoa(nome) {
 }
 
 function tipoFinal(registros, nome) {
-  const cnpj = registros.find((r) => r.fonte === 'cnpj')
+  const cnpj = registros.find((r) => r.fonte === 'cnpj' && r.tipo === 'Escritório') || registros.find((r) => r.fonte === 'cnpj')
   const manual = registros.find((r) => r.tipo && r.fonte !== 'cnpj')
   if (cnpj?.tipo === 'Escritório' && chaveNome(nome) === chaveNome(cnpj.nome_fantasia || cnpj.razao_social)) return 'Escritório'
   if (manual?.tipo) {
@@ -128,6 +128,8 @@ function tipoFinal(registros, nome) {
     if (/escrit|sociedade|firma/.test(t)) return 'Escritório'
     if (/advog|individual|autonom/.test(t)) return 'Advogado(a)'
   }
+  // Sociedade individual que se apresenta como banca ("X & Y Advogados Associados").
+  if (cnpj?.tipo?.startsWith('Advogado') && /advogados|associad|\s&\s/i.test(nome)) return 'Escritório'
   if (cnpj?.tipo?.startsWith('Advogado')) return 'Advogado(a) — sociedade individual'
   if (pareceNomeDePessoa(nome)) return 'Advogado(a)'
   return 'Escritório'
@@ -252,7 +254,11 @@ async function main() {
   const leads = []
   for (const regs of grupos.values()) {
     regs.sort((a, b) => ORDEM_NOME.indexOf(a.fonte) - ORDEM_NOME.indexOf(b.fonte))
-    const cnpjReg = regs.find((r) => r.fonte === 'cnpj')
+    // Entre vários CNPJs do mesmo grupo (escritório + sociedades individuais dos
+    // sócios, matriz + filiais), o principal é a sociedade "Escritório" matriz.
+    const cnpjReg = regs
+      .filter((r) => r.fonte === 'cnpj')
+      .sort((a, b) => (a.tipo === 'Escritório' ? 0 : 1) - (b.tipo === 'Escritório' ? 0 : 1) || (b.matriz ? 1 : 0) - (a.matriz ? 1 : 0))[0]
     let nomeBase = regs.find((r) => r.fonte !== 'cnpj' && r.nome)?.nome || cnpjReg?.nome_fantasia || cnpjReg?.razao_social || regs[0].nome
     // Pessoa (da web/Jusbrasil) unida a um escritório do CNPJ: o lead é o
     // escritório e a pessoa vira o contato.

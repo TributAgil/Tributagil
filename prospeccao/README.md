@@ -36,7 +36,11 @@ Para outra UF: `npm run cnpj -- --uf PE`, depois o resto com `--uf PE`.
 | **Análise DNA** (`src/fontes/analise-dna.mjs`) | Escritórios do anuário Análise Advocacia: telefone, endereço, especialidades | Lê os perfis listados em `dados/entrada/analise-dna.txt` |
 | **Google Maps** (`src/fontes/google-places.mjs`) | Nome, telefone, site, nota e link do Maps | API oficial do Places (Text Search). Precisa de chave (ver abaixo) |
 | **Sites dos escritórios** (`src/enriquecer.mjs`) | E-mail, WhatsApp (links `wa.me`), Instagram, LinkedIn, Facebook e o texto que confirma o foco tributário | Página inicial + até 5 páginas de contato/equipe/áreas |
-| **Pesquisa web / manual** (`dados/entrada/*.csv`) | Qualquer lead achado à mão (busca, indicação, evento, LinkedIn) | Modelo em `config/modelo-entrada.csv` |
+| **Pesquisa web / manual** (`dados/entrada/*.csv`) | Qualquer lead achado à mão (busca, indicação, evento, LinkedIn) | Modelo em `config/modelo-entrada.csv`. Com `fonte` = `jusbrasil`, a área conta como sinal fraco (é autodeclarada) |
+
+Uma pessoa vinda da pesquisa (coluna `tipo` = Advogado) que seja sócia de uma
+sociedade do CNPJ na mesma cidade é unida a essa sociedade. O lead passa a ser
+o escritório, e a pessoa vai para a coluna "Pessoa de contato".
 
 ### Google Maps (Places API)
 
