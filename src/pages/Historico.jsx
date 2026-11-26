@@ -20,6 +20,8 @@ import {
   History,
   FilePlus2,
   Undo2,
+  Home,
+  Briefcase,
 } from 'lucide-react';
 import {
   listarAnalises,
@@ -274,7 +276,7 @@ const ModalLGPD = ({ aberto, onFechar, onConfirmar, tipo }) => {
 // ============================================
 // COMPONENTE PRINCIPAL: HISTÓRICO DE RESULTADOS
 // ============================================
-const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogout }) => {
+const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogout, onInicio, onVerCarteira }) => {
   const [analises, setAnalises] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
@@ -434,6 +436,26 @@ const Historico = ({ user, onNovaAnalise, onReabrirAnalise, onReanalisar, onLogo
             >
               <RefreshCw size={16} className={carregando ? 'animate-spin' : ''} />
             </button>
+            {onInicio && (
+              <button
+                onClick={onInicio}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-parchment/70 border border-line hover:border-gold/40 hover:text-parchment rounded-xl transition-all"
+                title="Voltar para a tela inicial"
+              >
+                <Home size={16} />
+                <span className="hidden sm:inline">Início</span>
+              </button>
+            )}
+            {onVerCarteira && (
+              <button
+                onClick={onVerCarteira}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gold border border-gold/40 hover:bg-gold/10 rounded-xl transition-all"
+                title="Carteira de casos e avisos de prazo"
+              >
+                <Briefcase size={16} />
+                <span className="hidden sm:inline">Carteira e prazos</span>
+              </button>
+            )}
             <button
               onClick={onNovaAnalise}
               className="cursor-gavel flex-1 sm:flex-none text-center px-4 sm:px-5 py-2.5 bg-gold hover:bg-gold-soft text-ink font-semibold rounded-xl shadow-lg shadow-[var(--shadow-gold)] transition-all text-sm whitespace-nowrap"

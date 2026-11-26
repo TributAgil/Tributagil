@@ -296,6 +296,8 @@ export default function App() {
           onReabrirAnalise={handleReabrirAnalise}
           onReanalisar={handleReanalisar}
           onLogout={handleLogout}
+          onInicio={() => setTelaAtual('painel')}
+          onVerCarteira={handleVerCarteira}
         />
       )}
 
