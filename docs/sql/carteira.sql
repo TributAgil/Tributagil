@@ -122,59 +122,17 @@ begin
 end;
 $$;
 
--- Cron (sem usuário): os marcos 'acompanhar' cuja data já passou (dia de Brasília) e que ainda não viraram e-mail.
--- Caso decidido ou arquivado não recebe alerta.
-create or replace function public.alertas_prazo_pendentes(p_segredo text)
-returns table (id bigint, user_id uuid, email text, caso_id uuid, titulo text, tese text, cda text, periodo text,
-               data date, condicao text)
-language plpgsql stable security definer set search_path = public
-as $$
-begin
-  if not privado.servidor_autorizado(p_segredo) then raise exception 'NAO_AUTORIZADO'; end if;
-  return query
-    select m.id, m.user_id, u.email::text, m.caso_id, coalesce(cs.titulo, 'Caso sem título'), m.tese, m.cda, m.periodo,
-           m.data, m.condicao
-      from public.marcos_prazo m
-      join auth.users u on u.id = m.user_id
-      left join public.casos cs on cs.id = m.caso_id
-      left join public.carteira_casos c on c.caso_id = m.caso_id
-     where m.tipo = 'acompanhar'
-       and m.alertado_em is null
-       and m.data < (now() at time zone 'America/Sao_Paulo')::date
-       and coalesce(c.fase, 'analisado') not in ('decidido', 'arquivado')
-     order by m.user_id, m.data
-     limit 1000;
-end;
-$$;
-
-create or replace function public.marcar_alertas_enviados(p_segredo text, p_ids bigint[])
-returns integer
-language plpgsql security definer set search_path = public
-as $$
-declare
-  v_total integer;
-begin
-  if not privado.servidor_autorizado(p_segredo) then raise exception 'NAO_AUTORIZADO'; end if;
-  update public.marcos_prazo set alertado_em = now() where id = any(coalesce(p_ids, '{}')) and alertado_em is null;
-  get diagnostics v_total = row_count;
-  return v_total;
-end;
-$$;
+-- (As RPCs do antigo alerta por e-mail, alertas_prazo_pendentes e marcar_alertas_enviados, foram removidas em
+-- 26/11/2026: os avisos ficam dentro da plataforma. A coluna marcos_prazo.alertado_em ficou, sem uso.)
 
 revoke all on function public.salvar_prazos_caso(uuid, boolean, jsonb, jsonb, boolean) from public, anon;
 revoke all on function public.definir_fase_caso(uuid, text) from public, anon;
 grant execute on function public.salvar_prazos_caso(uuid, boolean, jsonb, jsonb, boolean) to authenticated;
 grant execute on function public.definir_fase_caso(uuid, text) to authenticated;
--- o cron não tem usuário: chama com a chave anon, e quem barra é o segredo
-revoke all on function public.alertas_prazo_pendentes(text) from public;
-revoke all on function public.marcar_alertas_enviados(text, bigint[]) from public;
-grant execute on function public.alertas_prazo_pendentes(text) to anon, authenticated;
-grant execute on function public.marcar_alertas_enviados(text, bigint[]) to anon, authenticated;
 
 commit;
 
 -- Para desfazer:
---   drop function if exists public.marcar_alertas_enviados(text, bigint[]); drop function if exists public.alertas_prazo_pendentes(text);
 --   drop function if exists public.definir_fase_caso(uuid, text);
 --   drop function if exists public.salvar_prazos_caso(uuid, boolean, jsonb, jsonb, boolean);
 --   drop table if exists public.marcos_prazo; drop table if exists public.carteira_casos;
