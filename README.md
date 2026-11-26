@@ -33,6 +33,8 @@ yarn dev
 | `SUPABASE_ANON_KEY` | servidor | — | Idem `VITE_SUPABASE_ANON_KEY`, lado servidor. Recomendado. |
 | `GEMINI_API_KEY` | servidor | ✅ | Chave da API do Gemini (`AIzaSy…` ou `AQ.…`) — **sem** prefixo `VITE_` |
 | `GEMINI_MODEL` | servidor | — | Modelo. Padrão `gemini-3.5-flash`. Use `gemini-3.1-pro-preview` **após ativar o billing** no Google Cloud (o Pro dá HTTP 429 no free tier) |
+| `GEMINI_MODEL_LU` | servidor | — | Modelo só do Lu ("Pedir ao Lu" e "Conversar"). Padrão `gemini-3.5-flash-lite` (decisão de 25/11/2026: a análise, a extração da peça e as figuras ficam em `GEMINI_MODEL`, Flash; o Lu, usado muitas vezes e sempre revisado pelo advogado, fica no Flash-Lite). Use só Flash ou Flash-Lite: os créditos do Lu seguem o preço desses dois |
+| `SUPABASE_RPC_SEGREDO` | servidor | ✅ | Segredo (≥ 32 caracteres) que o `/api/gemini` manda nas RPCs de idempotência da análise; o mesmo valor fica em `privado.segredos` no banco. Sem ele, essas RPCs recusam e não há estorno automático. Ver [`docs/sql/seguranca-rpcs.sql`](docs/sql/seguranca-rpcs.sql) |
 | `GEMINI_MODEL_RESERVA` | servidor | — | Modelo de reserva (ex.: um Flash-Lite ou outro Flash). Usado só quando o principal continua sobrecarregado (502/503) depois de 3 repetições, ou com a cota diária esgotada. Vazio = sem reserva. Ver "Resistência a sobrecarga do Gemini" |
 | `GEMINI_TEMPERATURE` | servidor | — | Temperatura da geração (padrão `0.3`) |
 | `GEMINI_THINKING_LEVEL` | servidor | — | Nível de *thinking* dos modelos 3.x: `high` (padrão), `low` ou `off`. Para a forma numérica dos modelos 2.5: `budget` + `GEMINI_THINKING_BUDGET` |
@@ -1294,6 +1296,72 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   etiqueta fixa no meio do texto e saem intactos no Word.
 - **Só leitura:** tabelas (quadro sinóptico, linha do tempo), o parágrafo-marcador de cada figura (o assistente de
   figuras depende dele) e parágrafos com elementos desconhecidos. Título não pode ser removido (desmontaria o tópico).
+- **Relatório para o cliente** (25/11/2026): aba nova no resultado da análise
+  (`src/components/RelatorioCliente.jsx`, lógica em `src/lib/relatorioCliente.js`). O parecer em linguagem simples,
+  com o timbre do escritório (nome, logo, contato e advogados do cadastro): o que foi encontrado a favor do cliente
+  (explicação fixa por tese, só para conclusões favoráveis), os créditos atingidos e os prazos a acompanhar (marcos da
+  carteira, quando já calculados), os pontos a conferir (conclusões de atenção), os valores e os próximos passos. O
+  sistema não inventa valor: o escritório informa o valor total atualizado e quanto dele é atingido (o valor da causa
+  do parecer vem sugerido). Estimativa de honorários de sucumbência pelo art. 85, § 3º, do CPC, em escada (§ 5º),
+  sobre o valor atingido, com o salário mínimo editável (R$ 1.621,00 desde 01/01/2026, Decreto nº 12.797/2025); só
+  com execução ajuizada (na via administrativa não há condenação). Imprimir/salvar em PDF, baixar em Word ou copiar
+  o texto. Os valores digitados ficam no navegador (por análise), não no banco.
+- **Embargos, agravo e reconhecimento da intercorrente** (25/11/2026): três opções novas em "Outras peças deste
+  caso" (`api/_pecas-processuais.js`, mesmo endpoint com `tipo` = `embargos`, `agravo` ou
+  `reconhecimento_intercorrente` e `entrada` com as datas). **Embargos à execução fiscal**: data da intimação da
+  garantia + forma (penhora, depósito, fiança/seguro); tempestividade de 30 dias (art. 16 da LEF) calculada em dias
+  corridos e em dias úteis, com `[CONFIRMAR]` (feriados e suspensões o sistema não conhece) e aviso se venceu;
+  matérias de defesa tiradas do cálculo do caso (prescrição, decadência, intercorrente, novas teses; a
+  ilegitimidade do sócio com nome na CDA entra aqui, porque nos embargos cabe a prova); efeito suspensivo (art. 919,
+  § 1º, do CPC), provas e valor da causa. **Agravo de instrumento** contra a decisão que rejeitou a exceção: data
+  da intimação (15 dias úteis), tribunal (TRF/TJ pelo ente credor quando não informado), resumo da decisão, peças do
+  art. 1.017 e efeito suspensivo (art. 1.019, I). **Reconhecimento da intercorrente**: petição simples (art. 40, § 4º,
+  da LEF), só quando o cálculo mostra a intercorrente consumada (senão 422 com a explicação). Embargos e agravo
+  exigem execução ajuizada.
+- **Novas teses** (25/11/2026): ilegitimidade passiva do sócio redirecionado (Súmula 430, Temas 962/981/444,
+  REsp 1.110.925), nulidade da CDA (requisito essencial ausente, art. 202 CTN / art. 2º § 5º LEF) e cobrança indevida
+  (quitação antes da inscrição e duplicidade). A extração da peça ganhou os campos `redirecionamento`, e por
+  inscrição `data_inscricao`, `valor_consolidado`, `cda_anexada`, `corresponsaveis`, `requisitos_cda` e, por período,
+  `quitacao_integral` (`api/_schema-dados-peca.js`, normalizados em `api/_dados-peca.js`, neutros quando ausentes).
+  Motor em código (`api/_motor-teses-novas.js`, conservador: na dúvida bloqueia) e peças no modelo genérico
+  (`api/_pecas-teses-novas.js`); saem na mesma lista do modal, ao lado das teses originais.
+- **Réplica à manifestação da Fazenda** (25/11/2026): no modal da peça, "Outras peças deste caso" →
+  "Réplica à manifestação da Fazenda": o advogado envia o PDF da impugnação (vai para a pasta dele no bucket
+  `documentos`), e `/api/gerar-peca` com `tipo: 'replica'` lê os documentos do caso, roda o motor, extrai os
+  argumentos da manifestação (IA só extrai, `api/_replica.js`) e confronta cada data alegada com os prazos calculados
+  (código): refutado, conferir, pode proceder ou resposta a redigir. A peça sai no **modelo genérico**
+  (`templates/pecas/Peca_generica.docx` + `api/_pecas-extras.js`) e entra na mesma lista (revisar no editor, baixar,
+  salvar). Peças extras são salvas sozinhas (`salvarPecaExtra`): gerar de novo a peça das teses não as apaga
+  (`docs/sql/pecas-extras.sql`, aplicado em 25/11/2026). A base curada ganhou os dispositivos das novas teses e peças
+  (art. 135 CTN, Súmulas 430/435/392/106 STJ, Temas 962/981/444, art. 2º § 5º e art. 16 LEF, arts. 85 § 3º, 919,
+  1.003 § 5º, 1.015 e 1.019 do CPC).
+- **Carteira de casos com alerta de prazo** (25/11/2026): tela "Carteira e prazos" (botão no painel,
+  `src/pages/Carteira.jsx`), uma linha por caso com a fase (analisado, peça gerada, protocolado, decidido, arquivado)
+  e os marcos de prazo do motor (`api/_carteira.js`): **consumado** (prescrito/decaído: tese pronta) e
+  **acompanhar** (prescrição ordinária sem execução e intercorrente em curso: consuma numa data conhecida, desde que
+  nada interrompa). Os marcos são gravados a cada "Gerar peça" e pelo botão "Calcular prazos" da carteira
+  (`api/gerar-peca.js` com `so_prazos`, lê os documentos e roda o motor, sem montar peça). **Os avisos ficam dentro
+  da plataforma, sem e-mail** (26/11/2026): no topo da carteira, o calendário do mês marca os dias com prazo
+  (vermelho: consumou; amarelo: vai consumar) e a agenda ao lado lista os próximos 90 dias e os consumados agora;
+  clicar num dia filtra os casos. Faixas de aviso no topo e um contador no botão "Carteira e prazos" do painel.
+  Filtros: cartões de situação (consumados agora, prontos, em acompanhamento, pedem revisão, sem cálculo), busca
+  por caso ou CDA, fase, tese e "só encerrados" (lógica em `src/lib/carteiraModelo.js`, testes em
+  `tests/carteira-calendario.test.js`). O antigo cron de e-mail (`api/alertas-prazo.js`) foi removido; as RPCs
+  `alertas_prazo_pendentes`/`marcar_alertas_enviados` e a coluna `alertado_em` continuam no banco, sem uso. Banco em
+  [`docs/sql/carteira.sql`](docs/sql/carteira.sql) (aplicado em 25/11/2026).
+- **Conversar com o Lu também no resultado da análise** (25/11/2026): botão fixo "Conversar com o Lu" (preto e
+  amarelo) no canto da tela do resultado; abre o mesmo chat do editor (`src/components/lu/ConversaDaAnalise.jsx`),
+  com os documentos enviados e o parecer (inclusive raciocínio e recomendações). Ali não há peça: o Lu não propõe
+  texto e manda o advogado ao botão da peça para redigir. Mesmo endpoint (`acao: 'conversar'`, `onde: 'analise'`) e
+  mesmos créditos do dia. Com o modal da peça aberto, o botão some e a conversa fica guardada até sair da tela.
+- **Modelos e segurança das RPCs** (25/11/2026): a análise, a extração da peça e as figuras rodam no
+  `gemini-3.5-flash` (`GEMINI_MODEL`); o Lu roda no `gemini-3.5-flash-lite` (`GEMINI_MODEL_LU`), com o
+  Flash-Lite também como reserva (`GEMINI_MODEL_RESERVA`). Os créditos do Lu passam a seguir o preço do modelo que
+  atendeu o pedido (Flash-Lite: 0,3 crédito por token de entrada e 2,5 por token de saída), mantendo 1.000.000 =
+  US$ 1,00. No banco ([`docs/sql/seguranca-rpcs.sql`](docs/sql/seguranca-rpcs.sql) e `-fase2.sql`): as RPCs de
+  idempotência da análise exigem o segredo do servidor (fechava uma falha em que um usuário logado podia criar
+  crédito de graça chamando marcar_debitado + falhar_e_estornar direto) e as funções SECURITY DEFINER deixaram de
+  ser chamáveis sem login, menos `rate_limit_checar` (o servidor a usa antes de saber quem é o usuário).
 - **Créditos do Lu (limite diário)** (30/10/2026): cada usuário tem **1.000.000 de créditos informativos por dia**
   para o "Pedir ao Lu", o equivalente a **US$ 1,00** de Gemini (era US$ 1,50 até 30/10/2026; preço de lista do
   gemini-3.5-flash: 1 token de entrada = 1,5 crédito; 1 de saída ou de raciocínio = 9). O gasto vem dos tokens que o Gemini informa em cada resposta

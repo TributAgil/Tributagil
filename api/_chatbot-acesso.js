@@ -3,8 +3,8 @@
 // Ponto ÚNICO de decisão sobre acesso ao Lu, por USO:
 //   'caso' (padrão): o chat do caso (api/lu.js) e a indexação dos documentos (api/indexar-caso.js). Desligado por
 //                    decisão do Luan (24/10/2026): não pode ser usado nem gerar custo de Gemini.
-//   'peca':          o "Pedir ao Lu" dentro do editor da peça (api/lu-peca.js): reescrever, fundamentar e preencher
-//                    um trecho. Ligado por decisão do Luan (30/10/2026), no plano piloto (Plano Dedicado).
+//   'peca':          o Lu de api/lu-peca.js: o "Pedir ao Lu" e a "Conversa" no editor da peça e, desde 25/11/2026, a
+//                    "Conversa" na tela do resultado da análise. Ligado por decisão do Luan (30/10/2026).
 // Para religar o chat do caso, devolva `{ liberado: true }` para 'caso' AQUI: api/lu.js e api/indexar-caso.js já
 // chamam esta função, então nenhum outro lugar do servidor precisa mudar.
 //

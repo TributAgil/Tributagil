@@ -53,6 +53,7 @@ beforeEach(() => {
     const u = String(url);
     chamadas.push({ url: u, opcoes });
     if (u.includes('/rest/v1/rpc/rate_limit_checar')) return resp([{ ok: true }]);
+    if (u.includes('/rest/v1/rpc/salvar_prazos_caso')) return cenario.carteiraStatus ? resp({ message: 'x' }, cenario.carteiraStatus) : resp(3);
     if (u.endsWith('/auth/v1/user')) return cenario.authOk ? resp({ id: 'user-1' }) : resp({}, 401);
     if (u.includes('/rest/v1/analises?')) return resp(cenario.analises);
     if (u.includes('/rest/v1/escritorios')) return resp(cenario.escritorios);
@@ -61,6 +62,9 @@ beforeEach(() => {
     if (u.includes('/storage/v1/object/documentos/')) return cenario.storageStatus === 200 ? resp(Buffer.from('%PDF-1.4 teste'), 200, { 'content-type': 'application/pdf' }) : resp('', cenario.storageStatus);
     if (u.includes('generativelanguage.googleapis.com')) {
       if (cenario.geminiStatus !== 200) return resp(cenario.geminiCorpo || { error: 'x' }, cenario.geminiStatus);
+      if (String(opcoes.body || '').includes('MANIFESTAÇÃO DA FAZENDA PÚBLICA')) {
+        return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.manifestacao) }] } }], usageMetadata: { totalTokenCount: 99 } });
+      }
       return resp({ candidates: [{ content: { parts: [{ text: JSON.stringify(cenario.dadosGemini) }] } }], usageMetadata: { totalTokenCount: 321 } });
     }
     throw new Error(`fetch inesperado: ${u}`);
@@ -371,5 +375,153 @@ describe('política de créditos centralizada', () => {
     expect(r.status).toBe(501);
     expect(chamadas.some((c) => c.url.includes('generativelanguage'))).toBe(false);
     vi.doUnmock('../api/_politica-peca.js');
+  });
+});
+
+describe('carteira: marcos de prazo gravados junto com a peça', () => {
+  const corpoCarteira = () => JSON.parse(chamadas.find((c) => c.url.includes('/rpc/salvar_prazos_caso')).opcoes.body);
+
+  it('ao gerar a peça, grava os marcos (datas em ISO) com o token do usuário e marca a peça como gerada', async () => {
+    const { status, corpo } = await chamar();
+    expect(status).toBe(200);
+    expect(corpo.status).toBe('ok');
+    const rpc = chamadas.find((c) => c.url.includes('/rpc/salvar_prazos_caso'));
+    expect(rpc.opcoes.headers.Authorization).toBe(`Bearer ${USER_TOKEN}`);
+    const c = corpoCarteira();
+    expect(c.p_analise_id).toBe(ANALISE_ID);
+    expect(c.p_peca_gerada).toBe(true);
+    expect(c.p_teses.map((t) => t.tese)).toEqual(['prescricao_ordinaria', 'decadencia', 'prescricao_intercorrente']);
+    expect(c.p_marcos.length).toBeGreaterThan(0);
+    expect(c.p_marcos.every((m) => /^\d{4}-\d{2}-\d{2}$/.test(m.data))).toBe(true);
+  });
+
+  it('so_prazos: lê os documentos e roda o motor, mas não monta peça', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, so_prazos: true });
+    expect(status).toBe(200);
+    expect(corpo.status).toBe('prazos');
+    expect(corpo.gravada).toBe(true);
+    expect(corpo.carteira.marcos.length).toBeGreaterThan(0);
+    expect(corpo.pecas).toBeUndefined();
+    expect(corpoCarteira().p_peca_gerada).toBe(false);
+    expect(chamadas.some((c) => c.url.includes('/storage/v1/object/logos/'))).toBe(false);
+  });
+
+  it('carteira fora do ar não derruba a peça (e o so_prazos avisa)', async () => {
+    cenario.carteiraStatus = 500;
+    expect((await chamar()).corpo.status).toBe('ok');
+    const r = await chamar({ analise_id: ANALISE_ID, so_prazos: true });
+    expect(r.status).toBe(502);
+    expect(r.corpo.gravada).toBe(false);
+  });
+});
+
+describe('peça extra: réplica à manifestação da Fazenda (tipo: replica)', () => {
+  const MANIFESTACAO = { storage_path: 'user-1/caso-1/manifestacao-1_impugnacao.pdf', nome: 'impugnacao.pdf', mime_type: 'application/pdf' };
+  const manifestacaoGemini = {
+    alerta_ilegivel: '',
+    data_manifestacao: '15/09/2026',
+    argumentos: [
+      { tipo: 'inadequacao_da_via', resumo: 'A matéria exige dilação probatória.', evento: 'nenhum', data_evento: '', cda: '', periodo: '', trecho_literal: 'exige dilação', pagina: 2 },
+      { tipo: 'outro', resumo: 'A CDA goza de presunção de certeza.', evento: 'nenhum', data_evento: '', cda: '', periodo: '', trecho_literal: 'presunção', pagina: 3 },
+    ],
+  };
+
+  it('tipo inválido: 400; sem a manifestação ou com arquivo de outro usuário: 400', async () => {
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'qualquer' })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica' })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: { ...MANIFESTACAO, storage_path: 'outro-usuario/x.pdf' } })).status).toBe(400);
+    expect((await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: { ...MANIFESTACAO, storage_path: 'user-1/../x.pdf' } })).status).toBe(400);
+  });
+
+  it('gera a réplica no modelo genérico, com o confronto de cada argumento e a peça pronta para o editor', async () => {
+    cenario.manifestacao = manifestacaoGemini;
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: MANIFESTACAO });
+    expect(status).toBe(200);
+    expect(corpo.tipo).toBe('replica');
+    expect(corpo.detalhe.data_manifestacao).toBe('15/09/2026');
+    expect(corpo.detalhe.argumentos.map((a) => a.situacao)).toEqual(['refutado', 'sem_resposta']);
+    const [p] = corpo.pecas;
+    expect(p.tese).toBe('replica');
+    expect(p.template).toBe('Peca_generica');
+    expect(p.resumo.campos_preencher).toBeGreaterThan(0);
+    expect(p.arquivo.nome).toMatch(/^Replica_/);
+    const { texto } = await abrir(p.arquivo);
+    expect(texto).toContain('MANIFESTAÇÃO SOBRE A IMPUGNAÇÃO À EXCEÇÃO DE PRÉ-EXECUTIVIDADE');
+    expect(texto).toContain('Súmula 393');
+    // duas chamadas ao Gemini: os dados do caso e a manifestação; a manifestação lida com o token do usuário
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(2);
+    const leitura = chamadas.find((c) => c.url.includes('manifestacao-1_impugnacao.pdf'));
+    expect(leitura.opcoes.headers.Authorization).toBe(`Bearer ${USER_TOKEN}`);
+  });
+
+  it('manifestação sem argumentos: 422 com explicação', async () => {
+    cenario.manifestacao = { alerta_ilegivel: '', data_manifestacao: '', argumentos: [] };
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'replica', manifestacao: MANIFESTACAO });
+    expect(status).toBe(422);
+    expect(corpo.error).toMatch(/Não encontrei argumentos/);
+  });
+});
+
+describe('peças processuais: embargos, agravo e reconhecimento da intercorrente', () => {
+  it('embargos: a data da garantia entra na tempestividade e as matérias do cálculo vão para a peça', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'embargos', entrada: { data_garantia: '10/11/2026', forma_garantia: 'deposito' } });
+    expect(status).toBe(200);
+    expect(corpo.tipo).toBe('embargos');
+    expect(corpo.detalhe.materias).toContain('prescrição');
+    const [p] = corpo.pecas;
+    expect(p.tese).toBe('embargos');
+    expect(p.template).toBe('Peca_generica');
+    expect(p.arquivo.nome).toMatch(/^Embargos_Execucao_/);
+    const { texto } = await abrir(p.arquivo);
+    expect(texto).toContain('EMBARGOS À EXECUÇÃO FISCAL');
+    expect(texto).toContain('garantida por depósito em dinheiro');
+    expect(texto).toContain('intimado(a) em 10/11/2026');
+    // uma chamada ao Gemini (os dados do caso); as peças processuais não leem arquivo extra
+    expect(chamadas.filter((c) => c.url.includes('generativelanguage')).length).toBe(1);
+  });
+
+  it('agravo: entrada inválida é neutralizada (data some e vira [PREENCHER]) e a peça sai mesmo assim', async () => {
+    const { status, corpo } = await chamar({ analise_id: ANALISE_ID, tipo: 'agravo', entrada: { data_intimacao_decisao: '2026-11-20', tribunal: 'x'.repeat(500), resumo_decisao: 7 } });
+    expect(status).toBe(200);
+    const { texto } = await abrir(corpo.pecas[0].arquivo);
+    expect(texto).toContain('AGRAVO DE INSTRUMENTO');
+    expect(texto).toContain('[PREENCHER: data da intimação]');
+  });
+
+  it('reconhecimento sem intercorrente consumada e embargos sem execução: 422 com a explicação', async () => {
+    const r = await chamar({ analise_id: ANALISE_ID, tipo: 'reconhecimento_intercorrente' });
+    expect(r.status).toBe(422);
+    expect(r.corpo.error).toMatch(/intercorrente consumada/);
+    cenario.dadosGemini = dadosPrescricao({ ajuizada: false });
+    const e = await chamar({ analise_id: ANALISE_ID, tipo: 'embargos' });
+    expect(e.status).toBe(422);
+    expect(e.corpo.error).toMatch(/execução fiscal ajuizada/);
+  });
+});
+
+describe('novas teses junto com as originais', () => {
+  it('redirecionamento por mero inadimplemento: a exceção do sócio sai ao lado da peça de prescrição', async () => {
+    const d = dadosPrescricao();
+    cenario.dadosGemini = {
+      ...d,
+      inscricoes: d.inscricoes.map((i) => ({ ...i, cda_anexada: 'sim', requisitos_cda: {}, corresponsaveis: [] })),
+      redirecionamento: {
+        houve: 'sim', socio_nome: 'JOÃO SÓCIO', socio_documento: '123.456.789-00', socio_consta_na_cda: 'não', fundamento: 'mero_inadimplemento',
+        data_dissolucao_irregular: { data: '', fonte: '' }, socio_gerente_na_dissolucao: 'não consta', data_saida_socio: { data: '', fonte: '' },
+        data_pedido_redirecionamento: { data: '05/05/2016', fonte: 'pedido.pdf' }, fonte: 'pedido.pdf',
+      },
+    };
+    const { status, corpo } = await chamar();
+    expect(status).toBe(200);
+    const teses = corpo.pecas.filter((p) => p.status === 'ok').map((p) => p.tese);
+    expect(teses).toContain('prescricao_ordinaria');
+    expect(teses).toContain('ilegitimidade_passiva');
+    const nova = corpo.pecas.find((p) => p.tese === 'ilegitimidade_passiva');
+    expect(nova.tese_nome).toBe('Ilegitimidade passiva do sócio (redirecionamento indevido)');
+    expect(nova.resumo.modelo).toBe('Exceção de Pré-Executividade: ilegitimidade passiva do sócio');
+    expect(nova.template).toBe('Peca_generica');
+    const { texto } = await abrir(nova.arquivo);
+    expect(texto).toContain('JOÃO SÓCIO');
+    expect(texto).toContain('Súmula 430/STJ');
   });
 });

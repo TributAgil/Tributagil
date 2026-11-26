@@ -123,3 +123,23 @@ export async function urlDoLogo(caminho) {
   const { data } = await supabase.storage.from(BUCKET_LOGOS).createSignedUrl(caminho, 300);
   return data?.signedUrl || null;
 }
+
+/** O logo como data URL (para o relatório impresso ou em Word, que não carregam URL assinada). null se não houver. */
+export async function logoComoDataUrl(caminho) {
+  try {
+    const url = await urlDoLogo(caminho);
+    if (!url) return null;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    if (!/^image\/(png|jpeg)$/.test(blob.type) || blob.size > MAX_BYTES_LOGO) return null;
+    return await new Promise((resolve) => {
+      const leitor = new FileReader();
+      leitor.onload = () => resolve(typeof leitor.result === 'string' ? leitor.result : null);
+      leitor.onerror = () => resolve(null);
+      leitor.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}

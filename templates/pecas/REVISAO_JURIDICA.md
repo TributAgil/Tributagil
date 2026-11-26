@@ -178,6 +178,75 @@ Em português simples, na ordem do que mais importa. As minutas já renderizadas
 
 ---
 
+## Peças montadas em código (modelo genérico) — minutas para revisão
+
+Desde 25/11/2026 há um **modelo genérico** (`templates/pecas/Peca_generica.docx`, gerado por
+`scripts/templates-pecas/modelo_generico.py` a partir da EPE de intercorrente): timbre, qualificação, fecho e
+assinatura são os seus; o **corpo é montado em código** (`api/_pecas-extras.js` e um arquivo por peça). Todo o texto
+dessas peças é **minuta redigida pelo sistema, sem a sua revisão**. O que depende do caso e o sistema não sabe sai
+como `[PREENCHER]` ou `[CONFIRMAR]`.
+
+### Réplica à manifestação da Fazenda (`api/_replica.js`)
+
+- A IA só **extrai** os argumentos da manifestação; a resposta a cada um é texto fixo, escolhido pelo **cálculo**:
+  - ato alegado **depois** da consumação → refutado (art. 156, V, do CTN; ato posterior não interrompe prazo já
+    extinto; parcelamento/confissão de dívida prescrita não a faz renascer);
+  - ato **dentro** do prazo de um crédito prescrito → `[CONFIRMAR]` (pode ter interrompido; art. 174, parágrafo
+    único, do CTN);
+  - pedido de penhora sem constrição efetiva, dentro da janela da intercorrente → refutado com o REsp 1.340.553/RS;
+  - penhora ou citação efetiva dentro da janela da intercorrente → `[CONFIRMAR]` dizendo que **a Fazenda pode ter razão**;
+  - inadequação da via → Súmula 393/STJ e matéria de ordem pública;
+  - qualquer outro argumento → `[PREENCHER: resposta ao argumento ...]`.
+- **Revisar:** a redação de cada resposta fixa; o pedido de honorários (art. 85, §§ 2º e 3º, do CPC); o título
+  "MANIFESTAÇÃO SOBRE A IMPUGNAÇÃO À EXCEÇÃO DE PRÉ-EXECUTIVIDADE" (na revisão PGFN: "MANIFESTAÇÃO SOBRE A RESPOSTA
+  DA PROCURADORIA").
+
+### Novas teses (`api/_motor-teses-novas.js` e `api/_pecas-teses-novas.js`)
+
+A decisão de gerar ou bloquear é do **código**, a partir dos fatos extraídos; o texto é minuta.
+
+- **Ilegitimidade passiva do sócio (redirecionamento)** — a peça é do **sócio** (ele é a parte que assina).
+  - Nome do sócio **na CDA** → bloqueia e orienta embargos (REsp 1.110.925/SP: ônus da prova é do sócio).
+  - Mero inadimplemento → Súmula 430/STJ.
+  - Dissolução irregular + retirada regular **antes** dela → Tema 962/STJ; sem poderes de gerência **na data**
+    da dissolução → Tema 981/STJ; gerente na dissolução → sem tese.
+  - Dissolução anterior à citação da empresa e pedido de redirecionamento mais de 5 anos depois → tópico de
+    prescrição para o redirecionamento (Tema 444/STJ) com `[CONFIRMAR]` (a inércia da Fazenda precisa ser demonstrada).
+  - Pedido de honorários citando o Tema 961/STJ (exclusão do sócio sem extinção da execução). **Revisar.**
+- **Nulidade da CDA** — gera só com requisito **essencial** ausente na CDA **anexada** (nome do devedor, valor
+  originário, forma de cálculo dos juros e encargos, origem/natureza/fundamento legal, data e número da inscrição).
+  Domicílio e processo administrativo viram aviso (dependem do caso). Aviso fixo da Súmula 392/STJ e do art. 203 do
+  CTN: a Fazenda pode substituir a CDA. **Revisar** se vale a pena alegar sozinha ou só como tese subsidiária.
+- **Cobrança indevida** — período quitado integralmente (com data e comprovante) e/ou o mesmo tributo e período em
+  duas inscrições. Duplicidade sai com `[CONFIRMAR]` (pode ser lançamento complementar). Cita o art. 3º, parágrafo
+  único, da LEF (presunção relativa da CDA). **Revisar.**
+
+### Embargos, agravo e reconhecimento da intercorrente (`api/_pecas-processuais.js`)
+
+As **matérias** vêm do cálculo do caso (as mesmas da exceção e das novas teses); o restante é minuta.
+
+- **Embargos à execução fiscal** — tempestividade pelo art. 16 da LEF com as duas contagens (dias corridos e dias
+  úteis do art. 219 do CPC) em `[CONFIRMAR]`: **decidir qual contagem adotar** como padrão. Garantia do juízo
+  (art. 16, § 1º), efeito suspensivo pelo art. 919, § 1º, do CPC, provas (art. 16, § 2º) e valor da causa
+  `[PREENCHER]`. Com nome do sócio na CDA, a ilegitimidade entra **aqui** (a prova cabe nos embargos), com os fatos
+  a preencher. **Revisar** o texto do efeito suspensivo e os pedidos.
+- **Agravo de instrumento** — contra a decisão que rejeitou a exceção (art. 1.015, parágrafo único, do CPC); 15
+  dias úteis (art. 1.003, § 5º) contados só sem fins de semana, com `[CONFIRMAR]` para feriados; lista de peças do
+  art. 1.017, I (dispensa em processo eletrônico, § 5º) com `[PREENCHER]`; Súmula 393/STJ contra o argumento de
+  dilação probatória; efeito suspensivo pelo art. 1.019, I. **Revisar** o endereçamento (Presidente do tribunal) e
+  se o recurso deve pedir também a tutela recursal.
+- **Reconhecimento da prescrição intercorrente** — petição simples pedindo a oitiva da Fazenda e o reconhecimento
+  (art. 40, § 4º, da LEF; REsp 1.340.553/RS), com as datas do cálculo. Só sai quando a intercorrente está consumada.
+
+### Relatório para o cliente (`src/lib/relatorioCliente.js`)
+
+Não é peça, mas fala em nome do escritório. Textos fixos para **revisar**: a explicação em linguagem simples de
+cada tese (`EXPLICACOES`), os próximos passos (exceção de pré-executividade com execução; pedido administrativo
+sem ela; parcelamento ou transação para o que continua devido) e o aviso final. A estimativa de honorários usa as
+faixas do art. 85, § 3º, do CPC em escada (§ 5º) sobre o valor que o escritório informa como atingido, e só aparece
+com execução ajuizada. O relatório diz ao cliente que esses honorários são pagos pela Fazenda e não se confundem com
+os contratados: **confirmar** se o escritório quer essa frase.
+
 ## Trechos repetidos entre os modelos (para ajustar em mais de um arquivo)
 
 A biblioteca de modelos (`docx-templates`) não permite "incluir" um trecho de outro arquivo Word sem

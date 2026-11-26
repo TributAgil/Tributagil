@@ -9,6 +9,7 @@ import NovaAnalise from './pages/NovaAnalise';
 import CerebroTributario from './pages/CerebroTributario';
 import ResultadoAnalise from './pages/ResultadoAnalise';
 import Historico from './pages/Historico';
+import Carteira from './pages/Carteira';
 import RedefinirSenha from './pages/RedefinirSenha';
 import BotaoSuporteFlutuante from './components/BotaoSuporteFlutuante';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -211,6 +212,7 @@ export default function App() {
   };
 
   const handleVerHistorico = () => setTelaAtual('historico');
+  const handleVerCarteira = () => setTelaAtual('carteira');
 
   const handleReabrirAnalise = (analise) => {
     // Aceita tanto o objeto de resultado direto quanto o registro do histórico.
@@ -278,8 +280,13 @@ export default function App() {
           onNovaAnalise={handleNovaAnalise}
           onReabrirAnalise={handleReabrirAnalise}
           onVerHistorico={handleVerHistorico}
+          onVerCarteira={handleVerCarteira}
           onLogout={handleLogout}
         />
+      )}
+
+      {telaAtual === 'carteira' && (
+        <Carteira user={user} onVoltar={() => setTelaAtual('painel')} onReabrirAnalise={handleReabrirAnalise} />
       )}
 
       {telaAtual === 'historico' && (
@@ -289,6 +296,8 @@ export default function App() {
           onReabrirAnalise={handleReabrirAnalise}
           onReanalisar={handleReanalisar}
           onLogout={handleLogout}
+          onInicio={() => setTelaAtual('painel')}
+          onVerCarteira={handleVerCarteira}
         />
       )}
 

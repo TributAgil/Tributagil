@@ -27,10 +27,11 @@ import {
   substituirNosTrechos,
 } from '../lib/edicaoTexto';
 import { montarPecaRevisada } from '../lib/pecaRevisada';
-import { pedirAoLu, conversarComLu, ACOES_LU, resumoParaLu, lerConsumoLu, formatarCreditos } from '../lib/luPeca';
+import { pedirAoLu, conversarComLu, ACOES_LU, resumoParaLu, lerConsumoLu } from '../lib/luPeca';
 import PropostaLu from './lu/PropostaLu';
 import TrocarNaPeca from './lu/TrocarNaPeca';
 import ConversaLu from './lu/ConversaLu';
+import MedidorLu from './lu/MedidorLu';
 import { estadoDaFigura, nomeArquivoFigura } from '../lib/figuras';
 import { useFigurasDaPeca, SERVICOS_FIGURAS } from './figuras/useFigurasDaPeca';
 import FiguraNoTexto from './figuras/FiguraNoTexto';
@@ -537,26 +538,7 @@ export default function EditorPeca({
     </button>
   );
 
-  const medidorLu = (compacto = false) => {
-    if (!consumoLu) return null;
-    const usado = Math.min(1, consumoLu.creditos / consumoLu.limite);
-    const restante = Math.max(0, consumoLu.limite - consumoLu.creditos);
-    return (
-      <div className={compacto ? 'w-40' : 'mb-2'} title="Créditos informativos do Lu: 1.000.000 por dia é o uso completo. Voltam à meia-noite (Brasília).">
-        <div className="flex items-baseline justify-between gap-2 text-[10px] text-neutral-400">
-          <span className="uppercase tracking-wide font-bold text-yellow-400/80">Créditos do Lu hoje</span>
-          {!compacto && <span>{formatarCreditos(restante)} restantes</span>}
-        </div>
-        <div className="h-1.5 mt-1 rounded-full bg-neutral-800 overflow-hidden" role="meter" aria-valuemin={0} aria-valuemax={consumoLu.limite} aria-valuenow={consumoLu.creditos} aria-label="Créditos do Lu usados hoje">
-          <div className={`h-full ${usado >= 1 ? 'bg-red-500' : usado >= 0.8 ? 'bg-amber-400' : 'bg-yellow-400'}`} style={{ width: `${Math.max(usado * 100, usado > 0 ? 2 : 0)}%` }} />
-        </div>
-        <p className="text-[10px] text-neutral-400 mt-0.5 tabular-nums">
-          {formatarCreditos(consumoLu.creditos)} de {formatarCreditos(consumoLu.limite)}
-          {luEsgotado && <span className="text-red-400 font-semibold"> · esgotados até a meia-noite</span>}
-        </p>
-      </div>
-    );
-  };
+  const medidorLu = (compacto = false) => <MedidorLu consumo={consumoLu} esgotado={luEsgotado} compacto={compacto} />;
 
   const menuLu = (posicao) => {
     if (!alvoValido) {

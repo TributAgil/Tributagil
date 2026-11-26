@@ -37,6 +37,11 @@ import { extrairDados } from './_extracao-peca.js';
 import { ErroGemini } from './_gemini-resiliente.js';
 import { normalizarDadosPeca } from './_dados-peca.js';
 import { avaliarPecas } from './_motor-peca.js';
+import { marcosDoCaso, dataIso } from './_carteira.js';
+import { contextoGenerico, TEMPLATE_GENERICO } from './_pecas-extras.js';
+import { montarPecaExtra, TIPOS_EXTRAS, ErroEntrada } from './_gerar-extra.js';
+import { avaliarTesesNovas, NOME_TESE_NOVA } from './_motor-teses-novas.js';
+import { montarPecaTeseNova, nomeModeloTeseNova } from './_pecas-teses-novas.js';
 import { montarContexto, nomeArquivoPeca } from './_contexto-peca.js';
 import { renderizarPeca, contarMarcadores, figurasDoDocx } from './_render-peca.js';
 import { dimensoesImagem, tamanhoLogoCm } from './_imagem.js';
@@ -60,7 +65,7 @@ const RL_JANELA_MS = 60_000;
 
 export const AVISO_FIXO = 'Minuta gerada automaticamente. Revisão do advogado responsável é obrigatória antes do protocolo.';
 
-const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência', prescricao_intercorrente: 'Prescrição intercorrente' };
+const NOME_TESE = { prescricao_ordinaria: 'Prescrição ordinária', decadencia: 'Decadência', prescricao_intercorrente: 'Prescrição intercorrente', ...NOME_TESE_NOVA };
 const NOME_MODELO = {
   EPE_prescricao_ordinaria: 'Exceção de Pré-Executividade — prescrição ordinária',
   EPE_decadencia: 'Exceção de Pré-Executividade — decadência',
@@ -84,11 +89,30 @@ export async function POST(request) {
       analiseId: ctx.analiseId || null,
       fase: ctx.fase || null,
       statusPeca: ctx.statusPeca || null,
+      tipoExtra: ctx.tipoExtra || null,
       template: ctx.template || null,
       tokens: ctx.tokens ?? null,
+      carteira: ctx.carteiraGravada ?? null,
       httpStatus: resposta?.status ?? null,
       duracaoMs: Date.now() - inicio,
     }));
+  }
+}
+
+/** Grava os marcos na carteira (RPC salvar_prazos_caso, com o token do usuário: RLS). Devolve se gravou. */
+async function gravarCarteira({ supabaseUrl, supabaseAnonKey, userToken, analiseId, carteira, pecaGerada }) {
+  try {
+    const marcos = carteira.marcos.map((m) => ({ ...m, data: dataIso(m.data) })).filter((m) => m.data);
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/salvar_prazos_caso`, {
+      method: 'POST',
+      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_analise_id: analiseId, p_ajuizada: carteira.ajuizada, p_teses: carteira.teses, p_marcos: marcos, p_peca_gerada: pecaGerada }),
+    });
+    if (!resp.ok && resp.status !== 404) console.warn(`[api/gerar-peca] Carteira não gravada (HTTP ${resp.status})`);
+    return resp.ok;
+  } catch (err) {
+    console.warn('[api/gerar-peca] Carteira não gravada:', err?.message);
+    return false;
   }
 }
 
@@ -124,6 +148,10 @@ async function processar(request, ctx) {
   const analiseId = String(body?.analise_id || '');
   if (!UUID_RE.test(analiseId)) return json({ error: 'Informe a análise (analise_id).' }, 400);
   ctx.analiseId = analiseId;
+  // `tipo`: peça extra no modelo genérico (api/_gerar-extra.js); ausente = as peças das teses (o caminho de sempre)
+  const tipoExtra = body?.tipo ? String(body.tipo) : '';
+  if (tipoExtra && !TIPOS_EXTRAS[tipoExtra]) return json({ error: 'Tipo de peça inválido.' }, 400);
+  ctx.tipoExtra = tipoExtra || null;
 
   // ---- Autenticação ---------------------------------------------------------
   ctx.fase = 'autenticacao';
@@ -244,6 +272,8 @@ async function processar(request, ctx) {
   // períodos + prescrição intercorrente da execução) e quem escolhe é o usuário, no modal.
   ctx.fase = 'motor';
   const { pecas: avaliacoes } = avaliarPecas({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
+  // as novas teses (redirecionamento, nulidade da CDA, cobrança indevida): só entram quando os fatos as indicam
+  avaliacoes.push(...avaliarTesesNovas({ dados }).filter((a) => a.relevante && a.status !== 'sem_tese'));
   ctx.statusPeca = statusGeral(avaliacoes);
   ctx.template = avaliacoes.filter((a) => a.template).map((a) => a.template).join(',') || null;
 
@@ -256,6 +286,26 @@ async function processar(request, ctx) {
   }
 
   const geraveis = avaliacoes.filter((a) => a.status === 'ok');
+
+  // ---- Carteira: os marcos de prazo do caso (best-effort: falha aqui nunca derruba a peça) ----------
+  // Com `so_prazos` (botão "Calcular prazos" da carteira) a requisição para aqui: lê os documentos, roda o motor e grava
+  // os marcos, sem montar peça.
+  ctx.fase = 'carteira';
+  const carteira = marcosDoCaso({ dados, conclusoesParecer: analise.resultado?.conclusoes, agora: new Date() });
+  const soPrazos = body?.so_prazos === true;
+  ctx.carteiraGravada = await gravarCarteira({
+    supabaseUrl, supabaseAnonKey, userToken, analiseId, carteira, pecaGerada: !soPrazos && geraveis.length > 0,
+  });
+  if (soPrazos) {
+    return json({ status: 'prazos', carteira, gravada: ctx.carteiraGravada }, ctx.carteiraGravada ? 200 : 502);
+  }
+
+  // ---- Peças extras no modelo genérico (réplica, embargos, agravo...): outro caminho a partir daqui ---------------
+  if (tipoExtra) {
+    return gerarPecaExtra({
+      ctx, tipo: tipoExtra, body, dados, carteira, escritorio, perfil, apiKey, supabaseUrl, cabecalhosRls,
+    });
+  }
   if (geraveis.length === 0) {
     const naoOk = avaliacoes.length ? avaliacoes : [];
     return json({
@@ -269,41 +319,52 @@ async function processar(request, ctx) {
   }
 
   // ---- Logo (opcional; falha aqui nunca derruba a peça) -------------------------------
-  const avisosLogo = [];
-  let logo = null;
-  if (escritorio.logo_path) {
-    try {
-      const resp = await fetch(
-        `${supabaseUrl}/storage/v1/object/${BUCKET_LOGOS}/${String(escritorio.logo_path).split('/').map(encodeURIComponent).join('/')}`,
-        { headers: cabecalhosRls },
-      );
-      const buffer = resp.ok ? Buffer.from(await resp.arrayBuffer()) : null;
-      const dim = buffer && buffer.length <= MAX_BYTES_LOGO ? dimensoesImagem(buffer) : null;
-      if (dim) logo = { data: buffer, extension: dim.extension, ...tamanhoLogoCm(dim) };
-      else avisosLogo.push('Não foi possível usar o logo do escritório (arquivo ausente, grande demais ou formato não suportado). A peça saiu sem logo.');
-    } catch (err) {
-      console.warn('[api/gerar-peca] Logo indisponível:', err?.message);
-      avisosLogo.push('Não foi possível carregar o logo do escritório. A peça saiu sem logo.');
-    }
-  }
+  const { logo, avisosLogo } = await carregarLogo({ escritorio, supabaseUrl, cabecalhosRls });
 
   // ---- Renderização (uma por peça gerável) ----------------------------------------------------
   ctx.fase = 'renderizacao';
   const agora = new Date();
-  const dadosEscritorio = {
-    nome: escritorio.nome,
-    cidade: escritorio.cidade,
-    uf: escritorio.uf,
-    email: escritorio.email,
-    site: escritorio.site,
-    endereco: escritorio.endereco,
-    advogados: escritorio.advogados,
-  };
+  const dadosEscritorio = escritorioParaPeca(escritorio);
 
   const pecas = [];
   for (const avaliacao of avaliacoes) {
     if (avaliacao.status !== 'ok') {
       pecas.push(resumoSemArquivo(avaliacao));
+      continue;
+    }
+    if (avaliacao.generica) {
+      // nova tese: texto montado em código, no modelo genérico
+      const contextoNova = contextoGenerico({ dados, escritorio: dadosEscritorio, agora, perfil, peca: montarPecaTeseNova(avaliacao, dados) });
+      let docxNova;
+      try {
+        docxNova = await renderizarPeca({ template: TEMPLATE_GENERICO, contexto: contextoNova, logo });
+      } catch (err) {
+        console.error('[api/gerar-peca] Falha ao renderizar a peça da nova tese:', avaliacao.tese, err);
+        return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
+      }
+      const mk = await contarMarcadores(docxNova);
+      pecas.push({
+        ...resumoSemArquivo(avaliacao),
+        resumo: {
+          modelo: nomeModeloTeseNova(avaliacao, dados),
+          tese: NOME_TESE[avaliacao.tese],
+          descricao: avaliacao.descricao,
+          creditos: avaliacao.resumoCreditos,
+          intercorrente: null,
+          data_referencia: '',
+          campos_preencher: mk.preencher,
+          figuras: mk.figuras,
+          a_confirmar: mk.confirmar,
+          avisos: [...avaliacao.avisos, ...avisosLogo],
+          aviso_fixo: AVISO_FIXO,
+        },
+        figuras: [],
+        arquivo: {
+          nome: nomeArquivoPeca('', dados.executado.nome, agora).replace(/^Peca_/, `EPE_${avaliacao.tese}_`),
+          mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          base64: docxNova.toString('base64'),
+        },
+      });
       continue;
     }
     const contexto = montarContexto({
@@ -367,6 +428,143 @@ function statusGeral(avaliacoes) {
   if (avaliacoes.some((a) => a.status === 'bloqueada')) return 'bloqueada';
   if (avaliacoes.some((a) => a.status === 'indisponivel')) return 'indisponivel';
   return 'sem_tese';
+}
+
+/** O logo do escritório para o cabeçalho (opcional: falha aqui nunca derruba a peça, só vira aviso). */
+async function carregarLogo({ escritorio, supabaseUrl, cabecalhosRls }) {
+  const avisosLogo = [];
+  let logo = null;
+  if (escritorio.logo_path) {
+    try {
+      const resp = await fetch(
+        `${supabaseUrl}/storage/v1/object/${BUCKET_LOGOS}/${String(escritorio.logo_path).split('/').map(encodeURIComponent).join('/')}`,
+        { headers: cabecalhosRls },
+      );
+      const buffer = resp.ok ? Buffer.from(await resp.arrayBuffer()) : null;
+      const dim = buffer && buffer.length <= MAX_BYTES_LOGO ? dimensoesImagem(buffer) : null;
+      if (dim) logo = { data: buffer, extension: dim.extension, ...tamanhoLogoCm(dim) };
+      else avisosLogo.push('Não foi possível usar o logo do escritório (arquivo ausente, grande demais ou formato não suportado). A peça saiu sem logo.');
+    } catch (err) {
+      console.warn('[api/gerar-peca] Logo indisponível:', err?.message);
+      avisosLogo.push('Não foi possível carregar o logo do escritório. A peça saiu sem logo.');
+    }
+  }
+  return { logo, avisosLogo };
+}
+
+function escritorioParaPeca(escritorio) {
+  return {
+    nome: escritorio.nome,
+    cidade: escritorio.cidade,
+    uf: escritorio.uf,
+    email: escritorio.email,
+    site: escritorio.site,
+    endereco: escritorio.endereco,
+    advogados: escritorio.advogados,
+  };
+}
+
+const MIMES_LEGIVEIS = /^(application\/pdf|image\/(png|jpe?g|webp))$/i;
+
+/**
+ * Peça extra no modelo genérico (réplica, embargos, agravo...): os dados do caso e o motor já rodaram; aqui entram a
+ * entrada própria do tipo (ex.: o arquivo da manifestação da Fazenda), o texto montado em código e a renderização.
+ */
+async function gerarPecaExtra({ ctx, tipo, body, dados, carteira, escritorio, perfil, apiKey, supabaseUrl, cabecalhosRls }) {
+  const def = TIPOS_EXTRAS[tipo];
+  ctx.fase = `extra_${tipo}`;
+
+  // a manifestação da Fazenda: arquivo que o próprio usuário subiu na pasta dele do bucket `documentos` (RLS)
+  let partesManifestacao = [];
+  if (def.precisaManifestacao) {
+    const m = body?.manifestacao || {};
+    const caminho = String(m.storage_path || '').replace(/^\/+/, '');
+    if (!caminho || !ctx.usuarioId || !caminho.startsWith(`${ctx.usuarioId}/`) || caminho.includes('..') || caminho.length > 400) {
+      return json({ error: 'Envie o arquivo da manifestação da Fazenda.' }, 400);
+    }
+    let buffer;
+    let mime;
+    try {
+      const resp = await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET_DOCUMENTOS}/${caminho.split('/').map(encodeURIComponent).join('/')}`, {
+        headers: cabecalhosRls,
+      });
+      if (!resp.ok) return json({ error: 'Não foi possível ler o arquivo da manifestação. Envie de novo.' }, resp.status === 404 ? 410 : 502);
+      buffer = await resp.arrayBuffer();
+      mime = String(m.mime_type || resp.headers.get('content-type') || '').split(';')[0].trim();
+    } catch (err) {
+      console.error('[api/gerar-peca] Falha ao ler a manifestação:', err);
+      return json({ error: 'Falha ao ler o arquivo da manifestação.' }, 502);
+    }
+    if (buffer.byteLength > MAX_BYTES_TOTAL) return json({ error: 'O arquivo da manifestação é grande demais (máximo de 12 MB).' }, 413);
+    if (!MIMES_LEGIVEIS.test(mime)) return json({ error: 'Envie a manifestação em PDF ou imagem.' }, 415);
+    partesManifestacao = [
+      { text: `--- Manifestação da Fazenda: ${String(m.nome || 'manifestacao').slice(0, 200)} ---` },
+      { inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') } },
+    ];
+  }
+
+  const tesesConsumadas = [...new Set(carteira.marcos.filter((m) => m.tipo === 'consumado').map((m) => m.tese))];
+  const agora = new Date();
+  let extra;
+  try {
+    extra = await montarPecaExtra({ tipo, dados, agora, apiKey, partesManifestacao, ctx, tesesConsumadas, entrada: body?.entrada || {} });
+  } catch (err) {
+    if (err instanceof ErroEntrada) return json({ error: err.message }, 422);
+    if (err instanceof ErroGemini) {
+      return json({ error: err.mensagemUsuario, codigo: err.codigo }, err.statusHttp, err.retryAfterSegundos ? { 'Retry-After': String(err.retryAfterSegundos) } : {});
+    }
+    const abortado = err?.name === 'AbortError';
+    console.error('[api/gerar-peca] Falha ao montar a peça extra:', tipo, err);
+    return json({ error: abortado ? 'Tempo limite excedido ao montar a peça.' : 'Não foi possível montar a peça agora.' }, abortado ? 504 : 502);
+  }
+
+  const { logo, avisosLogo } = await carregarLogo({ escritorio, supabaseUrl, cabecalhosRls });
+  ctx.fase = 'renderizacao';
+  const contexto = contextoGenerico({ dados, escritorio: escritorioParaPeca(escritorio), agora, perfil, peca: extra.peca });
+  let docx;
+  try {
+    docx = await renderizarPeca({ template: TEMPLATE_GENERICO, contexto, logo });
+  } catch (err) {
+    console.error('[api/gerar-peca] Falha ao renderizar a peça extra:', tipo, err);
+    return json({ error: 'Não foi possível montar o documento da peça.' }, 500);
+  }
+  const marcadores = await contarMarcadores(docx);
+  ctx.template = TEMPLATE_GENERICO;
+  return json({
+    status: 'ok',
+    tipo,
+    detalhe: extra.detalhe,
+    pecas: [{
+      tese: tipo,
+      tese_nome: def.nome,
+      status: 'ok',
+      template: TEMPLATE_GENERICO,
+      mensagem: '',
+      bloqueios: [],
+      divergencias: [],
+      avisos: extra.avisos,
+      resumo: {
+        modelo: def.nome,
+        tese: def.nome,
+        descricao: extra.descricao,
+        creditos: [],
+        intercorrente: null,
+        data_referencia: '',
+        campos_preencher: marcadores.preencher,
+        figuras: marcadores.figuras,
+        a_confirmar: marcadores.confirmar,
+        avisos: [...extra.avisos, ...avisosLogo],
+        aviso_fixo: AVISO_FIXO,
+      },
+      figuras: [],
+      arquivo: {
+        nome: nomeArquivoPeca(tipo, dados.executado.nome, agora).replace(/^Peca_/, `${def.arquivo || tipo}_`),
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        base64: docx.toString('base64'),
+      },
+    }],
+    dados_peca_usados: perfilEfetivo({ perfil, executado: dados.executado }),
+  }, 200);
 }
 
 /** Cabeçalho comum de uma peça na resposta (sem o arquivo): quem é, em que estado está e por quê. */

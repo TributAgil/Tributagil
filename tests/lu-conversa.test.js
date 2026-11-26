@@ -152,8 +152,8 @@ describe('Conversa com o Lu (api/lu-peca, acao conversar)', () => {
   });
 
   it('a reserva conta os PDFs pelas páginas (não pelo base64): caso grande perto do limite é recusado antes de gastar', async () => {
-    cenario.arquivos['user-1/a/1_cda.pdf'] = pdfDePaginas(300); // ~180 mil tokens estimados = ~270 mil créditos
-    cenario.gastoHoje = 800_000;
+    cenario.arquivos['user-1/a/1_cda.pdf'] = pdfDePaginas(300); // ~180 mil tokens estimados = ~54 mil créditos no Flash-Lite
+    cenario.gastoHoje = 950_000; // sobram 50 mil
     const r = await api.POST(pedido());
     expect(r.status).toBe(429);
     expect((await r.json()).limiteAtingido).toBe(true);
@@ -167,7 +167,7 @@ describe('Conversa com o Lu (api/lu-peca, acao conversar)', () => {
 
   it('registra o gasto real informado pelo Gemini', async () => {
     const dados = await (await api.POST(pedido())).json();
-    expect(dados.consumo).toEqual({ creditos: 5000 * 1.5 + 300 * 9, limite: 1_000_000 });
+    expect(dados.consumo).toEqual({ creditos: 5000 * 0.3 + 300 * 2.5, limite: 1_000_000 });
   });
 
   it('documento que sumiu do Storage não derruba a conversa: responde com o resto e avisa', async () => {
@@ -183,5 +183,41 @@ describe('paginasDoPdf', () => {
   it('conta /Type /Page sem contar /Pages; sem objetos visíveis, estima pelo tamanho', () => {
     expect(paginasDoPdf(new TextEncoder().encode(pdfDePaginas(5)).buffer)).toBe(5);
     expect(paginasDoPdf(new Uint8Array(200 * 1024).buffer)).toBe(4);
+  });
+});
+
+describe('Conversa com o Lu na tela do resultado da análise (onde: analise)', () => {
+  const pedidoAnalise = (corpo = {}) =>
+    new Request('http://localhost/api/lu-peca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4', Authorization: 'Bearer token-do-usuario' },
+      body: JSON.stringify({ analise_id: ANALISE_ID, acao: 'conversar', onde: 'analise', mensagem: 'Por que o parecer concluiu assim?', historico: [], ...corpo }),
+    });
+
+  it('não precisa de peça; manda documentos, parecer e base, sem peça, resumo da peça nem destinatário', async () => {
+    const r = await api.POST(pedidoAnalise());
+    expect(r.status).toBe(200);
+    const t = textoEnviado();
+    expect(t).toContain('- cda.pdf (3 página(s))');
+    expect(t).toContain('PARECER DA ANÁLISE');
+    expect(t).toContain('BASE DE LEGISLAÇÃO');
+    expect(t).not.toContain('PEÇA ATUAL');
+    expect(t).not.toContain('RESUMO DA PEÇA');
+    expect(t).not.toContain('DESTINATÁRIO DA PEÇA');
+    const regras = corpoDoGemini().systemInstruction.parts[0].text;
+    expect(regras).toContain('RESULTADO DA ANÁLISE');
+    expect(regras).toContain('não há peça aberta');
+  });
+
+  it('nunca devolve proposta, mesmo que o modelo invente uma', async () => {
+    cenario.lu = respostaConversa({ proposta: { paragrafo: 1, texto: 'texto inventado', explicacao: 'x' } });
+    const dados = await (await api.POST(pedidoAnalise({ peca: PECA }))).json();
+    expect(dados.proposta).toBeNull();
+    expect(textoEnviado()).not.toContain('A executada foi citada'); // a peça enviada por engano não vai ao modelo
+  });
+
+  it('no editor (padrão) continua exigindo a peça', async () => {
+    const r = await api.POST(pedido({ onde: undefined, peca: [] }));
+    expect(r.status).toBe(400);
   });
 });

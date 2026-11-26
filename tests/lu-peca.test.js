@@ -82,7 +82,7 @@ describe('api/lu-peca', () => {
   it('reescrever: devolve a proposta e não manda PDF, base de legislação nem parecer', async () => {
     const r = await POST(pedido({ instrucao: 'mais incisivo' }));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [], consumo: { creditos: 2850, limite: 1_000_000 } });
+    expect(await r.json()).toEqual({ tipo: 'texto', encontrou: true, texto: 'Texto **novo** do parágrafo.', explicacao: 'Deixei mais direto.', fontes: [], consumo: { creditos: 675, limite: 1_000_000 } });
     const t = textoEnviado();
     expect(t).toContain('AÇÃO: REESCREVER');
     expect(t).toContain('INSTRUÇÃO DO ADVOGADO: mais incisivo');
@@ -283,31 +283,60 @@ describe('conferirPrazos (puro)', () => {
 
 describe('créditos do Lu (1.000.000 por dia = US$ 1,00)', () => {
   let creditosDoUso;
+  let precoDaReserva;
   let LIMITE_CREDITOS_DIA;
   let USD_DO_LIMITE;
   beforeAll(async () => {
-    ({ creditosDoUso, LIMITE_CREDITOS_DIA, USD_DO_LIMITE } = await import('../api/lu-peca.js'));
+    ({ creditosDoUso, precoDaReserva, LIMITE_CREDITOS_DIA, USD_DO_LIMITE } = await import('../api/lu-peca.js'));
   });
 
-  it('conversão: 1 token de entrada = 1,5 crédito; saída e raciocínio = 9; 1 milhão = US$ 1,00 no preço de lista', () => {
-    expect(creditosDoUso({ promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 })).toBe(2850);
-    expect(creditosDoUso({ promptTokenCount: 1, candidatesTokenCount: 0 })).toBe(2); // arredonda para cima, nunca subestima
+  it('conversão pelo modelo que atendeu: Flash-Lite 0,3/2,5 crédito por token; Flash 1,5/9; 1 milhão = US$ 1,00', () => {
+    const uso = { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 };
+    expect(creditosDoUso(uso, 'gemini-3.5-flash-lite')).toBe(675);
+    expect(creditosDoUso(uso, 'gemini-3.5-flash')).toBe(2850);
+    // modelo desconhecido conta pelo Flash (o mais caro da tabela)
+    expect(creditosDoUso(uso, 'outro-modelo')).toBe(2850);
+    expect(creditosDoUso({ promptTokenCount: 1, candidatesTokenCount: 0 }, 'gemini-3.5-flash')).toBe(2); // arredonda para cima
     // sem detalhe: tudo como saída (nunca subestima)
-    expect(creditosDoUso({ totalTokenCount: 100 })).toBe(900);
+    expect(creditosDoUso({ totalTokenCount: 100 }, 'gemini-3.5-flash-lite')).toBe(250);
     expect(creditosDoUso(undefined)).toBe(0);
-    // 1 milhão de créditos em tokens de entrada (US$ 1,50/M) ou de saída (US$ 9,00/M) custam US$ 1,00
+    // 1 milhão de créditos, em entrada ou em saída, custa US$ 1,00 no preço de lista de cada modelo
     expect(USD_DO_LIMITE).toBe(1);
-    expect((LIMITE_CREDITOS_DIA / 1.5) * (1.5 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
-    expect((LIMITE_CREDITOS_DIA / 9) * (9 / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+    for (const [entrada, saida, usdEntrada, usdSaida] of [[1.5, 9, 1.5, 9], [0.3, 2.5, 0.3, 2.5]]) {
+      expect((LIMITE_CREDITOS_DIA / entrada) * (usdEntrada / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+      expect((LIMITE_CREDITOS_DIA / saida) * (usdSaida / 1e6)).toBeCloseTo(USD_DO_LIMITE);
+    }
+  });
+
+  it('a reserva usa o mais caro entre o modelo do Lu e o de reserva', () => {
+    expect(precoDaReserva('gemini-3.5-flash-lite')).toEqual({ entrada: 0.3, saida: 2.5 });
+    expect(precoDaReserva('gemini-3.5-flash-lite', 'gemini-3.5-flash-lite')).toEqual({ entrada: 0.3, saida: 2.5 });
+    expect(precoDaReserva('gemini-3.5-flash-lite', 'gemini-3.5-flash')).toEqual({ entrada: 1.5, saida: 9 });
+  });
+
+  it('o Lu usa o Flash-Lite por padrão, separado do GEMINI_MODEL da análise; GEMINI_MODEL_LU troca', async () => {
+    process.env.GEMINI_MODEL = 'gemini-3.5-flash';
+    try {
+      await POST(pedido({}));
+      expect(chamadas.find((c) => c.url.includes('generativelanguage')).url).toContain('/models/gemini-3.5-flash-lite:');
+      chamadas.length = 0;
+      process.env.GEMINI_MODEL_LU = 'gemini-3.5-flash';
+      const dados = await (await POST(pedido({}))).json();
+      expect(chamadas.find((c) => c.url.includes('generativelanguage')).url).toContain('/models/gemini-3.5-flash:');
+      expect(dados.consumo.creditos).toBe(675 + 2850); // cada pedido no preço do seu modelo
+    } finally {
+      delete process.env.GEMINI_MODEL;
+      delete process.env.GEMINI_MODEL_LU;
+    }
   });
 
   it('cada pedido registra o gasto real e devolve o medidor', async () => {
     cenario.gastoHoje = 10_000;
     const dados = await (await POST(pedido({}))).json();
     const registro = chamadas.find((c) => c.url.includes('registrar_consumo_lu'));
-    expect(JSON.parse(registro.opcoes.body)).toEqual({ p_creditos: 2850 });
+    expect(JSON.parse(registro.opcoes.body)).toEqual({ p_creditos: 675 });
     expect(registro.opcoes.headers.Authorization).toBe('Bearer token-do-usuario');
-    expect(dados.consumo).toEqual({ creditos: 12_850, limite: 1_000_000 });
+    expect(dados.consumo).toEqual({ creditos: 10_675, limite: 1_000_000 });
   });
 
   it('com o limite do dia atingido, não chama o Gemini e explica', async () => {

@@ -45,14 +45,15 @@ export async function pedirAoLu({ analiseId, acao, paragrafo, topico = '', instr
 export const HISTORICO_DA_CONVERSA = 6;
 
 /**
- * "Conversa com o Lu": uma pergunta sobre o caso e a peça. O servidor lê os documentos enviados na análise.
+ * "Conversa com o Lu": uma pergunta sobre o caso (e a peça, no editor). O servidor lê os documentos enviados na
+ * análise. `onde`: 'peca' (editor, com a peça e propostas) ou 'analise' (tela do resultado, sem peça).
  * @param {{ analiseId: string, mensagem: string, historico: Array<{ papel: 'advogado'|'lu', texto: string }>,
  *   peca: Array<{ n: number, topico: string, texto: string, editavel: boolean }>, resumoPeca?: object, template?: string }} args
  * @returns {Promise<{ ok: boolean, resposta?: string, fontes?: Array<{ tipo: string, rotulo: string }>,
  *   proposta?: { paragrafo: number, texto: string, explicacao: string } | null, documentos?: { lidos: string[], deFora: string[] },
  *   consumo?: object, limiteAtingido?: boolean, error?: string }>}
  */
-export async function conversarComLu({ analiseId, mensagem, historico = [], peca, resumoPeca = {}, template = '' }) {
+export async function conversarComLu({ analiseId, mensagem, historico = [], peca = [], resumoPeca = {}, template = '', onde = 'peca' }) {
   const { data: sess } = await supabase.auth.getSession().catch(() => ({ data: {} }));
   const token = sess?.session?.access_token;
   if (!token) return { ok: false, error: 'Sessão expirada. Faça login novamente.' };
@@ -61,7 +62,7 @@ export async function conversarComLu({ analiseId, mensagem, historico = [], peca
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        analise_id: analiseId, acao: 'conversar', mensagem, historico: historico.slice(-HISTORICO_DA_CONVERSA), peca, resumo_peca: resumoPeca, template,
+        analise_id: analiseId, acao: 'conversar', onde, mensagem, historico: historico.slice(-HISTORICO_DA_CONVERSA), peca, resumo_peca: resumoPeca, template,
       }),
     });
     const dados = await resposta.json().catch(() => ({}));

@@ -612,6 +612,20 @@ function hashDocumentos(documentos) {
   return createHash('sha256').update(paths.join('|')).digest('hex');
 }
 
+// As RPCs de idempotência mexem no estorno de crédito: só o SERVIDOR pode chamá-las. Elas exigem o segredo
+// SUPABASE_RPC_SEGREDO (variável da Vercel; o mesmo valor fica em privado.segredos, ver docs/sql/seguranca-rpcs.sql),
+// que o navegador não tem. Sem isso, qualquer usuário logado chamava marcar_debitado + falhar_e_estornar direto pela
+// API do Supabase e ganhava crédito de graça. Sem a variável, as RPCs recusam: a análise segue (o guarda de duplicata
+// é fail-open), mas não há estorno automático; por isso o aviso no log.
+function comSegredo(params) {
+  const segredo = process.env.SUPABASE_RPC_SEGREDO || '';
+  if (!segredo) {
+    console.error('[api/gemini] SUPABASE_RPC_SEGREDO ausente: as RPCs de idempotência vão recusar (sem estorno automático).');
+    return params;
+  }
+  return { ...params, p_segredo: segredo };
+}
+
 // Devolve a AÇÃO decidida pela RPC ('cobrar' | 'retomar' | 'bloquear') — ver
 // comentário no ponto de chamada. Fail-open ('cobrar') se a RPC não existir
 // ou a chamada falhar: isto é só o guarda de duplicata, não a cobrança em
@@ -624,7 +638,7 @@ async function idempotenciaReclamar(supabaseUrl, supabaseAnonKey, userToken, usu
       Authorization: `Bearer ${userToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ p_chave: chave, p_usuario_id: usuarioId, p_janela_ms: 300_000 }),
+    body: JSON.stringify(comSegredo({ p_chave: chave, p_usuario_id: usuarioId, p_janela_ms: 300_000 })),
   });
   if (!resp.ok) {
     if (resp.status !== 404) console.warn(`[api/gemini] RPC idempotencia_reclamar falhou (HTTP ${resp.status})`);
@@ -644,7 +658,7 @@ async function idempotenciaRpc(nome, supabaseUrl, supabaseAnonKey, userToken, pa
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(comSegredo(params)),
   });
 }
 
