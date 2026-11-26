@@ -1306,6 +1306,12 @@ com o texto editado e os marcadores de figura em amarelo. Código: `src/componen
   sobre o valor atingido, com o salário mínimo editável (R$ 1.621,00 desde 01/01/2026, Decreto nº 12.797/2025); só
   com execução ajuizada (na via administrativa não há condenação). Imprimir/salvar em PDF, baixar em Word ou copiar
   o texto. Os valores digitados ficam no navegador (por análise), não no banco.
+- **Feriados no cálculo dos prazos processuais** (26/11/2026): `api/_feriados.js`. Embargos e agravo descontam fins
+  de semana, feriados nacionais (inclusive 20/11, Lei nº 14.759/2023), a Sexta-feira da Paixão e a suspensão de
+  20/12 a 20/01 (art. 220 do CPC); quando a credora é a União, também os dias sem expediente da Justiça Federal (Lei
+  nº 5.010/1966, art. 62: Carnaval, quarta e quinta-feira santas, 11/08, 01/11 e 08/12). Critério conservador:
+  feriado estadual, municipal ou ponto facultativo do tribunal não é descontado (descontar um dia com expediente
+  faria o prazo calculado passar do real) e vai no `[CONFIRMAR]` da peça, que lista os feriados que caíram no período.
 - **Embargos, agravo e reconhecimento da intercorrente** (25/11/2026): três opções novas em "Outras peças deste
   caso" (`api/_pecas-processuais.js`, mesmo endpoint com `tipo` = `embargos`, `agravo` ou
   `reconhecimento_intercorrente` e `entrada` com as datas). **Embargos à execução fiscal**: data da intimação da

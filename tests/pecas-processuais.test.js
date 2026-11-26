@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import JSZip from 'jszip';
-import { somarDiasUteis, somarDiasCorridos, calcularPrazo, pecaEmbargos, pecaAgravo, pecaReconhecimento, materiasDeDefesa } from '../api/_pecas-processuais.js';
+import { pascoa, feriadosDoAno, prazoEmDiasUteis, prazoEmDiasCorridos, emSuspensao } from '../api/_feriados.js';
+import { somarDiasUteis, somarDiasCorridos, calcularPrazo, notaDoCalendario, justicaDoCaso, pecaEmbargos, pecaAgravo, pecaReconhecimento, materiasDeDefesa } from '../api/_pecas-processuais.js';
 import { montarPecaExtra, ErroEntrada, sanearEntrada } from '../api/_gerar-extra.js';
 import { contextoGenerico, TEMPLATE_GENERICO, parseBR, formatarBR } from '../api/_pecas-extras.js';
 import { renderizarPeca } from '../api/_render-peca.js';
@@ -29,8 +30,50 @@ describe('prazos', () => {
     expect(formatarBR(somarDiasCorridos(parseBR('02/02/2026'), 30))).toBe('04/03/2026');
     expect(formatarBR(somarDiasCorridos(parseBR('01/02/2026'), 27))).toBe('02/03/2026'); // cairia no sábado 28/02
     const p = calcularPrazo({ data: '20/11/2026', dias: 15, uteis: true, agora: new Date(Date.UTC(2026, 11, 14)) });
-    expect(p).toEqual({ intimacao: '20/11/2026', final: '11/12/2026', vencido: true });
+    expect(p).toEqual({ intimacao: '20/11/2026', final: '11/12/2026', vencido: true, feriados: [], suspensao: false });
+    // Justiça Federal: 08/12 é dia sem expediente (Lei nº 5.010/1966)
+    const f = calcularPrazo({ data: '20/11/2026', dias: 15, uteis: true, agora: new Date(Date.UTC(2026, 11, 14)), justica: 'federal' });
+    expect(f).toMatchObject({ final: '14/12/2026', vencido: false, feriados: ['Dia da Justiça Federal (Lei nº 5.010/1966) (08/12/2026)'] });
     expect(calcularPrazo({ data: 'x', dias: 15, uteis: true })).toBeNull();
+  });
+});
+
+describe('calendário forense (feriados e suspensão do art. 220 do CPC)', () => {
+  const br = (d) => formatarBR(d);
+  it('Páscoa e feriados móveis', () => {
+    expect(br(pascoa(2025))).toBe('20/04/2025');
+    expect(br(pascoa(2026))).toBe('05/04/2026');
+    expect(br(pascoa(2027))).toBe('28/03/2027');
+    const fed = feriadosDoAno(2027, 'federal');
+    expect(fed.get('2027-02-08')).toMatch(/Carnaval/);
+    expect(fed.get('2027-03-25')).toMatch(/Quinta-feira Santa/);
+    expect(fed.get('2027-03-26')).toBe('Sexta-feira da Paixão');
+    expect(fed.get('2027-08-11')).toMatch(/Dia da Justiça/);
+    // estadual: só nacionais e Sexta-feira da Paixão (Carnaval e Corpus Christi ficam para conferir)
+    const est = feriadosDoAno(2027, 'estadual');
+    expect(est.get('2027-02-08')).toBeUndefined();
+    expect(est.get('2027-03-26')).toBe('Sexta-feira da Paixão');
+    expect(est.get('2027-11-20')).toMatch(/Consciência Negra/);
+  });
+
+  it('suspensão de 20/12 a 20/01: dias úteis e corridos retomam em 21/01', () => {
+    expect(emSuspensao(parseBR('20/12/2026'))).toBe(true);
+    expect(emSuspensao(parseBR('20/01/2027'))).toBe(true);
+    expect(emSuspensao(parseBR('21/01/2027'))).toBe(false);
+    const u = prazoEmDiasUteis(parseBR('15/12/2026'), 15, 'estadual');
+    expect([br(u.final), u.suspensao]).toEqual(['05/02/2027', true]);
+    expect(br(prazoEmDiasCorridos(parseBR('15/12/2026'), 30, 'estadual').final)).toBe('15/02/2027');
+  });
+
+  it('Carnaval conta só na Justiça Federal; a nota da peça diz o que foi descontado e o que conferir', () => {
+    expect(br(prazoEmDiasUteis(parseBR('02/02/2027'), 15, 'federal').final)).toBe('25/02/2027');
+    expect(br(prazoEmDiasUteis(parseBR('02/02/2027'), 15, 'estadual').final)).toBe('23/02/2027');
+    const p = calcularPrazo({ data: '15/12/2026', dias: 15, uteis: true, justica: 'estadual' });
+    const nota = notaDoCalendario(p, 'estadual');
+    expect(nota).toMatch(/suspensão de 20\/12 a 20\/01 \(art\. 220 do CPC\)/);
+    expect(nota).toMatch(/conferir feriados estaduais e municipais, Carnaval, Corpus Christi/);
+    expect(justicaDoCaso({ ente_credor: { esfera: 'União' } })).toBe('federal');
+    expect(justicaDoCaso({ ente_credor: { esfera: 'Estado' } })).toBe('estadual');
   });
 });
 
@@ -81,7 +124,8 @@ describe('agravo de instrumento', () => {
     const t = await texto(r.peca, dados, agora);
     expect(t).toMatch(/EXCELENTÍSSIMO\(A\) SENHOR\(A\) DESEMBARGADOR\(A\) PRESIDENTE DO TRIBUNAL REGIONAL FEDERAL/);
     expect(t).toContain('AGRAVO DE INSTRUMENTO, COM PEDIDO DE EFEITO SUSPENSIVO');
-    expect(t).toContain('se encerra em 11/12/2026');
+    expect(t).toContain('se encerra em 14/12/2026');
+    expect(t).toContain('Dia da Justiça Federal (Lei nº 5.010/1966) (08/12/2026)');
     expect(t).toContain('O juízo de origem decidiu: rejeitou a exceção');
     expect(t).toContain('DA PRESCRIÇÃO INTERCORRENTE');
     expect(t).toContain('art. 1.019, I, do CPC');
